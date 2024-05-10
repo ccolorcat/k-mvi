@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.jetbrains.kotlin.android)
+    id("maven-publish")
 }
 
 android {
@@ -38,4 +39,25 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+}
+
+publishing {
+    publications {
+        register<MavenPublication>("release") {
+            groupId = "cc.colorcat.mvi"
+            artifactId = "core"
+            version = libs.versions.versionName.get()
+
+            val sourcesJar by project.tasks.creating(Jar::class) {
+                archiveClassifier.set("sources")
+                from(project.android.sourceSets.getByName("main").java.srcDirs)
+            }
+
+            artifact(sourcesJar)
+
+            afterEvaluate {
+                from(components["release"])
+            }
+        }
+    }
 }
