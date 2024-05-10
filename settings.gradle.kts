@@ -22,4 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "k-mvi"
 include(":app")
-include(":library")
+include(":core")
