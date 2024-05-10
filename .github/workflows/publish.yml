@@ -32,4 +32,4 @@ jobs:
           MVN_USERNAME: ${{ secrets.MVN_USERNAME }}
           MVN_PERSONAL_ACCESS_TOKEN: ${{ secrets.MVN_PERSONAL_ACCESS_TOKEN }}
         run: |
-          ./gradlew publishReleasePublicationToGitHubPackagesRepository -Pgpr.user=$MVN_USERNAME -Pgpr.key=$MVN_PERSONAL_ACCESS_TOKEN
+          ./gradlew publishReleasePublicationToGitHubPackagesRepository -Pgpr.personal.user=$MVN_USERNAME -Pgpr.personal.key=$MVN_PERSONAL_ACCESS_TOKEN

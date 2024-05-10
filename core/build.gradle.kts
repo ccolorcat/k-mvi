@@ -5,7 +5,8 @@ plugins {
 }
 
 android {
-    namespace = "cc.colorcat.mvi"
+//    namespace = "cc.colorcat.mvi"
+    namespace = libs.versions.groupId.get()
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
@@ -30,6 +31,13 @@ android {
     kotlinOptions {
         jvmTarget = libs.versions.java.get()
     }
+
+    publishing {
+        multipleVariants {
+            allVariants()
+            withSourcesJar()
+        }
+    }
 }
 
 dependencies {
@@ -41,22 +49,27 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 }
 
-publishing {
-    publications {
-        register<MavenPublication>("release") {
-            groupId = "cc.colorcat.mvi"
-            artifactId = "core"
-            version = libs.versions.versionName.get()
 
-            val sourcesJar by project.tasks.creating(Jar::class) {
-                archiveClassifier.set("sources")
-                from(project.android.sourceSets.getByName("main").java.srcDirs)
-            }
+afterEvaluate {
+    publishing {
+        publications {
+            register<MavenPublication>("release") {
+                groupId = libs.versions.groupId.get()
+                artifactId = project.name
+                version = libs.versions.versionName.get()
 
-            artifact(sourcesJar)
-
-            afterEvaluate {
                 from(components["release"])
+            }
+        }
+
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/ccolorcat/k-mvi")
+                credentials {
+                    username = (project.findProperty("gpr.personal.user") ?: System.getenv("USERNAME")) as? String
+                    password = (project.findProperty("gpr.personal.key") ?: System.getenv("TOKEN")) as? String
+                }
             }
         }
     }
