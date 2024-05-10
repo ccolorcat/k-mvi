@@ -5,7 +5,6 @@ import cc.colorcat.mvi.asFlow
 import cc.colorcat.mvi.containers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Author: ccolorcat
@@ -13,7 +12,7 @@ import kotlinx.coroutines.flow.emptyFlow
  * GitHub: https://github.com/ccolorcat
  */
 class MainViewModel : ViewModel() {
-    private val container by containers<IMain.Action, IMain.State, IMain.Event>(IMain.State(), ::handle) {
+    private val container by containers<IMain.Action, IMain.State, IMain.Event>(IMain.State()) {
         register(IMain.Action.Increment::class.java, ::handleIncrement)
         register(IMain.Action.Decrement::class.java, ::handleDecrement)
     }
@@ -25,12 +24,6 @@ class MainViewModel : ViewModel() {
         get() = container.eventFlow
 
     fun dispatch(action: IMain.Action) = container.dispatch(action)
-
-    private suspend fun handle(action: IMain.Action): Flow<IMain.PartialChange> {
-        return when (action) {
-            else -> emptyFlow()
-        }
-    }
 
     private fun handleIncrement(action: IMain.Action.Increment): Flow<IMain.PartialChange> {
         return IMain.PartialChange {

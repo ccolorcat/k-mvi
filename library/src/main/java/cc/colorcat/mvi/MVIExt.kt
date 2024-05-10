@@ -19,6 +19,27 @@ import kotlinx.coroutines.flow.flowOf
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
+fun <T> T.asFlow(): Flow<T> = flowOf(this)
+
+fun <T> Flow<T>.debounce2(timeMillis: Long, responseFirst: Boolean = true): Flow<T> {
+    return if (responseFirst) {
+        flow {
+            var time = -1L
+            collect { value ->
+                val lastTime = time
+                time = System.currentTimeMillis()
+                if (time - lastTime > timeMillis) {
+                    emit(value)
+                }
+            }
+        }
+    } else {
+        @OptIn(FlowPreview::class)
+        debounce(timeMillis)
+    }
+}
+
+
 fun <A : MVI.Action> View.doOnClick(block: ProducerScope<A>.() -> Unit): Flow<A> {
     return callbackFlow {
         setOnClickListener {
@@ -53,28 +74,9 @@ fun <A : MVI.Action> TextView.afterTextChanged(
         awaitClose { removeTextChangedListener(watcher) }
     }
     return if (debounceTimeoutMillis > 0L) {
+        @OptIn(FlowPreview::class)
         flow.debounce(debounceTimeoutMillis)
     } else {
         flow
-    }
-}
-
-fun <T> T.asFlow(): Flow<T> = flowOf(this)
-
-@OptIn(FlowPreview::class)
-fun <T> Flow<T>.debounce2(timeMillis: Long, responseFirst: Boolean = true): Flow<T> {
-    return if (responseFirst) {
-        flow {
-            var time = -1L
-            collect { value ->
-                val lastTime = time
-                time = System.currentTimeMillis()
-                if (lastTime == -1L || time - lastTime > timeMillis) {
-                    emit(value)
-                }
-            }
-        }
-    } else {
-        debounce(timeMillis)
     }
 }

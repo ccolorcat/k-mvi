@@ -28,6 +28,12 @@ class MainActivity : AppCompatActivity() {
     private val actions: Flow<IMain.Action>
         get() = userActions().debounce2(500L)
 
+
+    private val viewModel2: MainViewModel2 by viewModels()
+    private val actions2: Flow<IMain2.Action>
+        get() = userActions2().debounce2(500L)
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -38,6 +44,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         setupViewModel()
+//        setupViewModel2()
     }
 
     private fun setupViewModel() {
@@ -55,5 +62,23 @@ class MainActivity : AppCompatActivity() {
     private fun userActions(): Flow<IMain.Action> = merge(
         binding.increment.doOnClick { trySend(IMain.Action.Increment) },
         binding.decrement.doOnClick { trySend(IMain.Action.Decrement) },
+    )
+
+
+    private fun setupViewModel2() {
+        viewModel2.stateFlow.collectState(this) {
+            collectPartial(IMain2.State::countText, binding.count::setText)
+        }
+        viewModel2.eventFlow.collectEvent(this, Lifecycle.State.CREATED) {
+            collectParticular<IMain2.Event.ShowToast> {
+                Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_SHORT).show()
+            }
+        }
+        actions2.onEach { viewModel2.dispatch(it) }.launchIn(lifecycleScope)
+    }
+
+    private fun userActions2(): Flow<IMain2.Action> = merge(
+        binding.increment.doOnClick { trySend(IMain2.Increment) },
+        binding.decrement.doOnClick { trySend(IMain2.Decrement) },
     )
 }
