@@ -19,7 +19,7 @@ sealed interface IMain2 {
         data class ShowToast(val message: CharSequence) : Event
     }
 
-    sealed interface Action : MVI.Action
+    sealed interface Intent : MVI.Intent
 
 
     sealed class PartialChange : MVI.PartialChange<State, Event> {
@@ -45,7 +45,7 @@ sealed interface IMain2 {
         }
     }
 
-    data object Increment : PartialChange(), Action
+    data object Increment : PartialChange(), Intent
 
-    data object Decrement : PartialChange(), Action
+    data object Decrement : PartialChange(), Intent
 }

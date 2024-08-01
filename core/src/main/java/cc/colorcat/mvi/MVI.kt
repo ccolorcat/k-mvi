@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
  * GitHub: https://github.com/ccolorcat
  */
 sealed interface MVI {
-    interface Action
+    interface Intent
 
     interface State
 
@@ -20,8 +20,8 @@ sealed interface MVI {
     }
 
 
-    fun interface ActionHandler<A : Action, S : State, E : Event> {
-        suspend fun handle(action: A): Flow<PartialChange<S, E>>
+    fun interface IntentHandler<I : Intent, S : State, E : Event> {
+        suspend fun handle(intent: I): Flow<PartialChange<S, E>>
     }
 
 

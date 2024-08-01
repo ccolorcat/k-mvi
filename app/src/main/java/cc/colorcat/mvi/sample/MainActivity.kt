@@ -22,20 +22,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val viewModel: MainViewModel by viewModels()
-    private val actions: Flow<IMain.Action>
-        get() = userActions().debounce2(500L)
+    private val intents: Flow<IMain.Intent>
+        get() = userIntents().debounce2(500L)
 
 
     private val viewModel2: MainViewModel2 by viewModels()
-    private val actions2: Flow<IMain2.Action>
-        get() = userActions2().debounce2(500L)
+    private val intents2: Flow<IMain2.Intent>
+        get() = userIntents2().debounce2(500L)
+
+    private val viewModel3: MainViewModel3 by viewModels()
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
-        setupViewModel()
+//        setupViewModel()
 //        setupViewModel2()
+        setupViewModel3()
     }
 
     private fun setupViewModel() {
@@ -47,12 +50,12 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_SHORT).show()
             }
         }
-        actions.onEach { viewModel.dispatch(it) }.launchIn(lifecycleScope)
+        intents.onEach { viewModel.dispatch(it) }.launchIn(lifecycleScope)
     }
 
-    private fun userActions(): Flow<IMain.Action> = merge(
-        binding.increment.doOnClick { trySend(IMain.Action.Increment) },
-        binding.decrement.doOnClick { trySend(IMain.Action.Decrement) },
+    private fun userIntents(): Flow<IMain.Intent> = merge(
+        binding.increment.doOnClick { trySend(IMain.Intent.Increment) },
+        binding.decrement.doOnClick { trySend(IMain.Intent.Decrement) },
     )
 
 
@@ -65,10 +68,22 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_SHORT).show()
             }
         }
-        actions2.onEach { viewModel2.dispatch(it) }.launchIn(lifecycleScope)
+        intents2.onEach { viewModel2.dispatch(it) }.launchIn(lifecycleScope)
     }
 
-    private fun userActions2(): Flow<IMain2.Action> = merge(
+    private fun setupViewModel3() {
+        viewModel3.stateFlow.collectState(this) {
+            collectPartial(IMain.State::countText, binding.count::setText)
+        }
+        viewModel3.eventFlow.collectEvent(this, Lifecycle.State.CREATED) {
+            collectParticular<IMain.Event.ShowToast> {
+                Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_SHORT).show()
+            }
+        }
+        intents.onEach { viewModel3.dispatch(it) }.launchIn(lifecycleScope)
+    }
+
+    private fun userIntents2(): Flow<IMain2.Intent> = merge(
         binding.increment.doOnClick { trySend(IMain2.Increment) },
         binding.decrement.doOnClick { trySend(IMain2.Decrement) },
     )

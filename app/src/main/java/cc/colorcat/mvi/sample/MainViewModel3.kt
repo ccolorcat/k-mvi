@@ -1,30 +1,20 @@
 package cc.colorcat.mvi.sample
 
-import androidx.lifecycle.ViewModel
+import cc.colorcat.mvi.MVIViewModel
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.asFlow
-import cc.colorcat.mvi.contract
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Author: ccolorcat
- * Date: 2024-05-10
+ * Date: 2024-08-01
  * GitHub: https://github.com/ccolorcat
  */
-class MainViewModel : ViewModel() {
-    private val contract: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(IMain.State()) {
-        register(IMain.Intent.Increment::class.java, ::handleIncrement)
-        register(IMain.Intent.Decrement::class.java, ::handleDecrement)
+class MainViewModel3 : MVIViewModel<IMain.Intent, IMain.State, IMain.Event>(IMain.State()) {
+    override fun setupContract(contract: ReactiveContract<IMain.Intent, IMain.State, IMain.Event>) {
+        contract.register(IMain.Intent.Increment::class.java, ::handleIncrement)
+        contract.register(IMain.Intent.Decrement::class.java, ::handleDecrement)
     }
-
-    val stateFlow: StateFlow<IMain.State>
-        get() = contract.stateFlow
-
-    val eventFlow: Flow<IMain.Event>
-        get() = contract.eventFlow
-
-    fun dispatch(intent: IMain.Intent) = contract.dispatch(intent)
 
     private fun handleIncrement(intent: IMain.Intent.Increment): Flow<IMain.PartialChange> {
         return IMain.PartialChange {

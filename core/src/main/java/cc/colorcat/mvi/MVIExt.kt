@@ -40,28 +40,26 @@ fun <T> Flow<T>.debounce2(timeMillis: Long, responseFirst: Boolean = true): Flow
 }
 
 
-fun <A : MVI.Action> View.doOnClick(block: ProducerScope<A>.() -> Unit): Flow<A> {
-    return callbackFlow {
-        setOnClickListener {
-            this.block()
-        }
-        awaitClose { setOnClickListener(null) }
+fun <I : MVI.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I> = callbackFlow {
+    setOnClickListener {
+        this.block()
     }
+    awaitClose { setOnClickListener(null) }
 }
 
-fun <A : MVI.Action> CompoundButton.doOnCheckedChange(block: ProducerScope<A>.(Boolean) -> Unit): Flow<A> {
-    return callbackFlow {
-        setOnCheckedChangeListener { _, isChecked ->
-            this.block(isChecked)
-        }
-        awaitClose { setOnCheckedChangeListener(null) }
+fun <I : MVI.Intent> CompoundButton.doOnCheckedChange(
+    block: ProducerScope<I>.(isChecked: Boolean) -> Unit
+): Flow<I> = callbackFlow {
+    setOnCheckedChangeListener { _, isChecked ->
+        this.block(isChecked)
     }
+    awaitClose { setOnCheckedChangeListener(null) }
 }
 
-fun <A : MVI.Action> TextView.afterTextChanged(
+fun <I : MVI.Intent> TextView.afterTextChanged(
     debounceTimeoutMillis: Long = 500L,
-    block: ProducerScope<A>.(Editable?) -> Unit
-): Flow<A> {
+    block: ProducerScope<I>.(Editable?) -> Unit
+): Flow<I> {
     val flow = callbackFlow {
         val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
