@@ -23,6 +23,8 @@ sealed interface IMain {
         data object Increment : Intent
 
         data object Decrement : Intent
+
+        data object Test : Intent
     }
 
     fun interface PartialChange : MVI.PartialChange<State, Event>

@@ -1,6 +1,7 @@
 package cc.colorcat.mvi.sample
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -23,7 +24,8 @@ class MainActivity : AppCompatActivity() {
 
     private val viewModel: MainViewModel by viewModels()
     private val intents: Flow<IMain.Intent>
-        get() = userIntents().debounce2(500L)
+        get() = userIntents()
+//            .debounce2(500L)
 
 
     private val viewModel2: MainViewModel2 by viewModels()
@@ -36,9 +38,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
-//        setupViewModel()
+        setupViewModel()
 //        setupViewModel2()
-        setupViewModel3()
+//        setupViewModel3()
     }
 
     private fun setupViewModel() {
@@ -47,7 +49,8 @@ class MainActivity : AppCompatActivity() {
         }
         viewModel.eventFlow.collectEvent(this, Lifecycle.State.CREATED) {
             collectParticular<IMain.Event.ShowToast> {
-                Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_SHORT).show()
+//                Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_SHORT).show()
+                Log.i("MainActivity", "received message: ${it.message}")
             }
         }
         intents.onEach { viewModel.dispatch(it) }.launchIn(lifecycleScope)
@@ -56,6 +59,10 @@ class MainActivity : AppCompatActivity() {
     private fun userIntents(): Flow<IMain.Intent> = merge(
         binding.increment.doOnClick { trySend(IMain.Intent.Increment) },
         binding.decrement.doOnClick { trySend(IMain.Intent.Decrement) },
+        binding.count.doOnClick {
+            Log.v("MainActivity", "count clicked")
+            trySend(IMain.Intent.Test)
+        },
     )
 
 

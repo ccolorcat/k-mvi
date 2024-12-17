@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
  * GitHub: https://github.com/ccolorcat
  */
 class MainViewModel2 : ViewModel() {
-    private val contract by contract(IMain2.State(), ::handle)
+    private val contract by contract(initState = IMain2.State(), defaultHandler = ::handle)
 
     val stateFlow: StateFlow<IMain2.State>
         get() = contract.stateFlow

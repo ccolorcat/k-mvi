@@ -12,8 +12,16 @@ import kotlinx.coroutines.flow.emptyFlow
  * Date: 2024-08-01
  * GitHub: https://github.com/ccolorcat
  */
-open class MVIViewModel<I : MVI.Intent, S : MVI.State, E : MVI.Event>(initState: S) : ViewModel() {
-    protected val contract: ReactiveContract<I, S, E> by contract(initState, ::handle, ::setupContract)
+open class MVIViewModel<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
+    initState: S,
+    strategy: HandleStrategy = HandleStrategy.default,
+) : ViewModel() {
+    protected val contract: ReactiveContract<I, S, E> by contract(
+        initState = initState,
+        strategy = strategy,
+        defaultHandler = ::handle,
+        setup = ::setupContract,
+    )
 
     open val stateFlow: StateFlow<S>
         get() = contract.stateFlow
@@ -37,13 +45,19 @@ open class MVIViewModel<I : MVI.Intent, S : MVI.State, E : MVI.Event>(initState:
 
 
 open class MVIAndroidViewModel<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
-    initState: S,
     application: Application,
+    initState: S,
+    strategy: HandleStrategy = HandleStrategy.default,
 ) : AndroidViewModel(application) {
     protected val context: Application
         get() = getApplication()
 
-    protected val contract: ReactiveContract<I, S, E> by contract(initState, ::handle, ::setupContract)
+    protected val contract: ReactiveContract<I, S, E> by contract(
+        initState = initState,
+        strategy = strategy,
+        defaultHandler = ::handle,
+        setup = ::setupContract,
+    )
 
     open val stateFlow: StateFlow<S>
         get() = contract.stateFlow
