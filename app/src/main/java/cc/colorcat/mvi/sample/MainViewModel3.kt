@@ -22,7 +22,7 @@ class MainViewModel3 : MVIViewModel<IMain.Intent, IMain.State, IMain.Event>(IMai
             if (oldCount >= 99) {
                 it.with(IMain.Event.ShowToast("Already reached 99"))
             } else {
-                it.reduce { copy(count = oldCount + 1) }
+                it.update { copy(count = oldCount + 1) }
             }
         }.asFlow()
     }
@@ -33,7 +33,7 @@ class MainViewModel3 : MVIViewModel<IMain.Intent, IMain.State, IMain.Event>(IMai
             if (oldCount <= 0) {
                 it.with(IMain.Event.ShowToast("Already reached 0"))
             } else {
-                it.reduce { copy(count = oldCount - 1) }
+                it.update { copy(count = oldCount - 1) }
             }
         }.asFlow()
     }

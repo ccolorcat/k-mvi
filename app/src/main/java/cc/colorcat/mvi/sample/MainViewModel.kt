@@ -18,11 +18,10 @@ import kotlinx.coroutines.flow.flow
 class MainViewModel : ViewModel() {
     private val contract: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(
         initState = IMain.State(),
-        defaultHandler = ::handleTest
     ) {
         register(IMain.Intent.Increment::class.java, ::handleIncrement)
         register(IMain.Intent.Decrement::class.java, ::handleDecrement)
-//        register(IMain.Intent.Test::class.java, ::handleTest)
+        register(IMain.Intent.Test::class.java, ::handleTest)
     }
 
     val stateFlow: StateFlow<IMain.State>
@@ -39,7 +38,7 @@ class MainViewModel : ViewModel() {
             if (oldCount >= 99) {
                 it.with(IMain.Event.ShowToast("Already reached 99"))
             } else {
-                it.reduce { copy(count = oldCount + 1) }
+                it.update { copy(count = oldCount + 1) }
             }
         }.asFlow()
     }
@@ -50,7 +49,7 @@ class MainViewModel : ViewModel() {
             if (oldCount <= 0) {
                 it.with(IMain.Event.ShowToast("Already reached 0"))
             } else {
-                it.reduce { copy(count = oldCount - 1) }
+                it.update { copy(count = oldCount - 1) }
             }
         }.asFlow()
     }
@@ -58,7 +57,7 @@ class MainViewModel : ViewModel() {
     private var count = 0
 
     private fun handleTest(intent: IMain.Intent): Flow<IMain.PartialChange> {
-        count++
+        val count = this.count++
         Log.d("MainActivity", "handleTest count = $count")
         return flow<IMain.PartialChange> {
             delay(500L)

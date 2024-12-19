@@ -23,14 +23,14 @@ sealed interface IMain2 {
 
 
     sealed class PartialChange : MVI.PartialChange<State, Event> {
-        override fun reduce(old: MVI.Frame<State, Event>): MVI.Frame<State, Event> {
+        override fun apply(old: MVI.Snapshot<State, Event>): MVI.Snapshot<State, Event> {
             val oldCount = old.state.count
             return when (this) {
                 is Increment -> {
                     if (oldCount >= 99) {
                         old.with(Event.ShowToast("Already reached 99"))
                     } else {
-                        old.reduce { copy(count = oldCount + 1) }
+                        old.update { copy(count = oldCount + 1) }
                     }
                 }
 
@@ -38,7 +38,7 @@ sealed interface IMain2 {
                     if (oldCount <= 0) {
                         old.with(Event.ShowToast("Already reached 0"))
                     } else {
-                        old.reduce { copy(count = oldCount - 1) }
+                        old.update { copy(count = oldCount - 1) }
                     }
                 }
             }

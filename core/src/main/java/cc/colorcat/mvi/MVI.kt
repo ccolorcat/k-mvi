@@ -16,7 +16,7 @@ sealed interface MVI {
 
 
     fun interface PartialChange<S : State, E : Event> {
-        fun reduce(old: Frame<S, E>): Frame<S, E>
+        fun apply(old: Snapshot<S, E>): Snapshot<S, E>
     }
 
 
@@ -25,16 +25,16 @@ sealed interface MVI {
     }
 
 
-    data class Frame<S : State, E : Event> internal constructor(val state: S, val event: E? = null) {
-        fun reduce(reduce: S.() -> S): Frame<S, E> {
-            val newState = this.state.reduce()
+    data class Snapshot<S : State, E : Event> internal constructor(val state: S, val event: E? = null) {
+        fun update(update: S.() -> S): Snapshot<S, E> {
+            val newState = this.state.update()
             return this.copy(state = newState, event = null)
         }
 
-        fun with(event: E): Frame<S, E> = this.copy(event = event)
+        fun with(event: E): Snapshot<S, E> = this.copy(event = event)
 
-        fun pack(event: E, reduce: S.() -> S): Frame<S, E> {
-            val newState = this.state.reduce()
+        fun pack(event: E, update: S.() -> S): Snapshot<S, E> {
+            val newState = this.state.update()
             return this.copy(state = newState, event = event)
         }
     }
