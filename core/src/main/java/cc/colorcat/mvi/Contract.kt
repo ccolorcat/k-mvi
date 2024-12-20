@@ -1,5 +1,6 @@
 package cc.colorcat.mvi
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
@@ -15,9 +16,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
@@ -111,11 +114,40 @@ internal class RealReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event
         return when (strategy) {
             HandleStrategy.CONCURRENT -> flatMapMerge { handle(it) }
             HandleStrategy.SEQUENTIAL -> flatMapConcat { handle(it) }
-            HandleStrategy.HYBRID -> partitionBy(config.groupChannelCapacity, config.groupKeySelector)
-                .flatMapMerge { intentsFlow ->
-                    intentsFlow.flatMapConcat { handle(it) }
-                }
+            HandleStrategy.HYBRID -> flowOf(
+                handleConcurrentIntents(),
+                handleSequentialIntents(),
+                handleFallbackIntents(),
+            ).flatMapMerge { it }
         }
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun Flow<I>.handleConcurrentIntents(): Flow<MVI.PartialChange<S, E>> {
+        return filter { it is MVI.Intent.Concurrent && it !is MVI.Intent.Sequential }.flatMapMerge { handle(it) }
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun Flow<I>.handleSequentialIntents(): Flow<MVI.PartialChange<S, E>> {
+        return filter { it is MVI.Intent.Sequential && it !is MVI.Intent.Concurrent }.flatMapConcat { handle(it) }
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun Flow<I>.handleFallbackIntents(): Flow<MVI.PartialChange<S, E>> {
+        return filter { isFallbackIntent(it) }
+            .partitionBy(config.groupChannelCapacity, config.groupKeySelector)
+            .flatMapMerge { partition -> partition.flatMapConcat { handle(it) } }
+    }
+
+    private fun isFallbackIntent(intent: I): Boolean {
+        val needWarning = intent is MVI.Intent.Concurrent && intent is MVI.Intent.Sequential
+        if (needWarning) {
+            Log.w(
+                "k-mvi",
+                "${intent.javaClass} implements both ${MVI.Intent.Concurrent::class.java.simpleName} and ${MVI.Intent.Sequential::class.java.simpleName}, which may lead to unpredictable behavior."
+            )
+        }
+        return needWarning || (intent !is MVI.Intent.Concurrent && intent !is MVI.Intent.Sequential)
     }
 
     private suspend fun handle(intent: I): Flow<MVI.PartialChange<S, E>> {
@@ -123,6 +155,86 @@ internal class RealReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event
         val handler = handlers[intent.javaClass] as? MVI.IntentHandler<I, S, E> ?: defaultHandler
         return handler.handle(intent)
     }
+
+    private fun <T, K> Flow<T>.partitionBy(capacity: Int, keySelector: (T) -> K): Flow<Flow<T>> = flow {
+        val cached = ConcurrentHashMap<K, SendChannel<T>>()
+        try {
+            collect { t ->
+                val key = keySelector(t)
+                val channel = cached.getOrPut(key) {
+                    Channel<T>(capacity).also { emit(it.consumeAsFlow()) }
+                }
+                try {
+                    channel.send(t)
+                } catch (e: Throwable) {
+                    if (e is ClosedSendChannelException) {
+                        cached.remove(key, channel)
+                    } else {
+                        throw e
+                    }
+                }
+            }
+        } finally {
+            val iterator = cached.iterator()
+            while (iterator.hasNext()) {
+                iterator.next().value.also { it.close() }
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun <K : Any> Flow<I>.partitionBy2(
+        capacity: Int,
+        keySelector: (I) -> K
+    ): Flow<Flow<MVI.PartialChange<S, E>>> = flow {
+        val cached = ConcurrentHashMap<Any, SendChannel<I>>()
+        try {
+            collect { t ->
+                val key = getKey(t, keySelector)
+                val channel = cached.getOrPut(key) {
+                    Channel<I>(capacity).also {
+                        val flow = if (key == ct) {
+                            it.consumeAsFlow().flatMapMerge { handle(it) }
+                        } else if (key == sq) {
+                            it.consumeAsFlow().flatMapConcat { handle(it) }
+                        } else {
+                            it.consumeAsFlow().flatMapConcat { handle(it) }
+                        }
+                        emit(flow)
+                    }
+                }
+                try {
+                    channel.send(t)
+                } catch (e: Throwable) {
+                    if (e is ClosedSendChannelException) {
+                        cached.remove(key, channel)
+                    } else {
+                        throw e
+                    }
+                }
+            }
+        } finally {
+            val iterator = cached.iterator()
+            while (iterator.hasNext()) {
+                iterator.next().value.also { it.close() }
+                iterator.remove()
+            }
+        }
+    }
+
+    private val ct = "concurrent"
+    private val sq = "se"
+    private val other = "other"
+
+    private fun <K : Any> getKey(i: I, keySelector: (I) -> K): Any {
+        return when (i) {
+            is MVI.Intent.Concurrent -> ct
+            is MVI.Intent.Sequential -> sq
+            else -> other + keySelector(i).hashCode()
+        }
+    }
+
+
 }
 
 
@@ -161,28 +273,4 @@ internal class ReactiveContractLazy<I : MVI.Intent, S : MVI.State, E : MVI.Event
         }
 
     override fun isInitialized(): Boolean = cached != null
-}
-
-
-private fun <T, K> Flow<T>.partitionBy(capacity: Int, keySelector: (T) -> K): Flow<Flow<T>> = flow {
-    val cached = ConcurrentHashMap<K, SendChannel<T>>()
-    try {
-        collect { t ->
-            val key = keySelector(t)
-            val channel = cached.getOrPut(key) {
-                Channel<T>(capacity).also { emit(it.consumeAsFlow()) }
-            }
-            try {
-                channel.send(t)
-            } catch (ignore: ClosedSendChannelException) {
-                cached.remove(key, channel)
-            }
-        }
-    } finally {
-        val iterator = cached.iterator()
-        while (iterator.hasNext()) {
-            iterator.next().value.also { it.close() }
-            iterator.remove()
-        }
-    }
 }

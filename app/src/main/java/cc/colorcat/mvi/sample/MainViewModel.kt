@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.asFlow
 import cc.colorcat.mvi.contract
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
 
 /**
  * Author: ccolorcat
@@ -22,6 +24,7 @@ class MainViewModel : ViewModel() {
         register(IMain.Intent.Increment::class.java, ::handleIncrement)
         register(IMain.Intent.Decrement::class.java, ::handleDecrement)
         register(IMain.Intent.Test::class.java, ::handleTest)
+        register(IMain.Intent.LoadTest::class.java, ::handleLoadTest)
     }
 
     val stateFlow: StateFlow<IMain.State>
@@ -56,7 +59,7 @@ class MainViewModel : ViewModel() {
 
     private var count = 0
 
-    private fun handleTest(intent: IMain.Intent): Flow<IMain.PartialChange> {
+    private fun handleTest(intent: IMain.Intent.Test): Flow<IMain.PartialChange> {
         val count = this.count++
         Log.d("MainActivity", "handleTest count = $count")
         return flow<IMain.PartialChange> {
@@ -64,8 +67,27 @@ class MainViewModel : ViewModel() {
             emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("test start $count")) })
             delay(1000L)
             emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("test succeed $count")) })
-            delay(5000L)
+            delay(2000L)
             emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("test completed $count")) })
+        }
+    }
+
+    private fun handleLoadTest(intent: IMain.Intent.LoadTest): Flow<IMain.PartialChange> {
+        val count = this.count++
+        return flow {
+            delay(1000L)
+            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("load test start $count")) })
+            val result = getBaiduPage()
+            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("load test succeed: $count, $result")) })
+            delay(3000L)
+            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("load test completed $count")) })
+        }
+    }
+
+    private suspend fun getBaiduPage(): String {
+        val baidu = "https://www.baidu.com"
+        return withContext(Dispatchers.IO) {
+            java.net.URL(baidu).readText()
         }
     }
 }

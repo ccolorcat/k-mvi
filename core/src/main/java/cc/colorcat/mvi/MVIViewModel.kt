@@ -15,10 +15,12 @@ import kotlinx.coroutines.flow.emptyFlow
 open class MVIViewModel<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
     initState: S,
     strategy: HandleStrategy = HandleStrategy.default,
+    config: HybridConfig<I> = HybridConfig.default,
 ) : ViewModel() {
     protected val contract: ReactiveContract<I, S, E> by contract(
         initState = initState,
         strategy = strategy,
+        config = config,
         defaultHandler = ::handle,
         setup = ::setupContract,
     )
@@ -48,6 +50,7 @@ open class MVIAndroidViewModel<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
     application: Application,
     initState: S,
     strategy: HandleStrategy = HandleStrategy.default,
+    config: HybridConfig<I> = HybridConfig.default,
 ) : AndroidViewModel(application) {
     protected val context: Application
         get() = getApplication()
@@ -55,6 +58,7 @@ open class MVIAndroidViewModel<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
     protected val contract: ReactiveContract<I, S, E> by contract(
         initState = initState,
         strategy = strategy,
+        config = config,
         defaultHandler = ::handle,
         setup = ::setupContract,
     )

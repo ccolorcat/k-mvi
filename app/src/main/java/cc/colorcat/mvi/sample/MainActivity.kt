@@ -59,9 +59,13 @@ class MainActivity : AppCompatActivity() {
     private fun userIntents(): Flow<IMain.Intent> = merge(
         binding.increment.doOnClick { trySend(IMain.Intent.Increment) },
         binding.decrement.doOnClick { trySend(IMain.Intent.Decrement) },
-        binding.count.doOnClick {
-            Log.v("MainActivity", "count clicked")
+        binding.test.doOnClick {
+            Log.v("MainActivity", "test clicked")
             trySend(IMain.Intent.Test)
+        },
+        binding.loadTest.doOnClick {
+            Log.v("MainActivity", "load test clicked")
+            trySend(IMain.Intent.LoadTest)
         },
     )
 

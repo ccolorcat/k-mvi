@@ -8,7 +8,10 @@ import kotlinx.coroutines.flow.Flow
  * GitHub: https://github.com/ccolorcat
  */
 sealed interface MVI {
-    interface Intent
+    interface Intent {
+        interface Concurrent : Intent
+        interface Sequential : Intent
+    }
 
     interface State
 

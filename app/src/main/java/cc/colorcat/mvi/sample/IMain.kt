@@ -20,11 +20,13 @@ sealed interface IMain {
     }
 
     sealed interface Intent : MVI.Intent {
-        data object Increment : Intent
+        data object Increment : Intent, MVI.Intent.Concurrent
 
-        data object Decrement : Intent
+        data object Decrement : Intent, MVI.Intent.Sequential
 
-        data object Test : Intent
+        data object Test : Intent, MVI.Intent.Sequential
+
+        data object LoadTest : Intent, MVI.Intent.Concurrent
     }
 
     fun interface PartialChange : MVI.PartialChange<State, Event>
