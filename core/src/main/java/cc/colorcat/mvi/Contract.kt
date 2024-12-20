@@ -20,10 +20,10 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -111,25 +111,28 @@ internal class RealReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event
 
     @OptIn(FlowPreview::class)
     private fun Flow<I>.toPartialChangeFlow(): Flow<MVI.PartialChange<S, E>> {
+        val flow = shareIn(scope, SharingStarted.Eagerly)
         return when (strategy) {
-            HandleStrategy.CONCURRENT -> flatMapMerge { handle(it) }
-            HandleStrategy.SEQUENTIAL -> flatMapConcat { handle(it) }
-            HandleStrategy.HYBRID -> flowOf(
-                handleConcurrentIntents(),
-                handleSequentialIntents(),
-                handleFallbackIntents(),
-            ).flatMapMerge { it }
+            HandleStrategy.CONCURRENT -> flow.flatMapMerge { handle(it) }
+            HandleStrategy.SEQUENTIAL -> flow.flatMapConcat { handle(it) }
+            HandleStrategy.HYBRID -> merge(
+                flow.handleConcurrentIntents(),
+                flow.handleSequentialIntents(),
+                flow.handleFallbackIntents(),
+            )
         }
     }
 
     @OptIn(FlowPreview::class)
     private fun Flow<I>.handleConcurrentIntents(): Flow<MVI.PartialChange<S, E>> {
-        return filter { it is MVI.Intent.Concurrent && it !is MVI.Intent.Sequential }.flatMapMerge { handle(it) }
+        return filter { it is MVI.Intent.Concurrent && it !is MVI.Intent.Sequential }
+            .flatMapMerge { handle(it) }
     }
 
     @OptIn(FlowPreview::class)
     private fun Flow<I>.handleSequentialIntents(): Flow<MVI.PartialChange<S, E>> {
-        return filter { it is MVI.Intent.Sequential && it !is MVI.Intent.Concurrent }.flatMapConcat { handle(it) }
+        return filter { it is MVI.Intent.Sequential && it !is MVI.Intent.Concurrent }
+            .flatMapConcat { handle(it) }
     }
 
     @OptIn(FlowPreview::class)
@@ -182,59 +185,6 @@ internal class RealReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event
             }
         }
     }
-
-    private fun <K : Any> Flow<I>.partitionBy2(
-        capacity: Int,
-        keySelector: (I) -> K
-    ): Flow<Flow<MVI.PartialChange<S, E>>> = flow {
-        val cached = ConcurrentHashMap<Any, SendChannel<I>>()
-        try {
-            collect { t ->
-                val key = getKey(t, keySelector)
-                val channel = cached.getOrPut(key) {
-                    Channel<I>(capacity).also {
-                        val flow = if (key == ct) {
-                            it.consumeAsFlow().flatMapMerge { handle(it) }
-                        } else if (key == sq) {
-                            it.consumeAsFlow().flatMapConcat { handle(it) }
-                        } else {
-                            it.consumeAsFlow().flatMapConcat { handle(it) }
-                        }
-                        emit(flow)
-                    }
-                }
-                try {
-                    channel.send(t)
-                } catch (e: Throwable) {
-                    if (e is ClosedSendChannelException) {
-                        cached.remove(key, channel)
-                    } else {
-                        throw e
-                    }
-                }
-            }
-        } finally {
-            val iterator = cached.iterator()
-            while (iterator.hasNext()) {
-                iterator.next().value.also { it.close() }
-                iterator.remove()
-            }
-        }
-    }
-
-    private val ct = "concurrent"
-    private val sq = "se"
-    private val other = "other"
-
-    private fun <K : Any> getKey(i: I, keySelector: (I) -> K): Any {
-        return when (i) {
-            is MVI.Intent.Concurrent -> ct
-            is MVI.Intent.Sequential -> sq
-            else -> other + keySelector(i).hashCode()
-        }
-    }
-
-
 }
 
 
