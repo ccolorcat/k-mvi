@@ -1,6 +1,5 @@
 package cc.colorcat.mvi
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
@@ -16,14 +15,13 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.flatMapMerge
+import kotlinx.coroutines.flow.flattenMerge
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -47,7 +45,7 @@ enum class HandleStrategy {
 
 class HybridConfig<in I : MVI.Intent>(
     internal val groupChannelCapacity: Int = Channel.BUFFERED,
-    internal val groupKeySelector: (I) -> Any = { it.javaClass }
+    internal val groupTagSelector: (I) -> String = { it.javaClass.name }
 ) {
     companion object {
         val default: HybridConfig<MVI.Intent> by lazy { HybridConfig() }
@@ -109,81 +107,91 @@ internal class RealReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event
         }
     }
 
-    @OptIn(FlowPreview::class)
-    private fun Flow<I>.toPartialChangeFlow(): Flow<MVI.PartialChange<S, E>> {
-        val flow = shareIn(scope, SharingStarted.Eagerly)
-        return when (strategy) {
-            HandleStrategy.CONCURRENT -> flow.flatMapMerge { handle(it) }
-            HandleStrategy.SEQUENTIAL -> flow.flatMapConcat { handle(it) }
-            HandleStrategy.HYBRID -> merge(
-                flow.handleConcurrentIntents(),
-                flow.handleSequentialIntents(),
-                flow.handleFallbackIntents(),
-            )
-        }
-    }
-
-    @OptIn(FlowPreview::class)
-    private fun Flow<I>.handleConcurrentIntents(): Flow<MVI.PartialChange<S, E>> {
-        return filter { it is MVI.Intent.Concurrent && it !is MVI.Intent.Sequential }
-            .flatMapMerge { handle(it) }
-    }
-
-    @OptIn(FlowPreview::class)
-    private fun Flow<I>.handleSequentialIntents(): Flow<MVI.PartialChange<S, E>> {
-        return filter { it is MVI.Intent.Sequential && it !is MVI.Intent.Concurrent }
-            .flatMapConcat { handle(it) }
-    }
-
-    @OptIn(FlowPreview::class)
-    private fun Flow<I>.handleFallbackIntents(): Flow<MVI.PartialChange<S, E>> {
-        return filter { isFallbackIntent(it) }
-            .partitionBy(config.groupChannelCapacity, config.groupKeySelector)
-            .flatMapMerge { partition -> partition.flatMapConcat { handle(it) } }
-    }
-
-    private fun isFallbackIntent(intent: I): Boolean {
-        val needWarning = intent is MVI.Intent.Concurrent && intent is MVI.Intent.Sequential
-        if (needWarning) {
-            Log.w(
-                "k-mvi",
-                "${intent.javaClass} implements both ${MVI.Intent.Concurrent::class.java.simpleName} and ${MVI.Intent.Sequential::class.java.simpleName}, which may lead to unpredictable behavior."
-            )
-        }
-        return needWarning || (intent !is MVI.Intent.Concurrent && intent !is MVI.Intent.Sequential)
-    }
-
     private suspend fun handle(intent: I): Flow<MVI.PartialChange<S, E>> {
         @Suppress("UNCHECKED_CAST")
         val handler = handlers[intent.javaClass] as? MVI.IntentHandler<I, S, E> ?: defaultHandler
         return handler.handle(intent)
     }
 
-    private fun <T, K> Flow<T>.partitionBy(capacity: Int, keySelector: (T) -> K): Flow<Flow<T>> = flow {
-        val cached = ConcurrentHashMap<K, SendChannel<T>>()
+    @OptIn(FlowPreview::class)
+    private fun Flow<I>.toPartialChangeFlow(): Flow<MVI.PartialChange<S, E>> {
+//        val flow = shareIn(scope, SharingStarted.Eagerly) // solution 1
+        val flow = this // solution 2
+        return when (strategy) {
+            HandleStrategy.CONCURRENT -> flow.flatMapMerge { handle(it) }
+            HandleStrategy.SEQUENTIAL -> flow.flatMapConcat { handle(it) }
+            HandleStrategy.HYBRID -> {
+                flow.hybrid().flattenMerge() // solution 2
+                // solution 1
+//                merge(
+//                    flow.filter { it.isConcurrent }.flatMapMerge { handle(it) },
+//                    flow.filter { it.isSequential }.flatMapConcat { handle(it) },
+//                    flow.filter { it.isFallback }.segment().flatMapMerge { it.flatMapConcat { i -> handle(i) } },
+//                )
+            }
+        }
+    }
+
+    private fun Flow<I>.hybrid(): Flow<Flow<MVI.PartialChange<S, E>>> {
+        return groupHandle(config.groupChannelCapacity, ::assignGroupTag) { handleByTag(it) }
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun Flow<I>.handleByTag(tag: String): Flow<MVI.PartialChange<S, E>> {
+        return if (tag == TAG_CONCURRENT) {
+            flatMapMerge { handle(it) }
+        } else {
+            flatMapConcat { handle(it) }
+        }
+    }
+
+    private fun assignGroupTag(intent: I): String {
+        return when {
+            intent is MVI.Intent.Concurrent && intent !is MVI.Intent.Sequential -> TAG_CONCURRENT
+            intent is MVI.Intent.Sequential && intent !is MVI.Intent.Concurrent -> TAG_SEQUENTIAL
+            else -> TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)
+        }
+    }
+
+    private fun Flow<I>.segment(): Flow<Flow<I>> {
+        return groupHandle(config.groupChannelCapacity, config.groupTagSelector) { this }
+    }
+
+    private fun <R> Flow<I>.groupHandle(
+        capacity: Int,
+        tagSelector: (I) -> String,
+        handler: Flow<I>.(tag: String) -> Flow<R>,
+    ): Flow<Flow<R>> = flow {
+        val activeChannels = ConcurrentHashMap<String, SendChannel<I>>()
         try {
-            collect { t ->
-                val key = keySelector(t)
-                val channel = cached.getOrPut(key) {
-                    Channel<T>(capacity).also { emit(it.consumeAsFlow()) }
+            collect { intent ->
+                val tag = tagSelector(intent)
+                val channel = activeChannels.getOrPut(tag) {
+                    Channel<I>(capacity).also { emit(it.consumeAsFlow().handler(tag)) }
                 }
                 try {
-                    channel.send(t)
+                    channel.send(intent)
                 } catch (e: Throwable) {
                     if (e is ClosedSendChannelException) {
-                        cached.remove(key, channel)
+                        activeChannels.remove(tag, channel)
                     } else {
                         throw e
                     }
                 }
             }
         } finally {
-            val iterator = cached.iterator()
+            val iterator = activeChannels.iterator()
             while (iterator.hasNext()) {
                 iterator.next().value.also { it.close() }
                 iterator.remove()
             }
         }
+    }
+
+    private companion object {
+        const val TAG_CONCURRENT = "CONCURRENT"
+        const val TAG_SEQUENTIAL = "SEQUENTIAL"
+        const val TAG_PREFIX_FALLBACK = "FALLBACK"
     }
 }
 
