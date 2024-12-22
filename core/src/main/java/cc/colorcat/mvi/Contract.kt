@@ -121,13 +121,13 @@ internal class RealReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event
             HandleStrategy.CONCURRENT -> flow.flatMapMerge { handle(it) }
             HandleStrategy.SEQUENTIAL -> flow.flatMapConcat { handle(it) }
             HandleStrategy.HYBRID -> {
-                flow.hybrid().flattenMerge() // solution 2
                 // solution 1
 //                merge(
 //                    flow.filter { it.isConcurrent }.flatMapMerge { handle(it) },
 //                    flow.filter { it.isSequential }.flatMapConcat { handle(it) },
 //                    flow.filter { it.isFallback }.segment().flatMapMerge { it.flatMapConcat { i -> handle(i) } },
 //                )
+                flow.hybrid().flattenMerge() // solution 2
             }
         }
     }
