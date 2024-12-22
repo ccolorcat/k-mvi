@@ -171,12 +171,8 @@ internal class RealReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event
                 }
                 try {
                     channel.send(intent)
-                } catch (e: Throwable) {
-                    if (e is ClosedSendChannelException) {
-                        activeChannels.remove(tag, channel)
-                    } else {
-                        throw e
-                    }
+                } catch (e: ClosedSendChannelException) {
+                    activeChannels.remove(tag, channel)
                 }
             }
         } finally {
