@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.flowOf
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
-fun <T> T.asFlow(): Flow<T> = flowOf(this)
+fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
 
 fun <T> Flow<T>.debounce2(timeMillis: Long, responseFirst: Boolean = true): Flow<T> {
     return if (responseFirst) {

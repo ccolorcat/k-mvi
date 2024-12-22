@@ -3,7 +3,7 @@ package cc.colorcat.mvi.sample
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.ReactiveContract
-import cc.colorcat.mvi.asFlow
+import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.contract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -43,7 +43,7 @@ class MainViewModel : ViewModel() {
             } else {
                 it.update { copy(count = oldCount + 1) }
             }
-        }.asFlow()
+        }.asSingleFlow()
     }
 
     private fun handleDecrement(intent: IMain.Intent.Decrement): Flow<IMain.PartialChange> {
@@ -54,7 +54,7 @@ class MainViewModel : ViewModel() {
             } else {
                 it.update { copy(count = oldCount - 1) }
             }
-        }.asFlow()
+        }.asSingleFlow()
     }
 
     private var count = 0

@@ -2,7 +2,7 @@ package cc.colorcat.mvi.sample
 
 import cc.colorcat.mvi.MVIViewModel
 import cc.colorcat.mvi.ReactiveContract
-import cc.colorcat.mvi.asFlow
+import cc.colorcat.mvi.asSingleFlow
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -24,7 +24,7 @@ class MainViewModel3 : MVIViewModel<IMain.Intent, IMain.State, IMain.Event>(IMai
             } else {
                 it.update { copy(count = oldCount + 1) }
             }
-        }.asFlow()
+        }.asSingleFlow()
     }
 
     private fun handleDecrement(intent: IMain.Intent.Decrement): Flow<IMain.PartialChange> {
@@ -35,6 +35,6 @@ class MainViewModel3 : MVIViewModel<IMain.Intent, IMain.State, IMain.Event>(IMai
             } else {
                 it.update { copy(count = oldCount - 1) }
             }
-        }.asFlow()
+        }.asSingleFlow()
     }
 }
