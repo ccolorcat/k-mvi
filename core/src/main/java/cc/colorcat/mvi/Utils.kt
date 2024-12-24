@@ -1,6 +1,13 @@
 package cc.colorcat.mvi
 
 import android.util.Log
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedSendChannelException
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.flow.flow
+import java.util.concurrent.ConcurrentHashMap
 
 
 /**
@@ -30,3 +37,30 @@ internal val MVI.Intent.isFallback: Boolean
         }
         return isConflictingIntent || (this !is MVI.Intent.Concurrent && this !is MVI.Intent.Sequential)
     }
+
+
+internal fun <I : MVI.Intent, R> Flow<I>.groupHandle(
+    capacity: Int,
+    tagSelector: (I) -> String,
+    handler: Flow<I>.(tag: String) -> Flow<R>,
+): Flow<Flow<R>> = flow {
+    val activeChannels = ConcurrentHashMap<String, SendChannel<I>>()
+    try {
+        collect { intent ->
+            val tag = tagSelector(intent)
+            val channel = activeChannels.getOrPut(tag) {
+                Channel<I>(capacity).also { emit(it.consumeAsFlow().handler(tag)) }
+            }
+            try {
+                channel.send(intent)
+            } catch (e: ClosedSendChannelException) {
+                activeChannels.remove(tag, channel)
+            }
+        }
+    } finally {
+        synchronized(activeChannels) {
+            activeChannels.forEach { it.value.close() }
+            activeChannels.clear()
+        }
+    }
+}

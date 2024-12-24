@@ -38,8 +38,9 @@ class MainViewModel : ViewModel() {
     private fun handleIncrement(intent: IMain.Intent.Increment): Flow<IMain.PartialChange> {
         return IMain.PartialChange {
             val oldCount = it.state.count
-            if (oldCount >= 99) {
-                it.with(IMain.Event.ShowToast("Already reached 99"))
+            if (oldCount >= 10) {
+//                it.with(IMain.Event.ShowToast("Already reached 99"))
+                throw IllegalStateException("already reached 99")
             } else {
                 it.update { copy(count = oldCount + 1) }
             }
@@ -49,8 +50,9 @@ class MainViewModel : ViewModel() {
     private fun handleDecrement(intent: IMain.Intent.Decrement): Flow<IMain.PartialChange> {
         return IMain.PartialChange {
             val oldCount = it.state.count
-            if (oldCount <= 0) {
-                it.with(IMain.Event.ShowToast("Already reached 0"))
+            if (oldCount <= 5) {
+                throw IllegalStateException("already reached 0")
+//                it.with(IMain.Event.ShowToast("Already reached 0"))
             } else {
                 it.update { copy(count = oldCount - 1) }
             }
@@ -61,7 +63,7 @@ class MainViewModel : ViewModel() {
 
     private fun handleTest(intent: IMain.Intent.Test): Flow<IMain.PartialChange> {
         val count = this.count++
-        Log.d("MainActivity", "handleTest count = $count")
+        Log.d("MVI-MainActivity", "handleTest count = $count")
         return flow<IMain.PartialChange> {
             delay(500L)
             emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("test start $count")) })

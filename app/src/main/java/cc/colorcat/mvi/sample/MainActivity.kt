@@ -32,15 +32,12 @@ class MainActivity : AppCompatActivity() {
     private val intents2: Flow<IMain2.Intent>
         get() = userIntents2().debounce2(500L)
 
-    private val viewModel3: MainViewModel3 by viewModels()
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         setupViewModel()
 //        setupViewModel2()
-//        setupViewModel3()
     }
 
     private fun setupViewModel() {
@@ -50,7 +47,7 @@ class MainActivity : AppCompatActivity() {
         viewModel.eventFlow.collectEvent(this, Lifecycle.State.CREATED) {
             collectParticular<IMain.Event.ShowToast> {
 //                Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_SHORT).show()
-                Log.i("MainActivity", "received message: ${it.message}")
+                Log.i("MVI-MainActivity", "received message: ${it.message}")
             }
         }
         intents.onEach { viewModel.dispatch(it) }.launchIn(lifecycleScope)
@@ -60,11 +57,11 @@ class MainActivity : AppCompatActivity() {
         binding.increment.doOnClick { trySend(IMain.Intent.Increment) },
         binding.decrement.doOnClick { trySend(IMain.Intent.Decrement) },
         binding.test.doOnClick {
-            Log.v("MainActivity", "test clicked")
+            Log.v("MVI-MainActivity", "test clicked")
             trySend(IMain.Intent.Test)
         },
         binding.loadTest.doOnClick {
-            Log.v("MainActivity", "load test clicked")
+            Log.v("MVI-MainActivity", "load test clicked")
             trySend(IMain.Intent.LoadTest)
         },
     )
@@ -80,18 +77,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         intents2.onEach { viewModel2.dispatch(it) }.launchIn(lifecycleScope)
-    }
-
-    private fun setupViewModel3() {
-        viewModel3.stateFlow.collectState(this) {
-            collectPartial(IMain.State::countText, binding.count::setText)
-        }
-        viewModel3.eventFlow.collectEvent(this, Lifecycle.State.CREATED) {
-            collectParticular<IMain.Event.ShowToast> {
-                Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_SHORT).show()
-            }
-        }
-        intents.onEach { viewModel3.dispatch(it) }.launchIn(lifecycleScope)
     }
 
     private fun userIntents2(): Flow<IMain2.Intent> = merge(

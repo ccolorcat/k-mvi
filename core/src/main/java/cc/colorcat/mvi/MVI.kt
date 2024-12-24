@@ -1,7 +1,5 @@
 package cc.colorcat.mvi
 
-import kotlinx.coroutines.flow.Flow
-
 /**
  * Author: ccolorcat
  * Date: 2024-05-10
@@ -20,11 +18,6 @@ sealed interface MVI {
 
     fun interface PartialChange<S : State, E : Event> {
         fun apply(old: Snapshot<S, E>): Snapshot<S, E>
-    }
-
-
-    fun interface IntentHandler<I : Intent, S : State, E : Event> {
-        suspend fun handle(intent: I): Flow<PartialChange<S, E>>
     }
 
 
