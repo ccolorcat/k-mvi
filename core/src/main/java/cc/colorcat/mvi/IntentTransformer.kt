@@ -28,14 +28,14 @@ fun interface IntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
             return StrategyIntentTransformer(strategy, config, handler)
         }
 
-        operator fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> invoke(
-            scope: CoroutineScope,
-            strategy: HandleStrategy,
-            config: HybridConfig<I>,
-            handler: IntentHandler<I, S, E>,
-        ): IntentTransformer<I, S, E> {
-            return StrategyIntentTransformer2(scope, strategy, config, handler)
-        }
+//        operator fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> invoke(
+//            scope: CoroutineScope,
+//            strategy: HandleStrategy,
+//            config: HybridConfig<I>,
+//            handler: IntentHandler<I, S, E>,
+//        ): IntentTransformer<I, S, E> {
+//            return StrategyIntentTransformer2(scope, strategy, config, handler)
+//        }
     }
 }
 
@@ -89,35 +89,28 @@ internal class StrategyIntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.
 }
 
 
-internal class StrategyIntentTransformer2<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
-    private val scope: CoroutineScope,
-    private val strategy: HandleStrategy,
-    private val config: HybridConfig<I>,
-    private val handler: IntentHandler<I, S, E>,
-) : IntentTransformer<I, S, E> {
-
-    override fun transform(intentFlow: Flow<I>): Flow<MVI.PartialChange<S, E>> {
-        val flow = intentFlow.shareIn(scope, SharingStarted.Eagerly)
-        @OptIn(FlowPreview::class)
-        return when (strategy) {
-            HandleStrategy.CONCURRENT -> flow.flatMapMerge { handle(it) }
-            HandleStrategy.SEQUENTIAL -> flow.flatMapConcat { handle(it) }
-            HandleStrategy.HYBRID -> merge(
-                flow.filter { it.isConcurrent }.flatMapMerge { handle(it) },
-                flow.filter { it.isSequential }.flatMapConcat { handle(it) },
-                flow.filter { it.isFallback }.segment().flatMapMerge { it.flatMapConcat { i -> handle(i) } },
-            )
-        }
-    }
-
-
-    private suspend fun handle(intent: I): Flow<MVI.PartialChange<S, E>> {
-        return handler.handle(intent)
-    }
-
-
-    private fun Flow<I>.segment(): Flow<Flow<I>> {
-        return groupHandle(config.groupChannelCapacity, config.groupTagSelector) { this }
-    }
-}
-
+//internal class StrategyIntentTransformer2<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
+//    private val scope: CoroutineScope,
+//    private val strategy: HandleStrategy,
+//    private val config: HybridConfig<I>,
+//    private val handler: IntentHandler<I, S, E>,
+//) : IntentTransformer<I, S, E> {
+//
+//    override fun transform(intentFlow: Flow<I>): Flow<MVI.PartialChange<S, E>> {
+//        val flow = intentFlow.shareIn(scope, SharingStarted.Eagerly)
+//        @OptIn(FlowPreview::class)
+//        return when (strategy) {
+//            HandleStrategy.CONCURRENT -> flow.flatMapMerge { handler.handle(it) }
+//            HandleStrategy.SEQUENTIAL -> flow.flatMapConcat { handler.handle(it) }
+//            HandleStrategy.HYBRID -> merge(
+//                flow.filter { it.isConcurrent }.flatMapMerge { handler.handle(it) },
+//                flow.filter { it.isSequential }.flatMapConcat { handler.handle(it) },
+//                flow.filter { it.isFallback }.segment().flatMapMerge { it.flatMapConcat { i -> handler.handle(i) } },
+//            )
+//        }
+//    }
+//
+//    private fun Flow<I>.segment(): Flow<Flow<I>> {
+//        return groupHandle(config.groupChannelCapacity, config.groupTagSelector) { this }
+//    }
+//}
