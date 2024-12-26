@@ -8,27 +8,36 @@ package cc.colorcat.mvi
 typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
 
 object MVIKit {
-    @Volatile
-    private var defaultConfiguration = Configuration()
+    private var default: Configuration = Configuration()
+
+    internal val loggable: Boolean
+        get() = default.loggable
 
     internal val handleStrategy: HandleStrategy
-        get() = defaultConfiguration.handleStrategy
+        get() = default.handleStrategy
 
     internal val hybridConfig: HybridConfig<MVI.Intent>
-        get() = defaultConfiguration.hybridConfig
+        get() = default.hybridConfig
 
     internal val retryPolicy: RetryPolicy
-        get() = defaultConfiguration.retryPolicy
+        get() = default.retryPolicy
 
-    @Synchronized
-    fun setup(config: Configuration.() -> Unit) {
-        defaultConfiguration.config()
+    fun setup(config: Configuration.() -> Configuration) {
+        default = default.config()
+    }
+
+    private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
+        if (loggable) {
+            cause.printStackTrace()
+        }
+        return cause is Exception
     }
 
 
-    class Configuration(
-        var handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
-        var hybridConfig: HybridConfig<MVI.Intent> = HybridConfig(),
-        var retryPolicy: RetryPolicy = { _, _ -> false }
+    data class Configuration(
+        val loggable: Boolean = false,
+        val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
+        val hybridConfig: HybridConfig<MVI.Intent> = HybridConfig(),
+        val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
     )
 }

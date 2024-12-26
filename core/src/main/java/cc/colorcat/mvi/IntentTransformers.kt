@@ -70,9 +70,10 @@ internal class StrategyIntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.
 
     private fun assignGroupTag(intent: I): String {
         return when {
+            intent.isFallback -> TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)
             intent.isConcurrent -> TAG_CONCURRENT
             intent.isSequential -> TAG_SEQUENTIAL
-            else -> TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)
+            else -> throw AssertionError("Unexpected Intent type reached in assignGroupTag: $intent")
         }
     }
 

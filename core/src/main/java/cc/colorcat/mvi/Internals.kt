@@ -26,16 +26,19 @@ internal val MVI.Intent.isSequential: Boolean
  */
 internal val MVI.Intent.isFallback: Boolean
     get() {
+        if (this !is MVI.Intent.Concurrent && this !is MVI.Intent.Sequential) {
+            return true
+        }
+
         val isConflictingIntent = this is MVI.Intent.Concurrent && this is MVI.Intent.Sequential
-        if (isConflictingIntent) {
+        if (isConflictingIntent && MVIKit.loggable) {
             Log.w(
-                "MVI_Intents",
+                "k-mvi",
                 "${javaClass.name} implements both Concurrent and Sequential, which may lead to unpredictable behavior."
             )
         }
-        return isConflictingIntent || (this !is MVI.Intent.Concurrent && this !is MVI.Intent.Sequential)
+        return isConflictingIntent
     }
-
 
 internal fun <I : MVI.Intent, R> Flow<I>.groupHandle(
     capacity: Int,
