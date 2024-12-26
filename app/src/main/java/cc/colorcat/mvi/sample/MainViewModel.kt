@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
@@ -18,7 +19,7 @@ import kotlinx.coroutines.withContext
  * GitHub: https://github.com/ccolorcat
  */
 class MainViewModel : ViewModel() {
-    private val contract: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(
+    private val contract1: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(
         initState = IMain.State(),
     ) {
         register(IMain.Intent.Increment::class.java, ::handleIncrement)
@@ -27,6 +28,14 @@ class MainViewModel : ViewModel() {
         register(IMain.Intent.LoadTest::class.java, ::handleLoadTest)
     }
 
+    private val contract2: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(
+        initState = IMain.State(),
+        transformer = ::handleIntentFlow
+    )
+
+    private val contract: ReactiveContract<IMain.Intent, IMain.State, IMain.Event>
+        get() = contract1
+
     val stateFlow: StateFlow<IMain.State>
         get() = contract.stateFlow
 
@@ -34,6 +43,19 @@ class MainViewModel : ViewModel() {
         get() = contract.eventFlow
 
     fun dispatch(intent: IMain.Intent) = contract.dispatch(intent)
+
+    private fun handleIntentFlow(intent: Flow<IMain.Intent>): Flow<IMain.PartialChange> {
+        return intent.map { handleIntent(it) }
+    }
+
+    private fun handleIntent(intent: IMain.Intent): IMain.PartialChange {
+        return when (intent) {
+            is IMain.Intent.Increment -> IMain.PartialChange { it.update { copy(count = count + 1) } }
+            is IMain.Intent.Decrement -> IMain.PartialChange { it.update { copy(count = count - 1) } }
+            is IMain.Intent.Test, IMain.Intent.LoadTest -> IMain.PartialChange { it.with(IMain.Event.ShowToast("test: ${intent.javaClass.simpleName}")) }
+        }
+    }
+
 
     private fun handleIncrement(intent: IMain.Intent.Increment): Flow<IMain.PartialChange> {
         return IMain.PartialChange {
