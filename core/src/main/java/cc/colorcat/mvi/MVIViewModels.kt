@@ -11,12 +11,14 @@ import kotlinx.coroutines.flow.emptyFlow
  */
 fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> ViewModel.contract(
     initState: S,
+    retryPolicy: RetryPolicy = MVIKit.retryPolicy,
     transformer: IntentTransformer<I, S, E>
 ): Lazy<ReactiveContract<I, S, E>> {
     return ReactiveContractLazy {
-        EssentialReactiveContract(
+        CoreReactiveContract(
             scope = viewModelScope,
             initState = initState,
+            retryPolicy = retryPolicy,
             transformer = transformer
         )
     }
@@ -25,8 +27,9 @@ fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> ViewModel.contract(
 
 fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> ViewModel.contract(
     initState: S,
-    strategy: HandleStrategy = HandleStrategy.default,
-    config: HybridConfig<I> = HybridConfig.default,
+    retryPolicy: RetryPolicy = MVIKit.retryPolicy,
+    strategy: HandleStrategy = MVIKit.handleStrategy,
+    config: HybridConfig<I> = MVIKit.hybridConfig,
     defaultHandler: IntentHandler<I, S, E> = IntentHandler { emptyFlow() },
     setup: IntentHandlerRegistry<I, S, E>.() -> Unit = {}
 ): Lazy<ReactiveContract<I, S, E>> {
@@ -34,16 +37,17 @@ fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> ViewModel.contract(
         StrategyReactiveContract(
             scope = viewModelScope,
             initState = initState,
+            retryPolicy = retryPolicy,
             strategy = strategy,
             config = config,
             defaultHandler = defaultHandler
-        ).also { it.configIntentHandler(setup) }
+        ).also { it.setupIntentHandlers(setup) }
     }
 }
 
 
 internal class ReactiveContractLazy<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
-    private val create: () -> EssentialReactiveContract<I, S, E>
+    private val create: () -> CoreReactiveContract<I, S, E>
 ) : Lazy<ReactiveContract<I, S, E>> {
     private var cached: ReactiveContract<I, S, E>? = null
 

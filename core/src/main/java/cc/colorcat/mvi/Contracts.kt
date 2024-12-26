@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.retry
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -36,16 +36,17 @@ fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> ReactiveContract<I, S, E>.asC
 }
 
 
-internal open class EssentialReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
+internal open class CoreReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
     private val scope: CoroutineScope,
     initState: S,
+    retryPolicy: RetryPolicy,
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
     private val intentFlow = MutableSharedFlow<I>()
 
     private val snapshotFlow: SharedFlow<MVI.Snapshot<S, E>> = intentFlow.toPartialChange(transformer)
         .scan(MVI.Snapshot<S, E>(initState)) { oldSnapshot, partialChange -> partialChange.apply(oldSnapshot) }
-        .retry()
+        .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .flowOn(Dispatchers.Default)
         .shareIn(scope, SharingStarted.Eagerly)
 
@@ -66,29 +67,33 @@ internal open class EssentialReactiveContract<I : MVI.Intent, S : MVI.State, E :
 internal class StrategyReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event> private constructor(
     scope: CoroutineScope,
     initState: S,
+    retryPolicy: RetryPolicy,
     strategy: HandleStrategy,
     config: HybridConfig<I>,
     private val delegate: IntentHandlerDelegate<I, S, E>,
-) : EssentialReactiveContract<I, S, E>(
+) : CoreReactiveContract<I, S, E>(
     scope = scope,
     initState = initState,
+    retryPolicy = retryPolicy,
     transformer = IntentTransformer(strategy, config, delegate)
 ) {
     constructor(
         scope: CoroutineScope,
         initState: S,
+        retryPolicy: RetryPolicy,
         strategy: HandleStrategy,
         config: HybridConfig<I>,
         defaultHandler: IntentHandler<I, S, E>,
     ) : this(
         scope = scope,
         initState = initState,
+        retryPolicy = retryPolicy,
         strategy = strategy,
         config = config,
         delegate = IntentHandlerDelegate(defaultHandler),
     )
 
-    internal fun configIntentHandler(setup: IntentHandlerRegistry<I, S, E>.() -> Unit) {
+    internal fun setupIntentHandlers(setup: IntentHandlerRegistry<I, S, E>.() -> Unit) {
         delegate.setup()
     }
 }

@@ -9,13 +9,11 @@ import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
 import java.util.concurrent.ConcurrentHashMap
 
-
 /**
  * Author: ccolorcat
- * Date: 2024-12-21
+ * Date: 2024-12-25
  * GitHub: https://github.com/ccolorcat
  */
-
 internal val MVI.Intent.isConcurrent: Boolean
     get() = this is MVI.Intent.Concurrent && this !is MVI.Intent.Sequential
 

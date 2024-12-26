@@ -1,15 +1,10 @@
 package cc.colorcat.mvi
 
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.flattenMerge
-import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.flow.shareIn
 
 /**
  * Author: ccolorcat
@@ -20,7 +15,7 @@ fun interface IntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
     fun transform(intentFlow: Flow<I>): Flow<MVI.PartialChange<S, E>>
 
     companion object {
-        operator fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> invoke(
+        internal operator fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> invoke(
             strategy: HandleStrategy,
             config: HybridConfig<I>,
             handler: IntentHandler<I, S, E>,
@@ -41,8 +36,8 @@ fun interface IntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
 
 
 fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> Flow<I>.toPartialChange(
-    transform: IntentTransformer<I, S, E>
-): Flow<MVI.PartialChange<S, E>> = transform.transform(this)
+    transformer: IntentTransformer<I, S, E>
+): Flow<MVI.PartialChange<S, E>> = transformer.transform(this)
 
 
 internal class StrategyIntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
@@ -75,8 +70,8 @@ internal class StrategyIntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.
 
     private fun assignGroupTag(intent: I): String {
         return when {
-            intent is MVI.Intent.Concurrent && intent !is MVI.Intent.Sequential -> TAG_CONCURRENT
-            intent is MVI.Intent.Sequential && intent !is MVI.Intent.Concurrent -> TAG_SEQUENTIAL
+            intent.isConcurrent -> TAG_CONCURRENT
+            intent.isSequential -> TAG_SEQUENTIAL
             else -> TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)
         }
     }
