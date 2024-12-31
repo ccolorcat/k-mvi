@@ -20,7 +20,7 @@ sealed interface IMain {
     }
 
     sealed interface Intent : MVI.Intent {
-        data object Increment : Intent, MVI.Intent.Concurrent, MVI.Intent.Sequential
+        data object Increment : Intent, MVI.Intent.Concurrent
 
         data object Decrement : Intent, MVI.Intent.Sequential
 

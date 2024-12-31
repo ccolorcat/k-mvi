@@ -1,6 +1,7 @@
 package cc.colorcat.mvi.sample
 
 import android.app.Application
+import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.MVIKit
 
 /**
@@ -12,7 +13,7 @@ class SampleApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         MVIKit.setup {
-            copy(loggable = true)
+            copy(logger = Logger(Logger.DEBUG))
         }
     }
 }

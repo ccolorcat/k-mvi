@@ -47,6 +47,13 @@ internal class StrategyIntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.
 ) : IntentTransformer<I, S, E> {
 
     override fun transform(intentFlow: Flow<I>): Flow<MVI.PartialChange<S, E>> {
+        logger.println(Logger.INFO, TAG, null) {
+            if (strategy == HandleStrategy.HYBRID) {
+                "Transforming intents using strategy: strategy = $strategy, config = $config"
+            } else {
+                "Transforming intents using strategy: $strategy"
+            }
+        }
         @OptIn(FlowPreview::class)
         return when (strategy) {
             HandleStrategy.CONCURRENT -> intentFlow.flatMapMerge { handler.handle(it) }

@@ -13,6 +13,10 @@ fun interface IntentHandler<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
 
 
 interface IntentHandlerRegistry<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
+    fun <T : I> register(intentType: Class<T>, handler: suspend (intent: T) -> MVI.PartialChange<S, E>) {
+        register(intentType, IntentHandler { handler(it).asSingleFlow() })
+    }
+
     fun <T : I> register(intentType: Class<T>, handler: IntentHandler<T, S, E>)
 
     fun unregister(intentType: Class<out I>)
@@ -33,8 +37,17 @@ internal class IntentHandlerDelegate<I : MVI.Intent, S : MVI.State, E : MVI.Even
     }
 
     override suspend fun handle(intent: I): Flow<MVI.PartialChange<S, E>> {
-        @Suppress("UNCHECKED_CAST")
-        val handler = handlers[intent.javaClass] as? IntentHandler<I, S, E> ?: defaultHandler
+        var handler = handlers[intent.javaClass]
+        if (handler == null) {
+            logger.println(Logger.WARN, TAG, null) {
+                "No handler registered for ${intent.javaClass}, fallback to defaultHandler"
+            }
+            handler = defaultHandler
+        } else {
+            @Suppress("UNCHECKED_CAST")
+            handler as IntentHandler<I, S, E>
+        }
+        logger.println(Logger.INFO, TAG, null) { "Handling intent: ${intent.javaClass}" }
         return handler.handle(intent)
     }
 }

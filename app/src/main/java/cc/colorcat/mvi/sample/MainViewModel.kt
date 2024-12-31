@@ -57,22 +57,22 @@ class MainViewModel : ViewModel() {
     }
 
 
-    private fun handleIncrement(intent: IMain.Intent.Increment): Flow<IMain.PartialChange> {
+    private fun handleIncrement(intent: IMain.Intent.Increment): IMain.PartialChange {
         return IMain.PartialChange {
             val oldCount = it.state.count
-            if (oldCount >= 10) {
-//                it.with(IMain.Event.ShowToast("Already reached 99"))
-                throw IllegalStateException("already reached 99")
+            if (oldCount >= 20) {
+                it.with(IMain.Event.ShowToast("Already reached 20"))
+//                throw IllegalStateException("already reached 10")
             } else {
                 it.update { copy(count = oldCount + 1) }
             }
-        }.asSingleFlow()
+        }
     }
 
     private fun handleDecrement(intent: IMain.Intent.Decrement): Flow<IMain.PartialChange> {
         return IMain.PartialChange {
             val oldCount = it.state.count
-            if (oldCount <= 5) {
+            if (oldCount <= 0) {
                 throw IllegalStateException("already reached 0")
 //                it.with(IMain.Event.ShowToast("Already reached 0"))
             } else {

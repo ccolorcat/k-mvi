@@ -10,8 +10,8 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
 object MVIKit {
     private var default: Configuration = Configuration()
 
-    internal val loggable: Boolean
-        get() = default.loggable
+    internal val logger: Logger
+        get() = default.logger
 
     internal val handleStrategy: HandleStrategy
         get() = default.handleStrategy
@@ -24,20 +24,18 @@ object MVIKit {
 
     fun setup(config: Configuration.() -> Configuration) {
         default = default.config()
+        logger.println(Logger.DEBUG, TAG, null) { "setup config: $default" }
     }
 
     private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
-        if (loggable) {
-            cause.printStackTrace()
-        }
+        logger.println(Logger.ERROR, TAG, cause) { "retry count: $attempt" }
         return cause is Exception
     }
 
-
     data class Configuration(
-        val loggable: Boolean = false,
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
         val hybridConfig: HybridConfig<MVI.Intent> = HybridConfig(),
         val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
+        val logger: Logger = Logger(),
     )
 }
