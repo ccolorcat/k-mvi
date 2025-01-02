@@ -37,7 +37,7 @@ internal val MVI.Intent.isFallback: Boolean
 
         val isConflictingIntent = this is MVI.Intent.Concurrent && this is MVI.Intent.Sequential
         if (isConflictingIntent) {
-            logger.println(Logger.WARN, TAG, null) {
+            logger.log(Logger.WARN, TAG, null) {
                 "${javaClass.name} implements both Concurrent and Sequential, which may lead to unpredictable behavior."
             }
         }

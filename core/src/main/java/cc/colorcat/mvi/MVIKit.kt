@@ -24,11 +24,11 @@ object MVIKit {
 
     fun setup(config: Configuration.() -> Configuration) {
         default = default.config()
-        logger.println(Logger.DEBUG, TAG, null) { "setup config: $default" }
+        logger.log(Logger.DEBUG, TAG, null) { "setup config: $default" }
     }
 
     private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
-        logger.println(Logger.ERROR, TAG, cause) { "retry count: $attempt" }
+        logger.log(Logger.ERROR, TAG, cause) { "retry count: $attempt" }
         return cause is Exception
     }
 

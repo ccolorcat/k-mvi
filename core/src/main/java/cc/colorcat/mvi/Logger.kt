@@ -8,7 +8,7 @@ import android.util.Log
  * GitHub: https://github.com/ccolorcat
  */
 fun interface Logger {
-    fun println(priority: Int, tag: String, error: Throwable?, message: () -> String)
+    fun log(priority: Int, tag: String, error: Throwable?, message: () -> String)
 
     companion object {
         const val DEBUG = Log.DEBUG
@@ -22,11 +22,11 @@ fun interface Logger {
                     val msg = if (error == null) {
                         message()
                     } else {
-                        StringBuilder(message()).apply {
-                            error.stackTrace.forEach {
-                                append('\n').append(it.toString())
-                            }
-                        }.toString()
+                        buildString {
+                            append(message())
+                            append("\n").append(error.javaClass.name).append(": ").append(error.message)
+                            error.stackTrace.joinTo(this, separator = "\n\t", prefix = "\n\t") { it.toString() }
+                        }
                     }
                     Log.println(priority, tag, msg)
                 }

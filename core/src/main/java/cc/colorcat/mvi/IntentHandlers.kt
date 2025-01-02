@@ -39,7 +39,7 @@ internal class IntentHandlerDelegate<I : MVI.Intent, S : MVI.State, E : MVI.Even
     override suspend fun handle(intent: I): Flow<MVI.PartialChange<S, E>> {
         var handler = handlers[intent.javaClass]
         if (handler == null) {
-            logger.println(Logger.WARN, TAG, null) {
+            logger.log(Logger.WARN, TAG, null) {
                 "No handler registered for ${intent.javaClass}, fallback to defaultHandler"
             }
             handler = defaultHandler
@@ -47,7 +47,7 @@ internal class IntentHandlerDelegate<I : MVI.Intent, S : MVI.State, E : MVI.Even
             @Suppress("UNCHECKED_CAST")
             handler as IntentHandler<I, S, E>
         }
-        logger.println(Logger.INFO, TAG, null) { "Handling intent: ${intent.javaClass}" }
+        logger.log(Logger.INFO, TAG, null) { "Handling intent: ${intent.javaClass}" }
         return handler.handle(intent)
     }
 }

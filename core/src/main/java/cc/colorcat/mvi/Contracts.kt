@@ -94,6 +94,6 @@ internal class StrategyReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.E
     )
 
     internal fun setupIntentHandlers(setup: IntentHandlerRegistry<I, S, E>.() -> Unit) {
-        delegate.setup()
+        delegate.apply(setup)
     }
 }
