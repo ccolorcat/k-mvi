@@ -1,6 +1,6 @@
 package cc.colorcat.mvi.sample
 
-import cc.colorcat.mvi.MVI
+import cc.colorcat.mvi.Mvi
 
 /**
  * Author: ccolorcat
@@ -10,27 +10,27 @@ import cc.colorcat.mvi.MVI
 sealed interface IMain2 {
     data class State(
         val count: Int = 0
-    ) : MVI.State {
+    ) : Mvi.State {
         val countText: CharSequence
             get() = count.toString()
     }
 
-    sealed interface Event : MVI.Event {
+    sealed interface Event : Mvi.Event {
         data class ShowToast(val message: CharSequence) : Event
     }
 
-    sealed interface Intent : MVI.Intent
+    sealed interface Intent : Mvi.Intent
 
 
-    sealed class PartialChange : MVI.PartialChange<State, Event> {
-        override fun reduce(old: MVI.Frame<State, Event>): MVI.Frame<State, Event> {
+    sealed class PartialChange : Mvi.PartialChange<State, Event> {
+        override fun apply(old: Mvi.Snapshot<State, Event>): Mvi.Snapshot<State, Event> {
             val oldCount = old.state.count
             return when (this) {
                 is Increment -> {
                     if (oldCount >= 99) {
                         old.with(Event.ShowToast("Already reached 99"))
                     } else {
-                        old.reduce { copy(count = oldCount + 1) }
+                        old.update { copy(count = oldCount + 1) }
                     }
                 }
 
@@ -38,7 +38,7 @@ sealed interface IMain2 {
                     if (oldCount <= 0) {
                         old.with(Event.ShowToast("Already reached 0"))
                     } else {
-                        old.reduce { copy(count = oldCount - 1) }
+                        old.update { copy(count = oldCount - 1) }
                     }
                 }
             }

@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.flowOf
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
-fun <T> T.asFlow(): Flow<T> = flowOf(this)
+fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
 
 fun <T> Flow<T>.debounce2(timeMillis: Long, responseFirst: Boolean = true): Flow<T> {
     return if (responseFirst) {
@@ -40,14 +40,14 @@ fun <T> Flow<T>.debounce2(timeMillis: Long, responseFirst: Boolean = true): Flow
 }
 
 
-fun <I : MVI.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I> = callbackFlow {
+fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I> = callbackFlow {
     setOnClickListener {
         this.block()
     }
     awaitClose { setOnClickListener(null) }
 }
 
-fun <I : MVI.Intent> CompoundButton.doOnCheckedChange(
+fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
     block: ProducerScope<I>.(isChecked: Boolean) -> Unit
 ): Flow<I> = callbackFlow {
     setOnCheckedChangeListener { _, isChecked ->
@@ -56,7 +56,7 @@ fun <I : MVI.Intent> CompoundButton.doOnCheckedChange(
     awaitClose { setOnCheckedChangeListener(null) }
 }
 
-fun <I : MVI.Intent> TextView.afterTextChanged(
+fun <I : Mvi.Intent> TextView.afterTextChanged(
     debounceTimeoutMillis: Long = 500L,
     block: ProducerScope<I>.(Editable?) -> Unit
 ): Flow<I> {

@@ -12,6 +12,7 @@
         android:id="@+id/count"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:padding="16dp"
         android:text="0" />
 
     <Button
@@ -27,4 +28,18 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:text="decrement" />
+
+    <Button
+        android:id="@+id/test"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="test" />
+
+    <Button
+        android:id="@+id/loadTest"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="loadTest" />
 </LinearLayout>

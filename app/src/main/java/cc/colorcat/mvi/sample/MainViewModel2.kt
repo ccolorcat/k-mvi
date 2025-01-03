@@ -1,7 +1,7 @@
 package cc.colorcat.mvi.sample
 
 import androidx.lifecycle.ViewModel
-import cc.colorcat.mvi.asFlow
+import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.contract
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
  * GitHub: https://github.com/ccolorcat
  */
 class MainViewModel2 : ViewModel() {
-    private val contract by contract(IMain2.State(), ::handle)
+    private val contract by contract(initState = IMain2.State(), defaultHandler = ::handle)
 
     val stateFlow: StateFlow<IMain2.State>
         get() = contract.stateFlow
@@ -24,7 +24,7 @@ class MainViewModel2 : ViewModel() {
 
     private suspend fun handle(intent: IMain2.Intent): Flow<IMain2.PartialChange> {
         return when (intent) {
-            is IMain2.PartialChange -> intent.asFlow()
+            is IMain2.PartialChange -> intent.asSingleFlow()
         }
     }
 }

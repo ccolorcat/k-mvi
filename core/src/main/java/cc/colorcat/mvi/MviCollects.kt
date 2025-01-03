@@ -19,7 +19,7 @@ import kotlin.reflect.KProperty1
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
-fun <S : MVI.State> Flow<S>.collectState(
+fun <S : Mvi.State> Flow<S>.collectState(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     collector: StateCollector<S>.() -> Unit,
@@ -27,7 +27,7 @@ fun <S : MVI.State> Flow<S>.collectState(
     StateCollector(this@collectState.distinctUntilChanged(), owner, state).collector()
 }
 
-class StateCollector<S : MVI.State> internal constructor(
+class StateCollector<S : Mvi.State> internal constructor(
     private val flow: Flow<S>,
     private val owner: LifecycleOwner,
     private val state: Lifecycle.State,
@@ -51,7 +51,7 @@ class StateCollector<S : MVI.State> internal constructor(
     }
 }
 
-fun <S : MVI.State, A> Flow<S>.collectPartialState(
+fun <S : Mvi.State, A> Flow<S>.collectPartialState(
     prop1: KProperty1<S, A>,
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
@@ -68,7 +68,7 @@ fun <S : MVI.State, A> Flow<S>.collectPartialState(
 }
 
 
-fun <E : MVI.Event> Flow<E>.collectEvent(
+fun <E : Mvi.Event> Flow<E>.collectEvent(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     collector: EventCollector<E>.() -> Unit,
@@ -76,7 +76,7 @@ fun <E : MVI.Event> Flow<E>.collectEvent(
     EventCollector(this@collectEvent, owner, state).collector()
 }
 
-class EventCollector<E : MVI.Event> internal constructor(
+class EventCollector<E : Mvi.Event> internal constructor(
     private val flow: Flow<E>,
     private val owner: LifecycleOwner,
     private val state: Lifecycle.State,
@@ -103,7 +103,7 @@ class EventCollector<E : MVI.Event> internal constructor(
     }
 }
 
-inline fun <reified E : MVI.Event> Flow<MVI.Event>.collectParticularEvent(
+inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectParticularEvent(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     crossinline block: suspend (E) -> Unit,
