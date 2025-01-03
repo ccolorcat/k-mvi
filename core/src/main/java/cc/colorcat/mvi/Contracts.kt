@@ -21,22 +21,22 @@ import kotlinx.coroutines.launch
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
-interface Contract<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
+interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
     val stateFlow: StateFlow<S>
 
     val eventFlow: Flow<E>
 }
 
-interface ReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event> : Contract<I, S, E> {
+interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contract<I, S, E> {
     fun dispatch(intent: I)
 }
 
-fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> ReactiveContract<I, S, E>.asContract(): Contract<I, S, E> {
+fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asContract(): Contract<I, S, E> {
     return this
 }
 
 
-internal open class CoreReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
+internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val scope: CoroutineScope,
     initState: S,
     retryPolicy: RetryPolicy,
@@ -44,8 +44,8 @@ internal open class CoreReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.
 ) : ReactiveContract<I, S, E> {
     private val intentFlow = MutableSharedFlow<I>()
 
-    private val snapshotFlow: SharedFlow<MVI.Snapshot<S, E>> = intentFlow.toPartialChange(transformer)
-        .scan(MVI.Snapshot<S, E>(initState)) { oldSnapshot, partialChange -> partialChange.apply(oldSnapshot) }
+    private val snapshotFlow: SharedFlow<Mvi.Snapshot<S, E>> = intentFlow.toPartialChange(transformer)
+        .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange -> partialChange.apply(oldSnapshot) }
         .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .flowOn(Dispatchers.Default)
         .shareIn(scope, SharingStarted.Eagerly)
@@ -64,7 +64,7 @@ internal open class CoreReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.
 }
 
 
-internal class StrategyReactiveContract<I : MVI.Intent, S : MVI.State, E : MVI.Event> private constructor(
+internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> private constructor(
     scope: CoroutineScope,
     initState: S,
     retryPolicy: RetryPolicy,

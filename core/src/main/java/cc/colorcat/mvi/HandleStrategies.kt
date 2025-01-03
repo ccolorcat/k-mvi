@@ -12,7 +12,7 @@ enum class HandleStrategy {
 }
 
 
-data class HybridConfig<in I : MVI.Intent>(
+data class HybridConfig<in I : Mvi.Intent>(
     internal val groupChannelCapacity: Int = Channel.BUFFERED,
     internal val groupTagSelector: (I) -> String = { it.javaClass.name }
 )

@@ -7,13 +7,13 @@ import kotlinx.coroutines.flow.Flow
  * Date: 2024-12-24
  * GitHub: https://github.com/ccolorcat
  */
-fun interface IntentHandler<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
-    suspend fun handle(intent: I): Flow<MVI.PartialChange<S, E>>
+fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
+    suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>>
 }
 
 
-interface IntentHandlerRegistry<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
-    fun <T : I> register(intentType: Class<T>, handler: suspend (intent: T) -> MVI.PartialChange<S, E>) {
+interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
+    fun <T : I> register(intentType: Class<T>, handler: suspend (intent: T) -> Mvi.PartialChange<S, E>) {
         register(intentType, IntentHandler { handler(it).asSingleFlow() })
     }
 
@@ -23,7 +23,7 @@ interface IntentHandlerRegistry<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
 }
 
 
-internal class IntentHandlerDelegate<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
+internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val defaultHandler: IntentHandler<I, S, E>
 ) : IntentHandlerRegistry<I, S, E>, IntentHandler<I, S, E> {
     private val handlers = mutableMapOf<Class<*>, IntentHandler<*, S, E>>()
@@ -36,7 +36,7 @@ internal class IntentHandlerDelegate<I : MVI.Intent, S : MVI.State, E : MVI.Even
         handlers.remove(intentType)
     }
 
-    override suspend fun handle(intent: I): Flow<MVI.PartialChange<S, E>> {
+    override suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
         var handler = handlers[intent.javaClass]
         if (handler == null) {
             logger.log(Logger.WARN, TAG, null) {

@@ -5,7 +5,7 @@ package cc.colorcat.mvi
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
-sealed interface MVI {
+sealed interface Mvi {
     interface Intent {
         interface Concurrent : Intent
         interface Sequential : Intent

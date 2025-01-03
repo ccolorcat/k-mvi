@@ -7,7 +7,7 @@ package cc.colorcat.mvi
  */
 typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
 
-object MVIKit {
+object MviKit {
     private var default: Configuration = Configuration()
 
     internal val logger: Logger
@@ -16,7 +16,7 @@ object MVIKit {
     internal val handleStrategy: HandleStrategy
         get() = default.handleStrategy
 
-    internal val hybridConfig: HybridConfig<MVI.Intent>
+    internal val hybridConfig: HybridConfig<Mvi.Intent>
         get() = default.hybridConfig
 
     internal val retryPolicy: RetryPolicy
@@ -34,7 +34,7 @@ object MVIKit {
 
     data class Configuration(
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
-        val hybridConfig: HybridConfig<MVI.Intent> = HybridConfig(),
+        val hybridConfig: HybridConfig<Mvi.Intent> = HybridConfig(),
         val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
         val logger: Logger = Logger(),
     )

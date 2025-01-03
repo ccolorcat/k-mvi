@@ -1,6 +1,6 @@
 package cc.colorcat.mvi.sample
 
-import cc.colorcat.mvi.MVI
+import cc.colorcat.mvi.Mvi
 
 /**
  * Author: ccolorcat
@@ -10,24 +10,24 @@ import cc.colorcat.mvi.MVI
 sealed interface IMain {
     data class State(
         val count: Int = 0
-    ) : MVI.State {
+    ) : Mvi.State {
         val countText: CharSequence
             get() = count.toString()
     }
 
-    sealed interface Event : MVI.Event {
+    sealed interface Event : Mvi.Event {
         data class ShowToast(val message: CharSequence) : Event
     }
 
-    sealed interface Intent : MVI.Intent {
-        data object Increment : Intent, MVI.Intent.Concurrent
+    sealed interface Intent : Mvi.Intent {
+        data object Increment : Intent, Mvi.Intent.Concurrent
 
-        data object Decrement : Intent, MVI.Intent.Sequential
+        data object Decrement : Intent, Mvi.Intent.Sequential
 
-        data object Test : Intent, MVI.Intent.Sequential
+        data object Test : Intent, Mvi.Intent.Sequential
 
-        data object LoadTest : Intent, MVI.Intent.Concurrent
+        data object LoadTest : Intent, Mvi.Intent.Concurrent
     }
 
-    fun interface PartialChange : MVI.PartialChange<State, Event>
+    fun interface PartialChange : Mvi.PartialChange<State, Event>
 }

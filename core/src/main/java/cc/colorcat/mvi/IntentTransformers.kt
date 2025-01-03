@@ -11,42 +11,33 @@ import kotlinx.coroutines.flow.flattenMerge
  * Date: 2024-12-24
  * GitHub: https://github.com/ccolorcat
  */
-fun interface IntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.Event> {
-    fun transform(intentFlow: Flow<I>): Flow<MVI.PartialChange<S, E>>
+fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
+    fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>>
 
     companion object {
-        internal operator fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> invoke(
+        internal operator fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> invoke(
             strategy: HandleStrategy,
             config: HybridConfig<I>,
             handler: IntentHandler<I, S, E>,
         ): IntentTransformer<I, S, E> {
             return StrategyIntentTransformer(strategy, config, handler)
         }
-
-//        operator fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> invoke(
-//            scope: CoroutineScope,
-//            strategy: HandleStrategy,
-//            config: HybridConfig<I>,
-//            handler: IntentHandler<I, S, E>,
-//        ): IntentTransformer<I, S, E> {
-//            return StrategyIntentTransformer2(scope, strategy, config, handler)
-//        }
     }
 }
 
 
-fun <I : MVI.Intent, S : MVI.State, E : MVI.Event> Flow<I>.toPartialChange(
+fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> Flow<I>.toPartialChange(
     transformer: IntentTransformer<I, S, E>
-): Flow<MVI.PartialChange<S, E>> = transformer.transform(this)
+): Flow<Mvi.PartialChange<S, E>> = transformer.transform(this)
 
 
-internal class StrategyIntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
+internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val strategy: HandleStrategy,
     private val config: HybridConfig<I>,
     private val handler: IntentHandler<I, S, E>,
 ) : IntentTransformer<I, S, E> {
 
-    override fun transform(intentFlow: Flow<I>): Flow<MVI.PartialChange<S, E>> {
+    override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
         logger.log(Logger.INFO, TAG, null) {
             if (strategy == HandleStrategy.HYBRID) {
                 "Transforming intents using strategy: strategy = $strategy, config = $config"
@@ -62,12 +53,12 @@ internal class StrategyIntentTransformer<I : MVI.Intent, S : MVI.State, E : MVI.
         }
     }
 
-    private fun Flow<I>.hybrid(): Flow<Flow<MVI.PartialChange<S, E>>> {
+    private fun Flow<I>.hybrid(): Flow<Flow<Mvi.PartialChange<S, E>>> {
         return groupHandle(config.groupChannelCapacity, ::assignGroupTag) { handleByTag(it) }
     }
 
     @OptIn(FlowPreview::class)
-    private fun Flow<I>.handleByTag(tag: String): Flow<MVI.PartialChange<S, E>> {
+    private fun Flow<I>.handleByTag(tag: String): Flow<Mvi.PartialChange<S, E>> {
         return if (tag == TAG_CONCURRENT) {
             flatMapMerge { handler.handle(it) }
         } else {

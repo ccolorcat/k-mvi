@@ -16,26 +16,26 @@ import java.util.concurrent.ConcurrentHashMap
 internal const val TAG = "k-mvi"
 
 internal val logger: Logger
-    get() = MVIKit.logger
+    get() = MviKit.logger
 
 
-internal val MVI.Intent.isConcurrent: Boolean
-    get() = this is MVI.Intent.Concurrent && this !is MVI.Intent.Sequential
+internal val Mvi.Intent.isConcurrent: Boolean
+    get() = this is Mvi.Intent.Concurrent && this !is Mvi.Intent.Sequential
 
-internal val MVI.Intent.isSequential: Boolean
-    get() = this is MVI.Intent.Sequential && this !is MVI.Intent.Concurrent
+internal val Mvi.Intent.isSequential: Boolean
+    get() = this is Mvi.Intent.Sequential && this !is Mvi.Intent.Concurrent
 
 /**
  * Checks if the Intent has conflicting types or doesn't fall into either Concurrent or Sequential categories.
  * Logs a warning if an Intent is marked both Concurrent and Sequential, as it may cause unpredictable behavior.
  */
-internal val MVI.Intent.isFallback: Boolean
+internal val Mvi.Intent.isFallback: Boolean
     get() {
-        if (this !is MVI.Intent.Concurrent && this !is MVI.Intent.Sequential) {
+        if (this !is Mvi.Intent.Concurrent && this !is Mvi.Intent.Sequential) {
             return true
         }
 
-        val isConflictingIntent = this is MVI.Intent.Concurrent && this is MVI.Intent.Sequential
+        val isConflictingIntent = this is Mvi.Intent.Concurrent && this is Mvi.Intent.Sequential
         if (isConflictingIntent) {
             logger.log(Logger.WARN, TAG, null) {
                 "${javaClass.name} implements both Concurrent and Sequential, which may lead to unpredictable behavior."
@@ -44,7 +44,7 @@ internal val MVI.Intent.isFallback: Boolean
         return isConflictingIntent
     }
 
-internal fun <I : MVI.Intent, R> Flow<I>.groupHandle(
+internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     capacity: Int,
     tagSelector: (I) -> String,
     handler: Flow<I>.(tag: String) -> Flow<R>,
