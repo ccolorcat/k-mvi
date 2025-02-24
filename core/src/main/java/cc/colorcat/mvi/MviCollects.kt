@@ -24,7 +24,7 @@ fun <S : Mvi.State> Flow<S>.collectState(
     state: Lifecycle.State = Lifecycle.State.STARTED,
     collector: StateCollector<S>.() -> Unit,
 ) {
-    StateCollector(this@collectState.distinctUntilChanged(), owner, state).collector()
+    StateCollector(this, owner, state).collector()
 }
 
 class StateCollector<S : Mvi.State> internal constructor(
@@ -45,7 +45,8 @@ class StateCollector<S : Mvi.State> internal constructor(
     fun collectWhole(block: suspend (S) -> Unit): Job {
         return owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(state) {
-                flow.collect(block)
+                flow.distinctUntilChanged()
+                    .collect(block)
             }
         }
     }

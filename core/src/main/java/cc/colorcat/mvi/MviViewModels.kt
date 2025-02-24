@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.emptyFlow
  */
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
-    retryPolicy: RetryPolicy = MviKit.retryPolicy,
+    retryPolicy: RetryPolicy = KMvi.retryPolicy,
     transformer: IntentTransformer<I, S, E>
 ): Lazy<ReactiveContract<I, S, E>> {
     return ReactiveContractLazy {
@@ -27,9 +27,9 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
 
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
-    retryPolicy: RetryPolicy = MviKit.retryPolicy,
-    strategy: HandleStrategy = MviKit.handleStrategy,
-    config: HybridConfig<I> = MviKit.hybridConfig,
+    retryPolicy: RetryPolicy = KMvi.retryPolicy,
+    strategy: HandleStrategy = KMvi.handleStrategy,
+    config: HybridConfig<I> = KMvi.hybridConfig,
     defaultHandler: IntentHandler<I, S, E> = IntentHandler { emptyFlow() },
     setup: IntentHandlerRegistry<I, S, E>.() -> Unit = {}
 ): Lazy<ReactiveContract<I, S, E>> {

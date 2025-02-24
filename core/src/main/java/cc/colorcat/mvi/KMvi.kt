@@ -7,7 +7,7 @@ package cc.colorcat.mvi
  */
 typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
 
-object MviKit {
+object KMvi {
     private var default: Configuration = Configuration()
 
     internal val logger: Logger
