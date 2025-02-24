@@ -24,7 +24,7 @@ fun <S : Mvi.State> Flow<S>.collectState(
     state: Lifecycle.State = Lifecycle.State.STARTED,
     collector: StateCollector<S>.() -> Unit,
 ) {
-    StateCollector(this@collectState.distinctUntilChanged(), owner, state).collector()
+    StateCollector(this, owner, state).collector()
 }
 
 class StateCollector<S : Mvi.State> internal constructor(
@@ -32,20 +32,28 @@ class StateCollector<S : Mvi.State> internal constructor(
     private val owner: LifecycleOwner,
     private val state: Lifecycle.State,
 ) {
-    fun <A> collectPartial(prop1: KProperty1<S, A>, block: suspend (A) -> Unit): Job {
+    fun <A> collectPartial(
+        prop1: KProperty1<S, A>,
+        areEquivalent: (A, A) -> Boolean = { old, new -> old == new },
+        block: suspend (A) -> Unit
+    ): Job {
         return owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(state) {
                 flow.map { prop1.get(it) }
-                    .distinctUntilChanged()
+                    .distinctUntilChanged(areEquivalent)
                     .collect(block)
             }
         }
     }
 
-    fun collectWhole(block: suspend (S) -> Unit): Job {
+    fun collectWhole(
+        areEquivalent: (S, S) -> Boolean = { old, new -> old == new },
+        block: suspend (S) -> Unit
+    ): Job {
         return owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(state) {
-                flow.collect(block)
+                flow.distinctUntilChanged(areEquivalent)
+                    .collect(block)
             }
         }
     }

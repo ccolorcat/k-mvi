@@ -2,7 +2,7 @@ package cc.colorcat.mvi.sample
 
 import android.app.Application
 import cc.colorcat.mvi.Logger
-import cc.colorcat.mvi.MviKit
+import cc.colorcat.mvi.KMvi
 
 /**
  * Author: ccolorcat
@@ -12,7 +12,7 @@ import cc.colorcat.mvi.MviKit
 class SampleApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        MviKit.setup {
+        KMvi.setup {
             copy(logger = Logger(Logger.DEBUG))
         }
     }

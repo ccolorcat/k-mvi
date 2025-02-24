@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -45,21 +46,46 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     private val intentFlow = MutableSharedFlow<I>()
 
     private val snapshotFlow: SharedFlow<Mvi.Snapshot<S, E>> = intentFlow.toPartialChange(transformer)
-        .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange -> partialChange.apply(oldSnapshot) }
-        .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
-        .flowOn(Dispatchers.Default)
-        .shareIn(scope, SharingStarted.Eagerly)
+            .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
+                partialChange.apply(oldSnapshot)
+            }
+            .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
+            .flowOn(Dispatchers.Default)
+            .shareIn(scope, SharingStarted.Eagerly)
 
     override val stateFlow: StateFlow<S> = snapshotFlow.map { it.state }
-        .stateIn(scope, SharingStarted.Eagerly, initState)
+        .stateIn(scope, stateConfig, initState)
 
     override val eventFlow: Flow<E> = snapshotFlow.mapNotNull { it.event }
-        .shareIn(scope, SharingStarted.Eagerly)
+        .shareIn(scope, eventConfig, 0)
 
     override fun dispatch(intent: I) {
-        scope.launch {
-            intentFlow.emit(intent)
+        if (scope.isActive) {
+            scope.launch { intentFlow.emit(intent) }
+        } else {
+            logger.log(Logger.WARN, TAG, null) {
+                "Scope inactive, intent discarded: ${intent.javaClass.simpleName}"
+            }
         }
+    }
+
+    private companion object {
+        const val STATE_STOP_TIMEOUT_MILLIS = 5_000L
+        const val EVENT_STOP_TIMEOUT_MILLIS = 3_000L
+
+        const val REPLAY_EXPIRATION_MILLIS = 0L
+
+        val stateConfig: SharingStarted
+            get() = SharingStarted.WhileSubscribed(
+                stopTimeoutMillis = STATE_STOP_TIMEOUT_MILLIS,
+                replayExpirationMillis = REPLAY_EXPIRATION_MILLIS
+            )
+
+        val eventConfig: SharingStarted
+            get() = SharingStarted.WhileSubscribed(
+                stopTimeoutMillis = EVENT_STOP_TIMEOUT_MILLIS,
+                replayExpirationMillis = REPLAY_EXPIRATION_MILLIS
+            )
     }
 }
 

@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal const val TAG = "k-mvi"
 
 internal val logger: Logger
-    get() = MviKit.logger
+    get() = KMvi.logger
 
 
 internal val Mvi.Intent.isConcurrent: Boolean
