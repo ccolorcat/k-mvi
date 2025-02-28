@@ -6,6 +6,8 @@ import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -64,6 +66,38 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
         }
     } finally {
         synchronized(activeChannels) {
+            activeChannels.forEach { it.value.close() }
+            activeChannels.clear()
+        }
+    }
+}
+
+
+internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle2(
+    capacity: Int,
+    tagSelector: (I) -> String,
+    handler: Flow<I>.(tag: String) -> Flow<R>,
+): Flow<Flow<R>> = flow {
+    val lock = Mutex()
+    val activeChannels = hashMapOf<String, SendChannel<I>>()
+    try {
+        collect { intent ->
+            val tag = tagSelector(intent)
+            val channel = lock.withLock {
+                activeChannels.getOrPut(tag) {
+                    Channel<I>(capacity).also { emit(it.consumeAsFlow().handler(tag)) }
+                }
+            }
+            try {
+                channel.send(intent)
+            } catch (e: ClosedSendChannelException) {
+                lock.withLock {
+                    activeChannels.remove(tag, channel)
+                }
+            }
+        }
+    } finally {
+        lock.withLock {
             activeChannels.forEach { it.value.close() }
             activeChannels.clear()
         }

@@ -2,11 +2,13 @@ package cc.colorcat.mvi
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
@@ -43,49 +45,33 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     retryPolicy: RetryPolicy,
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
-    private val intentFlow = MutableSharedFlow<I>()
+    private val intents = MutableSharedFlow<I>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.SUSPEND
+    )
 
-    private val snapshotFlow: SharedFlow<Mvi.Snapshot<S, E>> = intentFlow.toPartialChange(transformer)
-            .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
-                partialChange.apply(oldSnapshot)
-            }
-            .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
-            .flowOn(Dispatchers.Default)
-            .shareIn(scope, SharingStarted.Eagerly)
+    private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intents.toPartialChange(transformer)
+        .flowOn(Dispatchers.IO)
+        .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
+            partialChange.apply(oldSnapshot)
+        }
+        .buffer(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        .flowOn(Dispatchers.Default)
+        .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
+        .shareIn(scope, SharingStarted.Eagerly, 0)
 
-    override val stateFlow: StateFlow<S> = snapshotFlow.map { it.state }
-        .stateIn(scope, stateConfig, initState)
+    override val stateFlow: StateFlow<S> = snapshots.map { it.state }
+        .stateIn(scope, SharingStarted.Eagerly, initState)
 
-    override val eventFlow: Flow<E> = snapshotFlow.mapNotNull { it.event }
-        .shareIn(scope, eventConfig, 0)
+    override val eventFlow: Flow<E> = snapshots.mapNotNull { it.event }
+        .shareIn(scope, SharingStarted.Lazily, 0)
 
     override fun dispatch(intent: I) {
         if (scope.isActive) {
-            scope.launch { intentFlow.emit(intent) }
+            scope.launch { intents.emit(intent) }
         } else {
-            logger.log(Logger.WARN, TAG, null) {
-                "Scope inactive, intent discarded: ${intent.javaClass.simpleName}"
-            }
+            logger.log(Logger.WARN, TAG, null) { "Scope inactive, intent discarded: $intent" }
         }
-    }
-
-    private companion object {
-        const val STATE_STOP_TIMEOUT_MILLIS = 5_000L
-        const val EVENT_STOP_TIMEOUT_MILLIS = 3_000L
-
-        const val REPLAY_EXPIRATION_MILLIS = 0L
-
-        val stateConfig: SharingStarted
-            get() = SharingStarted.WhileSubscribed(
-                stopTimeoutMillis = STATE_STOP_TIMEOUT_MILLIS,
-                replayExpirationMillis = REPLAY_EXPIRATION_MILLIS
-            )
-
-        val eventConfig: SharingStarted
-            get() = SharingStarted.WhileSubscribed(
-                stopTimeoutMillis = EVENT_STOP_TIMEOUT_MILLIS,
-                replayExpirationMillis = REPLAY_EXPIRATION_MILLIS
-            )
     }
 }
 

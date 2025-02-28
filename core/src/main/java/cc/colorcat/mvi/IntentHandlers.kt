@@ -13,7 +13,10 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
 
 
 interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
-    fun <T : I> register(intentType: Class<T>, handler: suspend (intent: T) -> Mvi.PartialChange<S, E>) {
+    fun <T : I> register(
+        intentType: Class<T>,
+        handler: suspend (intent: T) -> Mvi.PartialChange<S, E>
+    ) {
         register(intentType, IntentHandler { handler(it).asSingleFlow() })
     }
 
@@ -47,7 +50,7 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
             @Suppress("UNCHECKED_CAST")
             handler as IntentHandler<I, S, E>
         }
-        logger.log(Logger.INFO, TAG, null) { "Handling intent: ${intent.javaClass}" }
+        logger.log(Logger.INFO, TAG, null) { "Handling intent: $intent" }
         return handler.handle(intent)
     }
 }
