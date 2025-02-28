@@ -2,6 +2,7 @@ package cc.colorcat.mvi.sample
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.contract
@@ -20,6 +21,7 @@ import kotlinx.coroutines.withContext
  */
 class MainViewModel : ViewModel() {
     private val contract1: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(
+        strategy = HandleStrategy.CONCURRENT,
         initState = IMain.State(),
     ) {
         register(IMain.Intent.Increment::class.java, ::handleIncrement)
@@ -60,24 +62,28 @@ class MainViewModel : ViewModel() {
     private fun handleIncrement(intent: IMain.Intent.Increment): IMain.PartialChange {
         return IMain.PartialChange {
             val oldCount = it.state.count
-            if (oldCount >= 20) {
-                it.with(IMain.Event.ShowToast("Already reached 20"))
-//                throw IllegalStateException("already reached 10")
-            } else {
-                it.update { copy(count = oldCount + 1) }
-            }
+            it.update { copy(count = oldCount + 1) }
+
+//            if (oldCount >= 20) {
+//                it.with(IMain.Event.ShowToast("Already reached 20"))
+////                throw IllegalStateException("already reached 10")
+//            } else {
+//                it.update { copy(count = oldCount + 1) }
+//            }
         }
     }
 
     private fun handleDecrement(intent: IMain.Intent.Decrement): Flow<IMain.PartialChange> {
         return IMain.PartialChange {
             val oldCount = it.state.count
-            if (oldCount <= 0) {
-                throw IllegalStateException("already reached 0")
-//                it.with(IMain.Event.ShowToast("Already reached 0"))
-            } else {
-                it.update { copy(count = oldCount - 1) }
-            }
+            it.update { copy(count = oldCount - 1) }
+
+//            if (oldCount <= 0) {
+//                throw IllegalStateException("already reached 0")
+////                it.with(IMain.Event.ShowToast("Already reached 0"))
+//            } else {
+//                it.update { copy(count = oldCount - 1) }
+//            }
         }.asSingleFlow()
     }
 
