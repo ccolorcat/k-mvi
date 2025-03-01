@@ -4,6 +4,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -11,6 +13,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty1
 
@@ -116,4 +120,26 @@ inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectParticularEvent(
             }
         }
     }
+}
+
+
+fun <T> Flow<T>.launchCollect(
+    owner: LifecycleOwner,
+    state: Lifecycle.State = Lifecycle.State.STARTED,
+    context: CoroutineContext = EmptyCoroutineContext,
+    start: CoroutineStart = CoroutineStart.DEFAULT,
+    block: suspend (T) -> Unit,
+): Job = owner.lifecycleScope.launch(context, start) {
+    owner.lifecycle.repeatOnLifecycle(state) {
+        this@launchCollect.collect(block)
+    }
+}
+
+fun <T> Flow<T>.launchCollect(
+    scope: CoroutineScope,
+    context: CoroutineContext = EmptyCoroutineContext,
+    start: CoroutineStart = CoroutineStart.DEFAULT,
+    block: suspend (T) -> Unit,
+): Job = scope.launch(context, start) {
+    this@launchCollect.collect(block)
 }
