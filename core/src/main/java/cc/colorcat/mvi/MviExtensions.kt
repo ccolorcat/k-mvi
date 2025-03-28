@@ -47,6 +47,13 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
     awaitClose { setOnClickListener(null) }
 }
 
+fun <I : Mvi.Intent> View.doOnLongClick(block: ProducerScope<I>.() -> Boolean): Flow<I> = callbackFlow {
+        setOnLongClickListener {
+            this.block()
+        }
+        awaitClose { setOnLongClickListener(null) }
+    }
+
 fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
     block: ProducerScope<I>.(isChecked: Boolean) -> Unit
 ): Flow<I> = callbackFlow {
