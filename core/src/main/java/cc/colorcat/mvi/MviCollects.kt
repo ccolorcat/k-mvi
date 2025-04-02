@@ -39,7 +39,11 @@ class StateCollector<S : Mvi.State> internal constructor(
     private val owner: LifecycleOwner,
     private val state: Lifecycle.State,
 ) {
-    fun <A> collectPartial(prop1: KProperty1<S, A>, block: suspend (A) -> Unit): Job {
+    fun <A> collectPartial(
+        prop1: KProperty1<S, A>,
+        state: Lifecycle.State = this.state,
+        block: suspend (A) -> Unit
+    ): Job {
         return owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(state) {
                 flow.map { prop1.get(it) }
@@ -49,7 +53,10 @@ class StateCollector<S : Mvi.State> internal constructor(
         }
     }
 
-    fun collectWhole(block: suspend (S) -> Unit): Job {
+    fun collectWhole(
+        state: Lifecycle.State = this.state,
+        block: suspend (S) -> Unit
+    ): Job {
         return owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(state) {
                 flow.distinctUntilChanged()
@@ -87,13 +94,20 @@ fun <E : Mvi.Event> Flow<E>.collectEvent(
 class EventCollector<E : Mvi.Event> internal constructor(
     private val flow: Flow<E>,
     private val owner: LifecycleOwner,
-    private val state: Lifecycle.State,
+    val state: Lifecycle.State,
 ) {
-    inline fun <reified A : E> collectParticular(noinline block: suspend (A) -> Unit): Job {
-        return collectParticular(A::class, block)
+    inline fun <reified A : E> collectParticular(
+        state: Lifecycle.State = this.state,
+        noinline block: suspend (A) -> Unit
+    ): Job {
+        return collectParticular(A::class, state, block)
     }
 
-    fun <A : E> collectParticular(clazz: KClass<A>, block: suspend (A) -> Unit): Job {
+    fun <A : E> collectParticular(
+        clazz: KClass<A>,
+        state: Lifecycle.State = this.state,
+        block: suspend (A) -> Unit
+    ): Job {
         return owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(state) {
                 @Suppress("UNCHECKED_CAST")
@@ -102,7 +116,10 @@ class EventCollector<E : Mvi.Event> internal constructor(
         }
     }
 
-    fun collectAll(block: suspend (E) -> Unit): Job {
+    fun collectAll(
+        state: Lifecycle.State = this.state,
+        block: suspend (E) -> Unit
+    ): Job {
         return owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(state) {
                 flow.collect(block)
