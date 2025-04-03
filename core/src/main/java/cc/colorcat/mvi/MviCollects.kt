@@ -8,6 +8,7 @@ import androidx.lifecycle.withStateAtLeast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -30,39 +31,41 @@ fun <S : Mvi.State> Flow<S>.collectState(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     collector: StateCollector<S>.() -> Unit,
-) {
-    StateCollector(this, owner, state).collector()
-}
+): Job = StateCollector(this, owner, state).apply(collector).job
 
 class StateCollector<S : Mvi.State> internal constructor(
     private val flow: Flow<S>,
     private val owner: LifecycleOwner,
     private val state: Lifecycle.State,
 ) {
+    private val _job = SupervisorJob()
+    internal val job: Job
+        get() = _job
+
     fun <A> collectPartial(
         prop1: KProperty1<S, A>,
-        state: Lifecycle.State = this.state,
+        block: suspend (A) -> Unit
+    ): Job = collectPartial(prop1, state, block)
+
+    fun <A> collectPartial(
+        prop1: KProperty1<S, A>,
+        state: Lifecycle.State,
         block: suspend (A) -> Unit
     ): Job {
-        return owner.lifecycleScope.launch {
-            owner.repeatOnLifecycle(state) {
-                flow.map { prop1.get(it) }
-                    .distinctUntilChanged()
-                    .collect(block)
-            }
-        }
+        return flow.map { prop1.get(it) }
+            .distinctUntilChanged()
+            .launchWithLifecycle(owner, state, _job, block)
     }
 
-    fun collectWhole(
-        state: Lifecycle.State = this.state,
-        block: suspend (S) -> Unit
-    ): Job {
-        return owner.lifecycleScope.launch {
-            owner.repeatOnLifecycle(state) {
-                flow.distinctUntilChanged()
-                    .collect(block)
-            }
-        }
+    fun collectWhole(block: suspend (S) -> Unit): Job = collectWhole(state, block)
+
+    fun collectWhole(state: Lifecycle.State, block: suspend (S) -> Unit): Job {
+        return flow.distinctUntilChanged()
+            .launchWithLifecycle(owner, state, _job, block)
+    }
+
+    fun cancelAll() {
+        _job.cancel()
     }
 }
 
@@ -70,16 +73,12 @@ fun <S : Mvi.State, A> Flow<S>.collectPartialState(
     prop1: KProperty1<S, A>,
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
+    context: CoroutineContext = EmptyCoroutineContext,
     block: suspend (A) -> Unit,
 ): Job {
-    return owner.lifecycleScope.launch {
-        owner.repeatOnLifecycle(state) {
-            this@collectPartialState.distinctUntilChanged()
-                .map { prop1.get(it) }
-                .distinctUntilChanged()
-                .collect(block)
-        }
-    }
+    return map { prop1.get(it) }
+        .distinctUntilChanged()
+        .launchWithLifecycle(owner, state, context, block)
 }
 
 
@@ -87,60 +86,58 @@ fun <E : Mvi.Event> Flow<E>.collectEvent(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     collector: EventCollector<E>.() -> Unit,
-) {
-    EventCollector(this@collectEvent, owner, state).collector()
-}
+): Job = EventCollector(this, owner, state).apply(collector).job
 
 class EventCollector<E : Mvi.Event> internal constructor(
     private val flow: Flow<E>,
     private val owner: LifecycleOwner,
     val state: Lifecycle.State,
 ) {
+    private val _job = SupervisorJob()
+    internal val job: Job
+        get() = _job
+
     inline fun <reified A : E> collectParticular(
-        state: Lifecycle.State = this.state,
         noinline block: suspend (A) -> Unit
-    ): Job {
-        return collectParticular(A::class, state, block)
-    }
+    ): Job = collectParticular(state, block)
+
+    inline fun <reified A : E> collectParticular(
+        state: Lifecycle.State,
+        noinline block: suspend (A) -> Unit
+    ): Job = collectParticular(A::class, state, block)
 
     fun <A : E> collectParticular(
         clazz: KClass<A>,
-        state: Lifecycle.State = this.state,
+        block: suspend (A) -> Unit
+    ): Job = collectParticular(clazz, state, block)
+
+    fun <A : E> collectParticular(
+        clazz: KClass<A>,
+        state: Lifecycle.State,
         block: suspend (A) -> Unit
     ): Job {
-        return owner.lifecycleScope.launch {
-            owner.repeatOnLifecycle(state) {
-                @Suppress("UNCHECKED_CAST")
-                (flow.filter { clazz.isInstance(it) } as Flow<A>).collect(block)
-            }
-        }
+        @Suppress("UNCHECKED_CAST")
+        return (flow.filter { clazz.isInstance(it) } as Flow<A>)
+            .launchWithLifecycle(owner, state, _job, block)
     }
 
-    fun collectAll(
-        state: Lifecycle.State = this.state,
-        block: suspend (E) -> Unit
-    ): Job {
-        return owner.lifecycleScope.launch {
-            owner.repeatOnLifecycle(state) {
-                flow.collect(block)
-            }
-        }
+    fun collectAll(block: suspend (E) -> Unit): Job = collectAll(state, block)
+
+    fun collectAll(state: Lifecycle.State, block: suspend (E) -> Unit): Job {
+        return flow.launchWithLifecycle(owner, state, _job, block)
+    }
+
+    fun cancelAll() {
+        _job.cancel()
     }
 }
 
 inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectParticularEvent(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
+    context: CoroutineContext = EmptyCoroutineContext,
     crossinline block: suspend (E) -> Unit,
-): Job {
-    return owner.lifecycleScope.launch {
-        owner.repeatOnLifecycle(state) {
-            this@collectParticularEvent.filterIsInstance<E>().collect {
-                block(it)
-            }
-        }
-    }
-}
+): Job = filterIsInstance<E>().launchWithLifecycle(owner, state, context, block)
 
 
 fun <T> Flow<T>.launchCollect(
@@ -150,7 +147,7 @@ fun <T> Flow<T>.launchCollect(
     start: CoroutineStart = CoroutineStart.DEFAULT,
     block: suspend (T) -> Unit,
 ): Job = owner.lifecycleScope.launch(context, start) {
-    owner.lifecycle.repeatOnLifecycle(state) {
+    owner.repeatOnLifecycle(state) {
         this@launchCollect.collect(block)
     }
 }
@@ -170,10 +167,21 @@ fun <I : Mvi.Intent> Flow<I>.dispatchAtLeast(
     state: Lifecycle.State,
     dispatch: (I) -> Unit
 ): Job {
-    val intents = this
     return owner.lifecycleScope.launch {
         owner.withStateAtLeast(state) {
-            intents.onEach { dispatch(it) }.launchIn(owner.lifecycleScope)
+            onEach { dispatch(it) }.launchIn(owner.lifecycleScope)
         }
+    }
+}
+
+
+inline fun <T> Flow<T>.launchWithLifecycle(
+    owner: LifecycleOwner,
+    state: Lifecycle.State,
+    context: CoroutineContext = EmptyCoroutineContext,
+    crossinline block: suspend (T) -> Unit
+): Job = owner.lifecycleScope.launch(context) {
+    owner.repeatOnLifecycle(state) {
+        this@launchWithLifecycle.collect { block(it) }
     }
 }
