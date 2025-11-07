@@ -1,8 +1,6 @@
-package cc.colorcat.mvi
+package cc.colorcat.mvi.internal
 
-import cc.colorcat.mvi.internal.TAG
-import cc.colorcat.mvi.internal.logger
-import cc.colorcat.mvi.internal.w
+import cc.colorcat.mvi.Mvi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
