@@ -28,17 +28,17 @@ sealed interface IMain2 {
             return when (this) {
                 is Increment -> {
                     if (oldCount >= 99) {
-                        old.with(Event.ShowToast("Already reached 99"))
+                        old.withEvent(Event.ShowToast("Already reached 99"))
                     } else {
-                        old.update { copy(count = oldCount + 1) }
+                        old.updateState { copy(count = oldCount + 1) }
                     }
                 }
 
                 is Decrement -> {
                     if (oldCount <= 0) {
-                        old.with(Event.ShowToast("Already reached 0"))
+                        old.withEvent(Event.ShowToast("Already reached 0"))
                     } else {
-                        old.update { copy(count = oldCount - 1) }
+                        old.updateState { copy(count = oldCount - 1) }
                     }
                 }
             }

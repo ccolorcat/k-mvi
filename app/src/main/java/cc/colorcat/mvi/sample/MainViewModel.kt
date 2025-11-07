@@ -50,9 +50,13 @@ class MainViewModel : ViewModel() {
 
     private fun handleIntent(intent: IMain.Intent): IMain.PartialChange {
         return when (intent) {
-            is IMain.Intent.Increment -> IMain.PartialChange { it.update { copy(count = count + 1) } }
-            is IMain.Intent.Decrement -> IMain.PartialChange { it.update { copy(count = count - 1) } }
-            is IMain.Intent.Test, IMain.Intent.LoadTest -> IMain.PartialChange { it.with(IMain.Event.ShowToast("test: ${intent.javaClass.simpleName}")) }
+            is IMain.Intent.Increment -> IMain.PartialChange { it.updateState { copy(count = count + 1) } }
+            is IMain.Intent.Decrement -> IMain.PartialChange { it.updateState { copy(count = count - 1) } }
+            is IMain.Intent.Test, IMain.Intent.LoadTest -> IMain.PartialChange {
+                it.withEvent(
+                    IMain.Event.ShowToast("test: ${intent.javaClass.simpleName}")
+                )
+            }
         }
     }
 
@@ -61,10 +65,10 @@ class MainViewModel : ViewModel() {
         return IMain.PartialChange {
             val oldCount = it.state.count
             if (oldCount >= 20) {
-                it.with(IMain.Event.ShowToast("Already reached 20"))
+                it.withEvent(IMain.Event.ShowToast("Already reached 20"))
 //                throw IllegalStateException("already reached 10")
             } else {
-                it.update { copy(count = oldCount + 1) }
+                it.updateState { copy(count = oldCount + 1) }
             }
         }
     }
@@ -76,7 +80,7 @@ class MainViewModel : ViewModel() {
                 throw IllegalStateException("already reached 0")
 //                it.with(IMain.Event.ShowToast("Already reached 0"))
             } else {
-                it.update { copy(count = oldCount - 1) }
+                it.updateState { copy(count = oldCount - 1) }
             }
         }.asSingleFlow()
     }
@@ -88,11 +92,11 @@ class MainViewModel : ViewModel() {
         Log.d("MVI-MainActivity", "handleTest count = $count")
         return flow<IMain.PartialChange> {
             delay(500L)
-            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("test start $count")) })
+            emit(IMain.PartialChange { it.withEvent(IMain.Event.ShowToast("test start $count")) })
             delay(1000L)
-            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("test succeed $count")) })
+            emit(IMain.PartialChange { it.withEvent(IMain.Event.ShowToast("test succeed $count")) })
             delay(2000L)
-            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("test completed $count")) })
+            emit(IMain.PartialChange { it.withEvent(IMain.Event.ShowToast("test completed $count")) })
         }
     }
 
@@ -100,11 +104,11 @@ class MainViewModel : ViewModel() {
         val count = this.count++
         return flow {
             delay(1000L)
-            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("load test start $count")) })
+            emit(IMain.PartialChange { it.withEvent(IMain.Event.ShowToast("load test start $count")) })
             val result = getBaiduPage()
-            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("load test succeed: $count, $result")) })
+            emit(IMain.PartialChange { it.withEvent(IMain.Event.ShowToast("load test succeed: $count, $result")) })
             delay(3000L)
-            emit(IMain.PartialChange { it.with(IMain.Event.ShowToast("load test completed $count")) })
+            emit(IMain.PartialChange { it.withEvent(IMain.Event.ShowToast("load test completed $count")) })
         }
     }
 
