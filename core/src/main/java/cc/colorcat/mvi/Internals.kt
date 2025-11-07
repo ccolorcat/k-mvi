@@ -1,5 +1,8 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.internal.TAG
+import cc.colorcat.mvi.internal.logger
+import cc.colorcat.mvi.internal.w
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
@@ -12,10 +15,6 @@ import java.util.concurrent.ConcurrentHashMap
  * Date: 2024-12-25
  * GitHub: https://github.com/ccolorcat
  */
-internal const val TAG = "k-mvi"
-
-internal val logger: Logger
-    get() = KMvi.logger
 
 
 internal val Mvi.Intent.isConcurrent: Boolean
@@ -36,7 +35,7 @@ internal val Mvi.Intent.isFallback: Boolean
 
         val isConflictingIntent = this is Mvi.Intent.Concurrent && this is Mvi.Intent.Sequential
         if (isConflictingIntent) {
-            logger.log(Logger.WARN, TAG, null) {
+            logger.w(TAG) {
                 "${javaClass.name} implements both Concurrent and Sequential, which may lead to unpredictable behavior."
             }
         }

@@ -1,5 +1,8 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.internal.TAG
+import cc.colorcat.mvi.internal.i
+import cc.colorcat.mvi.internal.logger
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
@@ -38,7 +41,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
 ) : IntentTransformer<I, S, E> {
 
     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
-        logger.log(Logger.INFO, TAG, null) {
+        logger.i(TAG) {
             if (strategy == HandleStrategy.HYBRID) {
                 "Transforming intents using strategy: strategy = $strategy, config = $config"
             } else {

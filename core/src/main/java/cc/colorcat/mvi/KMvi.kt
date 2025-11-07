@@ -1,5 +1,9 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.internal.TAG
+import cc.colorcat.mvi.internal.d
+import cc.colorcat.mvi.internal.e
+
 /**
  * Author: ccolorcat
  * Date: 2024-12-25
@@ -24,11 +28,11 @@ object KMvi {
 
     fun setup(config: Configuration.() -> Configuration) {
         default = default.config()
-        logger.log(Logger.DEBUG, TAG, null) { "setup config: $default" }
+        logger.d(TAG) { "setup config: $default" }
     }
 
     private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
-        logger.log(Logger.ERROR, TAG, cause) { "retry count: $attempt" }
+        logger.e(TAG, cause) { "retry count: $attempt" }
         return cause is Exception
     }
 

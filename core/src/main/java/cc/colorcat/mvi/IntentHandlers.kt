@@ -1,5 +1,9 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.internal.TAG
+import cc.colorcat.mvi.internal.i
+import cc.colorcat.mvi.internal.logger
+import cc.colorcat.mvi.internal.w
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -42,7 +46,7 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
     override suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
         var handler = handlers[intent.javaClass]
         if (handler == null) {
-            logger.log(Logger.WARN, TAG, null) {
+            logger.w(TAG) {
                 "No handler registered for ${intent.javaClass}, fallback to defaultHandler"
             }
             handler = defaultHandler
@@ -50,7 +54,7 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
             @Suppress("UNCHECKED_CAST")
             handler as IntentHandler<I, S, E>
         }
-        logger.log(Logger.INFO, TAG, null) { "Handling intent: $intent" }
+        logger.i(TAG) { "Handling intent: $intent" }
         return handler.handle(intent)
     }
 }

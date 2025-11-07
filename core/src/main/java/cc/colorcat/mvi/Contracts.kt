@@ -1,5 +1,8 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.internal.TAG
+import cc.colorcat.mvi.internal.logger
+import cc.colorcat.mvi.internal.w
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
@@ -70,7 +73,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         if (scope.isActive) {
             scope.launch { intents.emit(intent) }
         } else {
-            logger.log(Logger.WARN, TAG, null) { "Scope inactive, intent discarded: $intent" }
+            logger.w(TAG) { "Scope inactive, intent discarded: $intent" }
         }
     }
 }
