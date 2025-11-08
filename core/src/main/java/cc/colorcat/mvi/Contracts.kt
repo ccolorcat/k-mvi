@@ -357,20 +357,29 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * Shared flow of state snapshots produced by processing intents.
      *
      * Processing pipeline:
-     * 1. Transform intents to partial changes (on IO dispatcher)
-     * 2. Accumulate changes into snapshots via [scan]
-     * 3. Buffer snapshots (64 capacity, drop oldest on overflow)
-     * 4. Retry on errors according to [retryPolicy]
-     * 5. Share among collectors (started eagerly, no replay)
+     * 1. Transform intents to partial changes (with retry on failure)
+     * 2. Execute transformation on IO dispatcher (for network/database operations)
+     * 3. Accumulate changes into snapshots via [scan]
+     * 4. Buffer snapshots (64 capacity, drop oldest on overflow)
+     * 5. Execute state updates on Default dispatcher (for CPU-bound operations)
+     * 6. Share among collectors (started eagerly, no replay)
+     *
+     * ## Retry Strategy
+     *
+     * [retryWhen] is positioned before [flowOn] to only retry the Intent processing
+     * ([toPartialChange]). This ensures:
+     * - Only the potentially failing operation (Intent handling) is retried
+     * - State accumulation ([scan]) and buffering are not affected by retries
+     * - Better performance (no unnecessary re-computation of state)
      */
     private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intents.toPartialChange(transformer)
+        .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .flowOn(Dispatchers.IO)
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
             partialChange.apply(oldSnapshot)
         }
         .buffer(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         .flowOn(Dispatchers.Default)
-        .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .shareIn(scope, SharingStarted.Eagerly, 0)
 
     /**
