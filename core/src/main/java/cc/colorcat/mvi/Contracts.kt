@@ -266,7 +266,6 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
  *
  * // In UI
  * viewModel.contract.stateFlow.collect { state -> updateUI(state) }
- * // viewModel.contract.dispatch(...) // ❌ Compile error - dispatch not available
  * ```
  *
  * ## Note
@@ -373,6 +372,8 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * - Better performance (no unnecessary re-computation of state)
      */
     private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intents.toPartialChange(transformer)
+        // IMPORTANT: retryWhen must be BEFORE flowOn to only retry intent handling,
+        // not the entire downstream pipeline (scan, buffer, etc.)
         .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .flowOn(Dispatchers.IO)
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->

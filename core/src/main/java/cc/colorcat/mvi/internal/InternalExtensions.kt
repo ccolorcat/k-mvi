@@ -143,8 +143,9 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
             }
             try {
                 channel.send(intent)
-            } catch (_: ClosedSendChannelException) {
-                // Channel was closed externally, remove it and ensure it's closed
+            } catch (e: ClosedSendChannelException) {
+                // Channel was closed externally, log and clean up
+                logger.w(TAG) { "Channel for tag '$tag' was closed externally" }
                 if (activeChannels.remove(tag, channel)) {
                     channel.close()
                 }

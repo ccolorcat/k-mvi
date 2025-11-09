@@ -6,8 +6,9 @@ import cc.colorcat.mvi.internal.getStackTraceString
 /**
  * A functional interface for logging.
  *
- * This interface provides priority-based filtering and lazy message evaluation
- * to improve performance by avoiding unnecessary string computations.
+ * This functional interface defines a logging contract with priority-based filtering
+ * and lazy message evaluation to improve performance by avoiding unnecessary string
+ * computations.
  *
  * The default implementation uses Android's Log system, but you can provide
  * your own custom implementation for different logging backends (e.g., file logging,
