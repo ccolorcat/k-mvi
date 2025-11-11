@@ -9,7 +9,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
-import cc.colorcat.mvi.debounce2
+import cc.colorcat.mvi.debounceFirst
 import cc.colorcat.mvi.doOnClick
 import cc.colorcat.mvi.sample.databinding.ActivityMainBinding
 import kotlinx.coroutines.flow.Flow
@@ -25,12 +25,12 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: MainViewModel by viewModels()
     private val intents: Flow<IMain.Intent>
         get() = userIntents()
-//            .debounce2(500L)
+//            .debounceFirst(500L)
 
 
     private val viewModel2: MainViewModel2 by viewModels()
     private val intents2: Flow<IMain2.Intent>
-        get() = userIntents2().debounce2(500L)
+        get() = userIntents2().debounceFirst(500L)
 
 
     override fun onCreate(savedInstanceState: Bundle?) {

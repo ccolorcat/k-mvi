@@ -2,6 +2,8 @@ package cc.colorcat.mvi
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cc.colorcat.mvi.internal.CoreReactiveContract
+import cc.colorcat.mvi.internal.StrategyReactiveContract
 import kotlinx.coroutines.flow.emptyFlow
 
 /**

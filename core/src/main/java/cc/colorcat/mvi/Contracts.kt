@@ -1,26 +1,7 @@
 package cc.colorcat.mvi
 
-import cc.colorcat.mvi.internal.TAG
-import cc.colorcat.mvi.internal.logger
-import cc.colorcat.mvi.internal.w
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.retryWhen
-import kotlinx.coroutines.flow.scan
-import kotlinx.coroutines.flow.shareIn
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 
 /**
  * A read-only contract that exposes state and event flows in the MVI architecture.
@@ -62,10 +43,10 @@ import kotlinx.coroutines.launch
  *
  * ## State vs Event
  *
- * - **State** ([stateFlow]): Represents the current UI state. Always has a value.
+ * - **State** [[stateFlow]]: Represents the current UI state. Always has a value.
  *   UI should render based on this state. State is retained and replayed to new collectors.
  *
- * - **Event** ([eventFlow]): Represents one-time side effects (toasts, navigation, etc.).
+ * - **Event** [[eventFlow]]: Represents one-time side effects (toasts, navigation, etc.).
  *   Events are consumed once and not retained. No replay for new collectors.
  *
  * ## Relationship with ReactiveContract
@@ -147,7 +128,7 @@ interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *
  * ReactiveContract is the full-featured interface for the MVI pattern, combining:
  * - **Input**: [dispatch] method to send intents
- * - **Output**: [stateFlow] and [eventFlow] to observe state and events
+ * - **Output**: [Contract.stateFlow] and [Contract.eventFlow] to observe state and events
  *
  * This interface is typically used in the ViewModel layer where both intent dispatching
  * and state/event observation are needed.
@@ -268,282 +249,45 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
  * viewModel.contract.stateFlow.collect { state -> updateUI(state) }
  * ```
  *
- * ## Note
+ * ## Implementation Details
  *
- * Since [ReactiveContract] extends [Contract], this function simply returns `this`.
- * It serves as a semantic marker for read-only access rather than creating a wrapper.
+ * This function returns a wrapper that delegates [Contract.stateFlow] and [Contract.eventFlow] to the
+ * underlying [ReactiveContract] but does not expose the [ReactiveContract.dispatch] method. This provides
+ * true read-only access that cannot be bypassed by casting.
+ *
+ * ## Performance Note
+ *
+ * A lightweight wrapper object is created, but it only delegates to the original contract's
+ * flows without any additional overhead during collection.
  *
  * @param I The intent type
  * @param S The state type
  * @param E The event type
- * @return The same instance cast to [Contract]
+ * @return A read-only [Contract] wrapper that prevents access to [ReactiveContract.dispatch]
  * @see Contract
  * @see ReactiveContract
  */
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asContract(): Contract<I, S, E> {
-    return this
+    return ReadOnlyContract(this)
 }
 
-
 /**
- * Core implementation of [ReactiveContract] that handles the MVI flow processing.
+ * A read-only wrapper around [ReactiveContract] that only exposes [Contract] interface.
  *
- * This class implements the fundamental MVI flow:
- * ```
- * Intent → Transformer → PartialChange → Snapshot → State/Event
- * ```
- *
- * ## Processing Pipeline
- *
- * 1. **Intent Collection**: Intents are received via [dispatch] and buffered in a [MutableSharedFlow]
- * 2. **Intent Transformation**: [IntentTransformer] converts intents to flows of [Mvi.PartialChange]
- * 3. **State Accumulation**: [scan] accumulates partial changes into [Mvi.Snapshot]
- * 4. **State/Event Extraction**: Snapshot is split into [stateFlow] and [eventFlow]
- *
- * ## Thread Dispatching Strategy
- *
- * The pipeline uses two dispatchers for optimal performance:
- * - **[Dispatchers.IO]**: For intent processing (may involve network/database operations)
- * - **[Dispatchers.Default]**: For state updates (CPU-bound operations)
- *
- * ## Buffer and Backpressure
- *
- * - **Intent buffer**: 64 items with [BufferOverflow.SUSPEND] (waits when full)
- * - **Snapshot buffer**: 64 items with [BufferOverflow.DROP_OLDEST] (drops old snapshots)
- *
- * ## Error Handling
- *
- * - Uses [retryWhen] with configurable [RetryPolicy]
- * - Allows automatic retry on recoverable errors
- * - Logs warnings when scope is inactive
- *
- * ## Lifecycle
- *
- * - Flow processing starts eagerly when the scope is active
- * - Stops automatically when the scope is cancelled
- * - State is retained across configuration changes (if scope survives)
+ * This internal class ensures that the [ReactiveContract.dispatch] method cannot be accessed even through
+ * type casting, providing true encapsulation for read-only access.
  *
  * @param I The intent type
  * @param S The state type
  * @param E The event type
- * @param scope The coroutine scope for flow collection
- * @param initState The initial state
- * @param retryPolicy Policy for retrying on errors
- * @param transformer Transforms intents to partial changes
- * @see ReactiveContract
- * @see IntentTransformer
- * @see RetryPolicy
+ * @param source The underlying [ReactiveContract] to wrap
  */
-internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val scope: CoroutineScope,
-    initState: S,
-    retryPolicy: RetryPolicy,
-    transformer: IntentTransformer<I, S, E>,
-) : ReactiveContract<I, S, E> {
-    /**
-     * Internal flow for collecting dispatched intents.
-     *
-     * Configured with:
-     * - Buffer capacity: 64 (reasonable for most use cases)
-     * - Overflow strategy: SUSPEND (waits when buffer is full, avoiding intent loss)
-     */
-    private val intents = MutableSharedFlow<I>(
-        extraBufferCapacity = 64,
-        onBufferOverflow = BufferOverflow.SUSPEND
-    )
+private class ReadOnlyContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
+    private val source: ReactiveContract<I, S, E>
+) : Contract<I, S, E> {
+    override val stateFlow: StateFlow<S>
+        get() = source.stateFlow
 
-    /**
-     * Shared flow of state snapshots produced by processing intents.
-     *
-     * Processing pipeline:
-     * 1. Transform intents to partial changes (with retry on failure)
-     * 2. Execute transformation on IO dispatcher (for network/database operations)
-     * 3. Accumulate changes into snapshots via [scan]
-     * 4. Buffer snapshots (64 capacity, drop oldest on overflow)
-     * 5. Execute state updates on Default dispatcher (for CPU-bound operations)
-     * 6. Share among collectors (started eagerly, no replay)
-     *
-     * ## Retry Strategy
-     *
-     * [retryWhen] is positioned before [flowOn] to only retry the Intent processing
-     * ([toPartialChange]). This ensures:
-     * - Only the potentially failing operation (Intent handling) is retried
-     * - State accumulation ([scan]) and buffering are not affected by retries
-     * - Better performance (no unnecessary re-computation of state)
-     */
-    private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intents.toPartialChange(transformer)
-        // IMPORTANT: retryWhen must be BEFORE flowOn to only retry intent handling,
-        // not the entire downstream pipeline (scan, buffer, etc.)
-        .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
-        .flowOn(Dispatchers.IO)
-        .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
-            partialChange.apply(oldSnapshot)
-        }
-        .buffer(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-        .flowOn(Dispatchers.Default)
-        .shareIn(scope, SharingStarted.Eagerly, 0)
-
-    /**
-     * Extracts state from snapshots and converts to [StateFlow].
-     *
-     * Characteristics:
-     * - Started eagerly to ensure timely state updates
-     * - Replays the current state to new collectors
-     * - Initial value is [initState]
-     */
-    override val stateFlow: StateFlow<S> = snapshots.map { it.state }
-        .stateIn(scope, SharingStarted.Eagerly, initState)
-
-    /**
-     * Extracts non-null events from snapshots.
-     *
-     * Characteristics:
-     * - Started lazily to save resources when no collector is active
-     * - No replay (events are one-time side effects)
-     * - Only emits when an event is present in the snapshot
-     */
-    override val eventFlow: Flow<E> = snapshots.mapNotNull { it.event }
-        .shareIn(scope, SharingStarted.Lazily, 0)
-
-    override fun dispatch(intent: I) {
-        if (scope.isActive) {
-            scope.launch { intents.emit(intent) }
-        } else {
-            // Only log class name to avoid exposing sensitive data in intent
-            logger.w(TAG) { "Scope inactive, intent discarded: ${intent::class.simpleName}" }
-        }
-    }
-}
-
-
-/**
- * Strategy-based implementation of [ReactiveContract] with dynamic handler registration.
- *
- * This class extends [CoreReactiveContract] with:
- * - Support for [HandleStrategy] (CONCURRENT, SEQUENTIAL, HYBRID)
- * - Dynamic intent handler registration via [IntentHandlerRegistry]
- * - Fallback to a default handler for unregistered intent types
- *
- * ## Dual Constructor Pattern
- *
- * - **Private constructor**: Accepts a pre-created [IntentHandlerDelegate]
- * - **Public constructor**: Accepts a default handler, creates delegate internally
- *
- * This design allows flexible initialization while keeping internal details hidden.
- *
- * ## Handler Management
- *
- * Intent handlers can be dynamically registered/unregistered using [setupIntentHandlers]:
- *
- * ```kotlin
- * contract.setupIntentHandlers {
- *     register(LoadDataIntent::class.java) { intent ->
- *         // Handle LoadDataIntent
- *         Mvi.PartialChange { snapshot ->
- *             snapshot.updateState { copy(loading = true) }
- *         }
- *     }
- *
- *     register(RefreshIntent::class.java, IntentHandler { intent ->
- *         flow {
- *             // Handle RefreshIntent with multiple state changes
- *             emit(Mvi.PartialChange { ... })
- *             emit(Mvi.PartialChange { ... })
- *         }
- *     })
- * }
- * ```
- *
- * ## Processing Strategy
- *
- * Intents are processed according to the configured [HandleStrategy]:
- * - **CONCURRENT**: All intents in parallel
- * - **SEQUENTIAL**: All intents one-by-one
- * - **HYBRID**: Mixed (based on intent type and grouping)
- *
- * @param I The intent type
- * @param S The state type
- * @param E The event type
- * @see CoreReactiveContract
- * @see IntentHandlerRegistry
- * @see HandleStrategy
- */
-internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> private constructor(
-    scope: CoroutineScope,
-    initState: S,
-    retryPolicy: RetryPolicy,
-    strategy: HandleStrategy,
-    config: HybridConfig<I>,
-    private val delegate: IntentHandlerDelegate<I, S, E>,
-) : CoreReactiveContract<I, S, E>(
-    scope = scope,
-    initState = initState,
-    retryPolicy = retryPolicy,
-    transformer = IntentTransformer(strategy, config, delegate)
-) {
-    /**
-     * Public constructor that creates the delegate internally.
-     *
-     * @param scope The coroutine scope for flow collection
-     * @param initState The initial state
-     * @param retryPolicy Policy for retrying on errors
-     * @param strategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
-     * @param config Configuration for HYBRID strategy
-     * @param defaultHandler The fallback handler for unregistered intent types
-     */
-    constructor(
-        scope: CoroutineScope,
-        initState: S,
-        retryPolicy: RetryPolicy,
-        strategy: HandleStrategy,
-        config: HybridConfig<I>,
-        defaultHandler: IntentHandler<I, S, E>,
-    ) : this(
-        scope = scope,
-        initState = initState,
-        retryPolicy = retryPolicy,
-        strategy = strategy,
-        config = config,
-        delegate = IntentHandlerDelegate(defaultHandler),
-    )
-
-    /**
-     * Sets up intent handlers using a DSL-style configuration.
-     *
-     * This method provides a convenient way to register multiple handlers at once.
-     * Handlers can be registered or unregistered dynamically at any time.
-     *
-     * ## Example
-     *
-     * ```kotlin
-     * contract.setupIntentHandlers {
-     *     // Register simple handler
-     *     register(SimpleIntent::class.java) { intent ->
-     *         Mvi.PartialChange { snapshot ->
-     *             snapshot.updateState { copy(value = intent.value) }
-     *         }
-     *     }
-     *
-     *     // Register complex handler
-     *     register(ComplexIntent::class.java, IntentHandler { intent ->
-     *         flow {
-     *             emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
-     *             val result = doSomething(intent)
-     *             emit(Mvi.PartialChange { it.updateState { copy(loading = false, data = result) } })
-     *         }
-     *     })
-     *
-     *     // Unregister if needed
-     *     unregister(OldIntent::class.java)
-     * }
-     * ```
-     *
-     * @param setup A lambda with receiver that configures the intent handler registry
-     * @see IntentHandlerRegistry
-     * @see IntentHandlerRegistry.register
-     * @see IntentHandlerRegistry.unregister
-     */
-    internal fun setupIntentHandlers(setup: IntentHandlerRegistry<I, S, E>.() -> Unit) {
-        delegate.apply(setup)
-    }
+    override val eventFlow: Flow<E>
+        get() = source.eventFlow
 }
