@@ -104,14 +104,14 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * ## Usage Pattern
  *
  * ```kotlin
- * // Register a simple handler (single state change)
- * registry.register(LoadDataIntent::class.java) { intent ->
+ * // Register a simple handler (single state change) - Kotlin style with extension
+ * registry.register<LoadDataIntent> { intent ->
  *     Mvi.PartialChange { snapshot ->
  *         snapshot.updateState { copy(data = loadData(intent.id)) }
  *     }
  * }
  *
- * // Register a complex handler (flow of changes)
+ * // Register a complex handler (flow of changes) - Java style
  * registry.register(RefreshIntent::class.java, IntentHandler { intent ->
  *     flow {
  *         emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
@@ -119,8 +119,8 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *     }
  * })
  *
- * // Unregister when no longer needed
- * registry.unregister(LoadDataIntent::class.java)
+ * // Unregister when no longer needed - Kotlin style
+ * registry.unregister<LoadDataIntent>()
  * ```
  *
  * ## Thread Safety
@@ -134,24 +134,6 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @see IntentHandler
  */
 interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
-    /**
-     * Registers a simple handler that produces a single partial change.
-     *
-     * This is a convenience method for handlers that don't need to emit multiple
-     * state changes. The handler function returns a single [Mvi.PartialChange],
-     * which is automatically wrapped in a Flow.
-     *
-     * @param T The specific intent type to handle (must be a subtype of [I])
-     * @param intentType The class of the intent type to register
-     * @param handler A suspend function that transforms the intent into a single partial change
-     */
-    fun <T : I> register(
-        intentType: Class<T>,
-        handler: suspend (intent: T) -> Mvi.PartialChange<S, E>
-    ) {
-        register(intentType, IntentHandler { handler(it).asSingleFlow() })
-    }
-
     /**
      * Registers an intent handler for the specified intent type.
      *
@@ -293,7 +275,7 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
 inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in T, S, E>.register(
     noinline handler: suspend (intent: T) -> Mvi.PartialChange<S, E>
 ) {
-    register(T::class.java, handler)
+    register(T::class.java) { handler(it).asSingleFlow() }
 }
 
 /**

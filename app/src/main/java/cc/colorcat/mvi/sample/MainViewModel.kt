@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.contract
+import cc.colorcat.mvi.register
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -22,7 +23,7 @@ class MainViewModel : ViewModel() {
     private val contract1: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(
         initState = IMain.State(),
     ) {
-        register(IMain.Intent.Increment::class.java, ::handleIncrement)
+        register(::handleIncrement)
         register(IMain.Intent.Decrement::class.java, ::handleDecrement)
         register(IMain.Intent.Test::class.java, ::handleTest)
         register(IMain.Intent.LoadTest::class.java, ::handleLoadTest)
