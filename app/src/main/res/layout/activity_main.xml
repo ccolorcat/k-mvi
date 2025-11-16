@@ -42,4 +42,11 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:text="loadTest" />
+
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@+id/container"
+        android:name="cc.colorcat.mvi.sample.CounterFragment"
+        android:layout_weight="1"
+        android:layout_width="match_parent"
+        android:layout_height="0dp" />
 </LinearLayout>

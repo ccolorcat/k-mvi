@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#2196F3"
+    android:padding="16dp"
+    tools:context=".CounterFragment"
+    tools:ignore="HardcodedText">
+
+    <!-- Refresh indicator: indeterminate horizontal progress bar -->
+    <ProgressBar
+        android:id="@+id/loadingBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="0dp"
+        android:layout_height="4dp"
+        android:indeterminate="true"
+        android:indeterminateTint="@android:color/white"
+        android:progressTint="@android:color/white"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Target Number Display -->
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/targetNumber"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Target: 50"
+        android:textColor="@color/white"
+        android:textSize="18sp"
+        android:textStyle="italic"
+        app:layout_constraintBottom_toTopOf="@id/count"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/loadingBar"
+        app:layout_constraintVertical_chainStyle="packed"
+        tools:text="Target: 50" />
+
+    <!-- Current Count Display -->
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textColor="@color/white"
+        android:textSize="64sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toTopOf="@id/decrement"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/targetNumber"
+        tools:text="0" />
+
+    <!-- Decrement Button -->
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/decrement"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:layout_marginTop="32dp"
+        android:layout_marginEnd="16dp"
+        android:text="−"
+        android:textSize="32sp"
+        app:cornerRadius="40dp"
+        app:layout_constraintBottom_toTopOf="@id/counterInfo"
+        app:layout_constraintEnd_toStartOf="@id/reset"
+        app:layout_constraintHorizontal_chainStyle="packed"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/count" />
+
+    <!-- Reset Button -->
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/reset"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:layout_marginEnd="16dp"
+        android:text="↻"
+        android:textSize="32sp"
+        app:cornerRadius="40dp"
+        app:layout_constraintEnd_toStartOf="@id/increment"
+        app:layout_constraintStart_toEndOf="@id/decrement"
+        app:layout_constraintTop_toTopOf="@id/decrement" />
+
+    <!-- Increment Button -->
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/increment"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:text="+"
+        android:textSize="32sp"
+        app:cornerRadius="40dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@id/reset"
+        app:layout_constraintTop_toTopOf="@id/decrement" />
+
+    <!-- Counter Range Info -->
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/counterInfo"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
+        android:text="Range: 0 - 100"
+        android:textColor="@color/white"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/decrement" />
+</androidx.constraintlayout.widget.ConstraintLayout>
