@@ -45,7 +45,7 @@
 
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/container"
-        android:name="cc.colorcat.mvi.sample.CounterFragment"
+        android:name="cc.colorcat.mvi.sample.count.CounterFragment"
         android:layout_weight="1"
         android:layout_width="match_parent"
         android:layout_height="0dp" />

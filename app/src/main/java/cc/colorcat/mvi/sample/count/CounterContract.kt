@@ -1,6 +1,7 @@
-package cc.colorcat.mvi.sample
+package cc.colorcat.mvi.sample.count
 
 import cc.colorcat.mvi.Mvi
+import kotlin.math.abs
 import kotlin.random.Random
 
 /**
@@ -16,10 +17,18 @@ import kotlin.random.Random
  * Date: 2025-11-14
  * GitHub: https://github.com/ccolorcat
  */
-const val COUNT_MAX = 100
-const val COUNT_MIN = 0
 
 sealed interface CounterContract {
+    companion object {
+        const val COUNT_MAX = 100
+        const val COUNT_MIN = 0
+
+        /**
+         * Generates a random count value within the valid range [COUNT_MIN, COUNT_MAX] (inclusive).
+         */
+        fun randomCount(): Int = Random.nextInt(COUNT_MIN, COUNT_MAX + 1)
+    }
+
     /**
      * Represents the current state of the counter.
      *
@@ -35,7 +44,7 @@ sealed interface CounterContract {
      */
     data class State(
         val count: Int = 0,
-        val targetNumber: Int = Random.nextInt(COUNT_MIN, COUNT_MAX),
+        val targetCount: Int = randomCount(),
         val showLoading: Boolean = false,
     ) : Mvi.State {
 
@@ -43,7 +52,7 @@ sealed interface CounterContract {
          * Calculates the alpha value based on proximity to the target number.
          *
          * The alpha value represents how close the current count is to the target:
-         * - When count == targetNumber, alpha = 1.0 (fully opaque)
+         * - When count == targetCount, alpha = 1.0 (fully opaque)
          * - As the distance increases, alpha decreases linearly
          * - Minimum alpha is 0.0 (fully transparent)
          *
@@ -53,7 +62,7 @@ sealed interface CounterContract {
          */
         val alpha: Float
             get() {
-                val distance = kotlin.math.abs(count - targetNumber)
+                val distance = abs(count - targetCount)
                 val maxDistance = COUNT_MAX - COUNT_MIN
                 return (1f - distance.toFloat() / maxDistance).coerceAtLeast(0f)
             }
@@ -61,8 +70,8 @@ sealed interface CounterContract {
         val countText: String
             get() = count.toString()
 
-        val targetText: String
-            get() = targetNumber.toString()
+        val targetCountText: String
+            get() = targetCount.toString()
     }
 
     /**

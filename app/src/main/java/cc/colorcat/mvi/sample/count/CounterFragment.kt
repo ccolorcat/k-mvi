@@ -1,4 +1,4 @@
-package cc.colorcat.mvi.sample
+package cc.colorcat.mvi.sample.count
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -12,10 +12,11 @@ import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
 import cc.colorcat.mvi.debounceFirst
 import cc.colorcat.mvi.doOnClick
-import cc.colorcat.mvi.sample.CounterContract.Event
-import cc.colorcat.mvi.sample.CounterContract.Intent
-import cc.colorcat.mvi.sample.CounterContract.State
+import cc.colorcat.mvi.sample.count.CounterContract.Event
+import cc.colorcat.mvi.sample.count.CounterContract.Intent
+import cc.colorcat.mvi.sample.count.CounterContract.State
 import cc.colorcat.mvi.sample.databinding.FragmentCounterBinding
+import cc.colorcat.mvi.sample.showToast
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge
@@ -86,7 +87,7 @@ class CounterFragment : Fragment() {
      */
     private val intents: Flow<Intent>
         get() = merge(
-            incrementDecrementIntents().debounceFirst(200L),
+            counterIntents().debounceFirst(200L),
             binding.reset.doOnClick { trySend(Intent.Reset) }.debounceFirst(600L),
         )
 
@@ -103,7 +104,7 @@ class CounterFragment : Fragment() {
      *
      * @return A merged Flow emitting [Intent.Increment] and [Intent.Decrement]
      */
-    private fun incrementDecrementIntents(): Flow<Intent> = merge(
+    private fun counterIntents(): Flow<Intent> = merge(
         binding.increment.doOnClick { trySend(Intent.Increment) },
         binding.decrement.doOnClick { trySend(Intent.Decrement) },
     )
@@ -154,7 +155,7 @@ class CounterFragment : Fragment() {
         // - Computed property: countText is derived from count, providing presentation logic separation
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
             collectPartial(State::countText, binding.count::setText)
-            collectPartial(State::targetText, binding.targetNumber::setText)
+            collectPartial(State::targetCountText, binding.targetNumber::setText)
             collectPartial(State::alpha, binding.root::setAlpha)
             collectPartial(State::showLoading, binding.loadingBar::isVisible::set)
         }

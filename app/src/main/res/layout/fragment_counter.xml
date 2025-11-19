@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:background="#2196F3"
     android:padding="16dp"
-    tools:context=".CounterFragment"
+    tools:context=".count.CounterFragment"
     tools:ignore="HardcodedText">
 
     <!-- Refresh indicator: indeterminate horizontal progress bar -->

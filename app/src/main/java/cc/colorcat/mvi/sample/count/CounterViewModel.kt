@@ -1,12 +1,16 @@
-package cc.colorcat.mvi.sample
+package cc.colorcat.mvi.sample.count
 
 import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.contract
 import cc.colorcat.mvi.register
-import cc.colorcat.mvi.sample.CounterContract.Event
-import cc.colorcat.mvi.sample.CounterContract.Intent
-import cc.colorcat.mvi.sample.CounterContract.PartialChange
-import cc.colorcat.mvi.sample.CounterContract.State
+import cc.colorcat.mvi.sample.count.CounterContract.Companion.COUNT_MAX
+import cc.colorcat.mvi.sample.count.CounterContract.Companion.COUNT_MIN
+import cc.colorcat.mvi.sample.count.CounterContract.Companion.randomCount
+import cc.colorcat.mvi.sample.count.CounterContract.Event
+import cc.colorcat.mvi.sample.count.CounterContract.Intent
+import cc.colorcat.mvi.sample.count.CounterContract.PartialChange
+import cc.colorcat.mvi.sample.count.CounterContract.State
+import cc.colorcat.mvi.sample.randomDelay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
@@ -189,11 +193,11 @@ class CounterViewModel : ViewModel() {
                 throw RuntimeException("test exception")
             }
 
-            val count = Random.nextInt(COUNT_MIN, COUNT_MAX)
-            val target = Random.nextInt(COUNT_MIN, COUNT_MAX)
+            val count = randomCount()
+            val target = randomCount()
             emit(PartialChange {
                 it.updateWith(Event.ShowToast("Reset Successfully")) {
-                    copy(count = count, targetNumber = target)
+                    copy(count = count, targetCount = target)
                 }
             })
         } catch (e: Exception) {
