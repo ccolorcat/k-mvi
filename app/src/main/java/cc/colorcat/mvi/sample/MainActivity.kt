@@ -11,7 +11,9 @@ import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
 import cc.colorcat.mvi.debounceFirst
 import cc.colorcat.mvi.doOnClick
+import cc.colorcat.mvi.sample.count.CounterFragment
 import cc.colorcat.mvi.sample.databinding.ActivityMainBinding
+import cc.colorcat.mvi.sample.login.LoginFragment
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge
@@ -36,8 +38,23 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        setupFragmentSwitching()
         setupViewModel()
 //        setupViewModel2()
+    }
+
+    private fun setupFragmentSwitching() {
+        binding.showCounter.setOnClickListener {
+            supportFragmentManager.beginTransaction()
+                .replace(binding.container.id, CounterFragment())
+                .commit()
+        }
+
+        binding.showLogin.setOnClickListener {
+            supportFragmentManager.beginTransaction()
+                .replace(binding.container.id, LoginFragment())
+                .commit()
+        }
     }
 
     private fun setupViewModel() {
