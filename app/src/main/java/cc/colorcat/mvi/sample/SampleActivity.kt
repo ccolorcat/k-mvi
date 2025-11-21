@@ -2,7 +2,10 @@ package cc.colorcat.mvi.sample
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.Fragment
+import androidx.navigation.NavController
+import androidx.navigation.findNavController
+import androidx.navigation.ui.AppBarConfiguration
+import androidx.navigation.ui.setupActionBarWithNavController
 import cc.colorcat.mvi.sample.databinding.ActivitySampleBinding
 
 /**
@@ -14,40 +17,24 @@ import cc.colorcat.mvi.sample.databinding.ActivitySampleBinding
  * GitHub: https://github.com/ccolorcat
  */
 class SampleActivity : AppCompatActivity() {
-
-    private lateinit var binding: ActivitySampleBinding
+    private val binding: ActivitySampleBinding by lazy(LazyThreadSafetyMode.NONE) {
+        ActivitySampleBinding.inflate(layoutInflater)
+    }
+    private val navController: NavController by lazy(LazyThreadSafetyMode.NONE) {
+        findNavController(R.id.fragment_container)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        binding = ActivitySampleBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        if (savedInstanceState == null) {
-            showNavigationFragment()
-        }
+        setupActionBarWithNavController(
+            navController,
+            AppBarConfiguration(setOf(R.id.navigationFragment)),
+        )
     }
 
-    /**
-     * Show the navigation page.
-     */
-    private fun showNavigationFragment() {
-        navigateToFragment(NavigationFragment())
-    }
-
-    /**
-     * Navigate to the specified Fragment.
-     *
-     * @param fragment The Fragment to display
-     * @param addToBackStack Whether to add to the back stack, defaults to true
-     */
-    fun navigateToFragment(fragment: Fragment, addToBackStack: Boolean = true) {
-        supportFragmentManager.beginTransaction().apply {
-            replace(R.id.fragment_container, fragment)
-            if (addToBackStack) {
-                addToBackStack(null)
-            }
-            commit()
-        }
+    override fun onSupportNavigateUp(): Boolean {
+        return navController.navigateUp() || super.onSupportNavigateUp()
     }
 }

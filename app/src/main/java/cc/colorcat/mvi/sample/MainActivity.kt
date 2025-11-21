@@ -7,6 +7,9 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.findNavController
+import androidx.navigation.ui.AppBarConfiguration
+import androidx.navigation.ui.setupActionBarWithNavController
 import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
 import cc.colorcat.mvi.debounceFirst
@@ -38,23 +41,32 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
-        setupFragmentSwitching()
+
+        // Setup action bar with nav controller
+        val navController = findNavController(binding.container.id)
+        // Make the NavigationFragment the top-level destination so it shows no Up button.
+        // Login and Counter are NOT top-level so they will display the Up button.
+        val appBarConfiguration = AppBarConfiguration(setOf(R.id.navigationFragment))
+        setupActionBarWithNavController(navController, appBarConfiguration)
+
+        setupFragmentSwitching(navController)
         setupViewModel()
 //        setupViewModel2()
     }
 
-    private fun setupFragmentSwitching() {
+    private fun setupFragmentSwitching(navController: androidx.navigation.NavController) {
         binding.showCounter.setOnClickListener {
-            supportFragmentManager.beginTransaction()
-                .replace(binding.container.id, CounterFragment())
-                .commit()
+            navController.navigate(R.id.counterFragment)
         }
 
         binding.showLogin.setOnClickListener {
-            supportFragmentManager.beginTransaction()
-                .replace(binding.container.id, LoginFragment())
-                .commit()
+            navController.navigate(R.id.loginFragment)
         }
+    }
+
+    override fun onSupportNavigateUp(): Boolean {
+        val navController = findNavController(binding.container.id)
+        return navController.navigateUp() || super.onSupportNavigateUp()
     }
 
     private fun setupViewModel() {

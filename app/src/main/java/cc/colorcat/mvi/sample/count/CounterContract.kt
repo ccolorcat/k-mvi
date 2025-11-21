@@ -2,6 +2,7 @@ package cc.colorcat.mvi.sample.count
 
 import cc.colorcat.mvi.Mvi
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 /**
@@ -66,6 +67,9 @@ sealed interface CounterContract {
                 val maxDistance = COUNT_MAX - COUNT_MIN
                 return (1f - distance.toFloat() / maxDistance).coerceAtLeast(0f)
             }
+
+        val alpha255: Int
+            get() = (alpha * 255).roundToInt()
 
         val countText: String
             get() = count.toString()

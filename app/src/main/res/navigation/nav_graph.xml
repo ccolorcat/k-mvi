@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/navigationFragment">
+
+    <fragment
+        android:id="@+id/navigationFragment"
+        android:name="cc.colorcat.mvi.sample.NavigationFragment"
+        android:label="Navigation">
+        <action
+            android:id="@+id/action_navigation_to_counter"
+            app:destination="@id/counterFragment" />
+        <action
+            android:id="@+id/action_navigation_to_login"
+            app:destination="@id/loginFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/counterFragment"
+        android:name="cc.colorcat.mvi.sample.count.CounterFragment"
+        android:label="Counter" />
+
+    <fragment
+        android:id="@+id/loginFragment"
+        android:name="cc.colorcat.mvi.sample.login.LoginFragment"
+        android:label="Login" />
+</navigation>

@@ -158,7 +158,9 @@ class CounterFragment : Fragment() {
             collectPartial(State::countText, binding.count::setText)
             collectPartial(State::countInfo, binding.counterInfo::setText)
             collectPartial(State::showLoading, binding.loadingBar::isVisible::set)
-            collectPartial(State::alpha, Lifecycle.State.RESUMED, binding.root::setAlpha)
+            collectPartial(State::alpha255, Lifecycle.State.RESUMED) {
+                binding.root.background?.alpha = it
+            }
         }
 
         // **Pattern 2: Type-Safe Event Handling**

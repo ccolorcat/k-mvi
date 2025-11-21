@@ -6,7 +6,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isVisible
-import androidx.core.widget.doOnTextChanged
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
@@ -15,6 +14,7 @@ import cc.colorcat.mvi.collectState
 import cc.colorcat.mvi.debounceFirst
 import cc.colorcat.mvi.doOnClick
 import cc.colorcat.mvi.sample.databinding.FragmentLoginBinding
+import cc.colorcat.mvi.sample.doOnTextChanged
 import cc.colorcat.mvi.sample.login.LoginContract.Intent
 import cc.colorcat.mvi.sample.login.LoginContract.State
 import cc.colorcat.mvi.sample.showToast
@@ -48,18 +48,25 @@ class LoginFragment : Fragment() {
      */
     private val intents: Flow<Intent>
         get() = merge(
-            binding.loginButton.doOnClick {
-                trySend(
-                    Intent.Login(
-                        username = binding.usernameInput.text?.toString() ?: "",
-                        password = binding.passwordInput.text?.toString() ?: ""
-                    )
-                )
-            }.debounceFirst(600L),
-            binding.logoutButton.doOnClick {
-                trySend(Intent.Logout)
-            }.debounceFirst(600L),
+            inputIntents().debounceFirst(500L),
+            authIntents().debounceFirst(600L),
         )
+
+    private fun inputIntents(): Flow<Intent> = merge(
+        binding.usernameInput.doOnTextChanged { trySend(LoginContract.ClearError) },
+        binding.passwordInput.doOnTextChanged { trySend(LoginContract.ClearError) }
+    )
+
+    private fun authIntents(): Flow<Intent> = merge(
+        binding.loginButton.doOnClick {
+            val username = binding.usernameInput.text?.toString() ?: ""
+            val password = binding.passwordInput.text?.toString() ?: ""
+            trySend(Intent.Login(username, password))
+        },
+        binding.logoutButton.doOnClick {
+            trySend(Intent.Logout)
+        }
+    )
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -72,21 +79,7 @@ class LoginFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setupViews()
         setupViewModel()
-    }
-
-    /**
-     * Setup view listeners for error clearing.
-     */
-    private fun setupViews() {
-        // Clear error when user starts typing
-        binding.usernameInput.doOnTextChanged { _, _, _, _ ->
-            viewModel.dispatch(LoginContract.ClearError)
-        }
-        binding.passwordInput.doOnTextChanged { _, _, _, _ ->
-            viewModel.dispatch(LoginContract.ClearError)
-        }
     }
 
     /**
