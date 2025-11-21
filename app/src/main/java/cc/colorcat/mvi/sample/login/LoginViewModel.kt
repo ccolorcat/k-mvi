@@ -1,6 +1,7 @@
 package cc.colorcat.mvi.sample.login
 
 import androidx.lifecycle.ViewModel
+import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.contract
 import cc.colorcat.mvi.sample.login.LoginContract.Event
@@ -56,8 +57,18 @@ import kotlin.random.Random
 class LoginViewModel : ViewModel() {
     private val contract by contract(
         initState = State(),
+        config = HybridConfig(
+            groupTagSelector = ::getIntentTag
+        ),
         defaultHandler = ::dispatchIntent
     )
+
+    private fun getIntentTag(intent: Intent): String = when (intent) {
+        // Group authentication-related intents under a clear, semantic tag
+        is Intent.Login, is Intent.Logout -> "auth"
+        // Fallback: derive a stable, normalized tag from the intent class name
+        else -> intent::class.simpleName ?: "fallback_tag"
+    }
 
     val stateFlow: StateFlow<State> = contract.stateFlow
     val eventFlow: Flow<Event> = contract.eventFlow
@@ -176,4 +187,3 @@ class LoginViewModel : ViewModel() {
         }
     }
 }
-

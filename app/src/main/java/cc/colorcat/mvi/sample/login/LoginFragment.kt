@@ -1,6 +1,7 @@
 package cc.colorcat.mvi.sample.login
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -100,6 +101,13 @@ class LoginFragment : Fragment() {
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
             // Status text display
             collectPartial(State::statusText, binding.statusText::setText)
+            collectPartial(State::statusText) {
+                Log.d("Login", "status text changed: $it")
+            }
+
+            collectPartial(State::username) {
+                Log.d("Login", "username changed: $it")
+            }
 
             // Loading indicator
             collectPartial(State::isLoading, binding.loadingBar::isVisible::set)

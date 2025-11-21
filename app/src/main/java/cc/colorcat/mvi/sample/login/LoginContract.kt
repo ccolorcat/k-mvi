@@ -100,7 +100,7 @@ sealed interface LoginContract {
      * User intents/actions for the authentication feature.
      * Marked as [Mvi.Intent.Sequential] to ensure intents are processed sequentially.
      */
-    sealed interface Intent : Mvi.Intent.Sequential {
+    sealed interface Intent : Mvi.Intent {
         /**
          * Intent to perform login with username and password.
          *
@@ -136,7 +136,7 @@ sealed interface LoginContract {
         override fun apply(old: Mvi.Snapshot<State, Event>): Mvi.Snapshot<State, Event> {
             return when (this) {
                 // === Error Handling ===
-                is SetErrorMessage -> old.updateState { copy(errorMessage = message) }
+                is SetErrorMessage -> old.updateState { copy(errorMessage = this@PartialChange.message) }
                 is ClearError -> old.updateState { copy(errorMessage = "") }
 
                 // === Loading State ===
@@ -144,12 +144,16 @@ sealed interface LoginContract {
                 StopLoading -> old.updateState { copy(isLoading = false) }
 
                 // === Login Operations ===
-                is CompleteLogin -> old.updateWith(ShowToast("Welcome, $username!")) {
-                    copy(isLoggedIn = true, username = username, errorMessage = "")
+                is CompleteLogin -> old.updateWith(ShowToast("Welcome, ${this@PartialChange.username}!")) {
+                    copy(
+                        isLoggedIn = true,
+                        username = this@PartialChange.username,
+                        errorMessage = ""
+                    )
                 }
 
-                is FailLogin -> old.updateWith(ShowToast(message)) {
-                    copy(errorMessage = message)
+                is FailLogin -> old.updateWith(ShowToast(this@PartialChange.message)) {
+                    copy(errorMessage = this@PartialChange.message)
                 }
 
                 // === Logout Operations ===
@@ -157,7 +161,7 @@ sealed interface LoginContract {
                     copy(isLoggedIn = false, username = "", errorMessage = "")
                 }
 
-                is FailLogout -> old.withEvent(ShowToast(message))
+                is FailLogout -> old.withEvent(ShowToast(this@PartialChange.message))
 
                 // === Events ===
                 is Event -> old.withEvent(this)
@@ -290,5 +294,5 @@ sealed interface LoginContract {
      * - When the intent directly maps to a single state change
      * - When no additional business logic is needed
      */
-    data object ClearError : Intent, PartialChange
+    object ClearError : Intent, PartialChange
 }

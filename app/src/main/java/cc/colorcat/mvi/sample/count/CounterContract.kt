@@ -70,8 +70,8 @@ sealed interface CounterContract {
         val countText: String
             get() = count.toString()
 
-        val targetCountText: String
-            get() = targetCount.toString()
+        val countInfo: String
+            get() = "Target: $targetCount, Range: $COUNT_MIN ~ $COUNT_MAX"
     }
 
     /**

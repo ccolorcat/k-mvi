@@ -8,35 +8,35 @@
     android:orientation="vertical"
     tools:context=".MainActivity">
 
-    <TextView
+    <com.google.android.material.textview.MaterialTextView
         android:id="@+id/count"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:padding="16dp"
         android:text="0" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/increment"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:text="increment" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/decrement"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:text="decrement" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/test"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:text="test" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/loadTest"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -50,14 +50,14 @@
         android:gravity="center"
         android:orientation="horizontal">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/showCounter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
             android:text="Counter Sample" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/showLogin"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -71,3 +71,6 @@
         android:layout_width="match_parent"
         android:layout_height="0dp" />
 </LinearLayout>
+
+
+

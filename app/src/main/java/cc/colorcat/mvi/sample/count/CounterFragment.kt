@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
@@ -87,7 +88,7 @@ class CounterFragment : Fragment() {
      */
     private val intents: Flow<Intent>
         get() = merge(
-            counterIntents().debounceFirst(200L),
+            counterIntents().debounceFirst(150L),
             binding.reset.doOnClick { trySend(Intent.Reset) }.debounceFirst(600L),
         )
 
@@ -155,9 +156,9 @@ class CounterFragment : Fragment() {
         // - Computed property: countText is derived from count, providing presentation logic separation
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
             collectPartial(State::countText, binding.count::setText)
-            collectPartial(State::targetCountText, binding.targetNumber::setText)
-            collectPartial(State::alpha, binding.root::setAlpha)
+            collectPartial(State::countInfo, binding.counterInfo::setText)
             collectPartial(State::showLoading, binding.loadingBar::isVisible::set)
+            collectPartial(State::alpha, Lifecycle.State.RESUMED, binding.root::setAlpha)
         }
 
         // **Pattern 2: Type-Safe Event Handling**
