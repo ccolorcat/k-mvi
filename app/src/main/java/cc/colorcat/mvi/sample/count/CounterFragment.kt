@@ -17,7 +17,7 @@ import cc.colorcat.mvi.sample.count.CounterContract.Event
 import cc.colorcat.mvi.sample.count.CounterContract.Intent
 import cc.colorcat.mvi.sample.count.CounterContract.State
 import cc.colorcat.mvi.sample.databinding.FragmentCounterBinding
-import cc.colorcat.mvi.sample.showToast
+import cc.colorcat.mvi.sample.util.showToast
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge

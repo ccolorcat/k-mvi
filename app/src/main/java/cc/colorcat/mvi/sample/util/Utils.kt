@@ -1,4 +1,4 @@
-package cc.colorcat.mvi.sample
+package cc.colorcat.mvi.sample.util
 
 import android.content.Context
 import android.text.Editable

@@ -8,7 +8,7 @@ import cc.colorcat.mvi.sample.login.LoginContract.Event
 import cc.colorcat.mvi.sample.login.LoginContract.Intent
 import cc.colorcat.mvi.sample.login.LoginContract.PartialChange
 import cc.colorcat.mvi.sample.login.LoginContract.State
-import cc.colorcat.mvi.sample.randomDelay
+import cc.colorcat.mvi.sample.util.randomDelay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow

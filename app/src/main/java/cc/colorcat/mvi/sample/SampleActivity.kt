@@ -7,6 +7,7 @@ import androidx.navigation.findNavController
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupActionBarWithNavController
 import cc.colorcat.mvi.sample.databinding.ActivitySampleBinding
+import cc.colorcat.mvi.sample.util.viewBinding
 
 /**
  * Main Activity of the sample app, responsible for managing Fragment display and navigation.
@@ -17,9 +18,8 @@ import cc.colorcat.mvi.sample.databinding.ActivitySampleBinding
  * GitHub: https://github.com/ccolorcat
  */
 class SampleActivity : AppCompatActivity() {
-    private val binding: ActivitySampleBinding by lazy(LazyThreadSafetyMode.NONE) {
-        ActivitySampleBinding.inflate(layoutInflater)
-    }
+    private val binding by viewBinding<ActivitySampleBinding>()
+
     private val navController: NavController by lazy(LazyThreadSafetyMode.NONE) {
         findNavController(R.id.fragment_container)
     }

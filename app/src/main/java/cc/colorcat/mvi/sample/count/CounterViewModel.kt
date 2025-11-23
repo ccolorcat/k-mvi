@@ -10,7 +10,7 @@ import cc.colorcat.mvi.sample.count.CounterContract.Event
 import cc.colorcat.mvi.sample.count.CounterContract.Intent
 import cc.colorcat.mvi.sample.count.CounterContract.PartialChange
 import cc.colorcat.mvi.sample.count.CounterContract.State
-import cc.colorcat.mvi.sample.randomDelay
+import cc.colorcat.mvi.sample.util.randomDelay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
