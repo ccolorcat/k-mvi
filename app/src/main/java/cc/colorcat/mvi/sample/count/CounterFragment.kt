@@ -13,11 +13,13 @@ import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
 import cc.colorcat.mvi.debounceFirst
 import cc.colorcat.mvi.doOnClick
+import cc.colorcat.mvi.sample.R
 import cc.colorcat.mvi.sample.count.CounterContract.Event
 import cc.colorcat.mvi.sample.count.CounterContract.Intent
 import cc.colorcat.mvi.sample.count.CounterContract.State
 import cc.colorcat.mvi.sample.databinding.FragmentCounterBinding
 import cc.colorcat.mvi.sample.util.showToast
+import cc.colorcat.mvi.sample.util.viewBinding
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge
@@ -73,8 +75,7 @@ class CounterFragment : Fragment() {
      * Using nullable backing property with non-null getter for safe access.
      * Must be cleared in onDestroyView to prevent memory leaks.
      */
-    private var _binding: FragmentCounterBinding? = null
-    private val binding get() = _binding!!
+    private val binding: FragmentCounterBinding by viewBinding()
 
     /**
      * Lazy property that creates a merged Flow of all user intents.
@@ -115,8 +116,7 @@ class CounterFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentCounterBinding.inflate(inflater, container, false)
-        return binding.root
+        return inflater.inflate(R.layout.fragment_counter, container, false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -177,17 +177,6 @@ class CounterFragment : Fragment() {
         }
 
         intents.onEach { viewModel.dispatch(it) }.launchIn(lifecycleScope)
-    }
-
-    /**
-     * Clean up the binding when the view is destroyed to prevent memory leaks.
-     *
-     * This is a ViewBinding best practice: always set binding to null in onDestroyView
-     * to avoid holding references to views that have been destroyed.
-     */
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
     }
 }
 

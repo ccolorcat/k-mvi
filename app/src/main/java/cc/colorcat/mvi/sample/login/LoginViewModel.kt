@@ -23,7 +23,7 @@ import kotlin.random.Random
  * in one place, rather than registering separate handlers for each intent type.
  *
  * **Advantages of centralized handling:**
- * 1. **Single Entry Point**: All intent processing logic is in one method ([dispatchIntent])
+ * 1. **Single Entry Point**: All intent processing logic is in one method ([handleIntent])
  * 2. **Easy Navigation**: Developers can quickly find where each intent is handled
  * 3. **Exhaustive Checking**: Kotlin's when expression ensures all intent types are handled
  * 4. **Clear Flow**: Intent → Handler → PartialChange flow is obvious
@@ -50,6 +50,21 @@ import kotlin.random.Random
  * - Error handling with try-catch-finally
  * - Input validation with early returns
  *
+ * Note on `intentGroupTag` behavior and assumptions:
+ * - The current implementation of [intentGroupTag] uses `intent::class.simpleName` as the
+ *   fallback tag and does NOT perform additional normalization (such as replacing `\$`) or
+ *   fallback to `qualifiedName`.
+ * - This choice is intentional for brevity because in this contract:
+ *   - `Intent` types are sealed (no anonymous intents) and therefore `simpleName` is
+ *     expected to be available and stable within the same process/build.
+ *   - Tags are used only at runtime inside this contract to group intents for ordered
+ *     execution; tags are neither persisted nor shared across processes or versions.
+ * - Risks and considerations:
+ *   - `simpleName` may be null for some generated types; this contract assumes intents are
+ *     not anonymous or generated in a way that yields null simple names.
+ *   - If you later need cross-version or cross-process stability, or persistence of tags,
+ *     prefer an explicit `groupTag` on the Intent type or use a normalized `qualifiedName`.
+ *
  * Author: ccolorcat
  * Date: 2025-11-20
  * GitHub: https://github.com/ccolorcat
@@ -58,15 +73,18 @@ class LoginViewModel : ViewModel() {
     private val contract by contract(
         initState = State(),
         config = HybridConfig(
-            groupTagSelector = ::getIntentTag
+            groupTagSelector = ::intentGroupTag
         ),
-        defaultHandler = ::dispatchIntent
+        defaultHandler = ::handleIntent
     )
 
-    private fun getIntentTag(intent: Intent): String = when (intent) {
+    private fun intentGroupTag(intent: Intent): String = when (intent) {
         // Group authentication-related intents under a clear, semantic tag
         is Intent.Login, is Intent.Logout -> "auth"
-        // Fallback: derive a stable, normalized tag from the intent class name
+        // Fallback: use the intent's simple class name as the tag. NOTE:
+        // - This implementation intentionally does not perform normalization (no `\$` replacement)
+        //   and does not fall back to qualifiedName. It assumes Intents are sealed/non-anonymous
+        //   and tags are used only within this contract at runtime.
         else -> intent::class.simpleName ?: "fallback_tag"
     }
 
@@ -89,7 +107,7 @@ class LoginViewModel : ViewModel() {
      * @param intent The intent to process
      * @return Flow of PartialChanges representing state transformations
      */
-    private fun dispatchIntent(intent: Intent): Flow<PartialChange> {
+    private fun handleIntent(intent: Intent): Flow<PartialChange> {
         return when (intent) {
             is Intent.Login -> handleLogin(intent)
             is Intent.Logout -> handleLogout()

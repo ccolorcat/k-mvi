@@ -1,6 +1,7 @@
 package cc.colorcat.mvi.sample.util
 
 import android.app.Activity
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import androidx.fragment.app.Fragment
@@ -23,6 +24,7 @@ class FragmentViewBindingDelegate<T : ViewBinding>(
     private var binding: T? = null
 
     override fun getValue(thisRef: Fragment, property: KProperty<*>): T {
+        ensureMainThread()
         val existing = binding
         if (existing != null) return existing
 
@@ -42,8 +44,9 @@ class FragmentViewBindingDelegate<T : ViewBinding>(
     }
 }
 
-fun <T : ViewBinding> Fragment.viewBinding(factory: (View) -> T): ReadOnlyProperty<Fragment, T> =
-    FragmentViewBindingDelegate(factory)
+fun <T : ViewBinding> Fragment.viewBinding(factory: (View) -> T): ReadOnlyProperty<Fragment, T> {
+    return FragmentViewBindingDelegate(factory)
+}
 
 inline fun <reified T : ViewBinding> Fragment.viewBinding(): ReadOnlyProperty<Fragment, T> {
     return FragmentViewBindingDelegate { bind(it) }
@@ -63,6 +66,7 @@ class ActivityViewBindingDelegate<T : ViewBinding>(
     private var binding: T? = null
 
     override fun getValue(thisRef: Activity, property: KProperty<*>): T {
+        ensureMainThread()
         return binding ?: factory(thisRef.layoutInflater).also { binding = it }
     }
 }
@@ -74,4 +78,11 @@ inline fun <reified T : ViewBinding> Activity.viewBinding(): ReadOnlyProperty<Ac
 inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T {
     return T::class.java.getMethod("inflate", LayoutInflater::class.java)
         .invoke(null, inflater) as T
+}
+
+
+private fun ensureMainThread() {
+    if (Looper.myLooper() != Looper.getMainLooper()) {
+        throw IllegalStateException("ViewBinding must be accessed from the main (UI) thread")
+    }
 }
