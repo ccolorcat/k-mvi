@@ -1,5 +1,6 @@
 package cc.colorcat.mvi
 
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -43,65 +44,104 @@ import kotlinx.coroutines.flow.flowOf
 fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
 
 /**
- * Debounces the flow by responding only to the first event in a series of rapid events.
+ * Debounces the flow with a leading edge trigger and sliding timeout window.
  *
  * This is the opposite of [debounce]:
- * - [debounce]: Responds to the **last** event after a period of silence (delayed response)
- * - [debounceFirst]: Responds to the **first** event immediately, then ignores subsequent rapid events
+ * - [debounce]: Responds to the **last** event after a period of silence (trailing edge, delayed response)
+ * - [debounceLeading]: Responds to the **first** event immediately (leading edge, instant response)
  *
- * In a continuous stream of events, only the first event is emitted. Subsequent events
- * are ignored as long as the time gap between consecutive events is less than [timeMillis].
- * Once a gap of at least [timeMillis] occurs, the next event will be emitted as a new "first" event.
+ * **Key behavior:** Each event (whether emitted or ignored) updates the internal timestamp.
+ * This creates a sliding timeout window where rapid continuous events will only trigger once,
+ * no matter how long they continue, as long as the gap between consecutive events is less than [timeMillis].
  *
  * ## Behavior Comparison
  *
- * **debounce (standard):**
+ * **debounce (trailing edge - waits for silence):**
  * ```
  * Events:  0ms  100ms  200ms  [silence 500ms]  → Emit at 700ms (delayed)
- *                                               ↑ Responds to LAST event
+ *                                               ↑ Responds to LAST event after silence
  * ```
  *
- * **debounceFirst (this function):**
+ * **debounceLeading (this function - responds immediately with sliding window):**
  * ```
- * Events:  0ms  100ms  200ms
- *          ↓
- *        Emit immediately (responsive)
- *        ↑ Responds to FIRST event
+ * Events:  0ms   100ms  200ms  300ms  600ms  [silence]  1200ms  1300ms
+ *          ↓                                             ↓
+ *        Emit                                          Emit
+ *          └────────── window resets on each event ──────┘
+ *
+ * Timeline analysis (timeMillis = 500):
+ * - 0ms:    Emit ✓ (gap from init = 500ms >= 500ms)  → timestamp updated to 0ms
+ * - 100ms:  Skip   (gap = 100ms < 500ms)              → timestamp updated to 100ms
+ * - 200ms:  Skip   (gap = 100ms < 500ms)              → timestamp updated to 200ms
+ * - 300ms:  Skip   (gap = 100ms < 500ms)              → timestamp updated to 300ms
+ * - 600ms:  Skip   (gap = 300ms < 500ms)              → timestamp updated to 600ms
+ * - 1200ms: Emit ✓ (gap = 600ms >= 500ms)            → timestamp updated to 1200ms
+ * - 1300ms: Skip   (gap = 100ms < 500ms)              → timestamp updated to 1300ms
  * ```
  *
- * ## Behavior Example
+ * **Key difference from standard throttleFirst:**
+ * - **throttleFirst**: Only updates timestamp when emitting → can emit again sooner
+ * - **debounceLeading**: Always updates timestamp → extends silence window on every event
  *
- * Given events at times: 0ms, 100ms, 200ms, 300ms, 1000ms, 1100ms
- * With timeMillis = 500:
- * - Emit event at 0ms (first event, gap from previous = infinite)
- * - Skip events at 100ms, 200ms, 300ms (gaps = 100ms, 100ms, 100ms < 500ms)
- * - Emit event at 1000ms (gap = 700ms >= 500ms, new "first" event)
- * - Skip event at 1100ms (gap = 100ms < 500ms)
+ * ## Real-world Example
  *
- * ## Usage Example
+ * **Scenario:** User rapidly clicks a submit button 10 times in 2 seconds, then waits 1 second
+ *
+ * With `debounceLeading(500)`:
+ * ```
+ * Click 1 (0ms):    Emit ✓ → "Submitting..."
+ * Click 2 (200ms):  Skip (gap = 200ms < 500ms)
+ * Click 3 (400ms):  Skip (gap = 200ms < 500ms)
+ * Click 4 (600ms):  Skip (gap = 200ms < 500ms)
+ * ...
+ * Click 10 (1800ms): Skip (gap = 200ms < 500ms)
+ * [User stops clicking]
+ * Click 11 (3000ms): Emit ✓ (gap = 1200ms >= 500ms) → "Submitting again..."
+ * ```
+ *
+ * Result: Even with 10 rapid clicks, only the first one is processed. The timeout window
+ * keeps extending with each click, preventing any processing until there's a 500ms silence.
+ *
+ * ## Usage Examples
  *
  * ```kotlin
- * // Prevent double clicks - respond immediately to first click
- * button.doOnClick { send(ClickIntent) }
- *     .debounceFirst(500L)  // Respond to first click, ignore rapid subsequent clicks
+ * // Prevent accidental double-clicks on buttons
+ * // User's first click is processed immediately, subsequent rapid clicks are ignored
+ * button.doOnClick { send(SubmitIntent) }
+ *     .debounceLeading(500L)  // 500ms sliding window
  *     .launchCollect(this) { viewModel.dispatch(it) }
  *
- * // Compare with debounce (responds to last event after delay)
+ * // Compare with standard debounce (waits for user to stop, then responds)
  * searchEditText.afterTextChanged()
- *     .debounce(500L)  // Wait for user to stop typing, then respond to last input
- *     .launchCollect(this) { viewModel.dispatch(it) }
+ *     .debounce(500L)  // Waits for user to stop typing
+ *     .launchCollect(this) { viewModel.dispatch(SearchIntent(it)) }
  * ```
  *
- * @param timeMillis The minimum time gap in milliseconds. Events with smaller gaps are ignored.
- * @return A flow that emits only the first value in rapid sequences
+ * ## Use Cases
+ *
+ * - **Button click prevention**: Prevents accidental multi-taps while providing instant feedback
+ * - **Form submission protection**: Prevents duplicate submissions from impatient users
+ * - **Rate-limiting API calls**: Ensures actions triggered by user events don't fire too frequently
+ * - **Pull-to-refresh**: Responds immediately to first pull, ignores subsequent rapid pulls
+ *
+ * ## When to use debounceLeading vs debounce
+ *
+ * - Use **debounceLeading** when you want immediate response to the first action (e.g., button clicks)
+ * - Use **debounce** when you want to wait for user to finish (e.g., search input, form validation)
+ *
+ * @param timeMillis The minimum time gap in milliseconds between emitted events. Must be >= 0.
+ *                   Use 0 to disable debouncing (all events pass through).
+ * @return A flow that emits the first event immediately, then only emits subsequent events
+ *         if at least [timeMillis] has passed since the **last event** (not last emission)
  * @see kotlinx.coroutines.flow.debounce
  */
-fun <T> Flow<T>.debounceFirst(timeMillis: Long): Flow<T> = flow {
-    var time = -1L
+fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = flow {
+    require(timeMillis >= 0L) { "timeMillis must be greater than or equal to 0" }
+    var time = SystemClock.elapsedRealtime() - timeMillis
     collect { value ->
-        val lastTime = time
-        time = System.currentTimeMillis()
-        if (time - lastTime >= timeMillis) {
+        val prev = time
+        time = SystemClock.elapsedRealtime()
+        if (time - prev >= timeMillis) {
             emit(value)
         }
     }

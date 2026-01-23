@@ -11,7 +11,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
-import cc.colorcat.mvi.debounceFirst
+import cc.colorcat.mvi.debounceLeading
 import cc.colorcat.mvi.doOnClick
 import cc.colorcat.mvi.sample.R
 import cc.colorcat.mvi.sample.count.CounterContract.Event
@@ -83,14 +83,14 @@ class CounterFragment : Fragment() {
      * The flow is recreated when accessed, ensuring it uses the current binding instance.
      *
      * **Debouncing Strategy:**
-     * - Increment/Decrement intents are debounced with 600ms to prevent rapid clicks
+     * - Increment/Decrement intents are debounced with 300ms to prevent rapid clicks
      * - Reset intent is also debounced to prevent accidental double-clicks during async operation
-     * - Uses [debounceFirst] to emit the first click and ignore subsequent clicks within the time window
+     * - Uses [debounceLeading] to emit the first click and ignore subsequent clicks within the time window
      */
     private val intents: Flow<Intent>
         get() = merge(
-            counterIntents().debounceFirst(150L),
-            binding.reset.doOnClick { trySend(Intent.Reset) }.debounceFirst(600L),
+            counterIntents().debounceLeading(300L),
+            binding.reset.doOnClick { trySend(Intent.Reset) }.debounceLeading(600L),
         )
 
     /**

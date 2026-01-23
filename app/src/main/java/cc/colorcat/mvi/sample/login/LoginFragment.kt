@@ -10,7 +10,7 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
-import cc.colorcat.mvi.debounceFirst
+import cc.colorcat.mvi.debounceLeading
 import cc.colorcat.mvi.doOnClick
 import cc.colorcat.mvi.sample.R
 import cc.colorcat.mvi.sample.databinding.FragmentLoginBinding
@@ -30,8 +30,8 @@ class LoginFragment : Fragment() {
 
     private val intents: Flow<Intent>
         get() = merge(
-            inputIntents().debounceFirst(500L),
-            authIntents().debounceFirst(600L),
+            inputIntents().debounceLeading(500L),
+            authIntents().debounceLeading(600L),
         )
 
     private fun inputIntents(): Flow<Intent> = merge(
