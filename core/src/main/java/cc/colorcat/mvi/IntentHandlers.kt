@@ -236,15 +236,12 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
     }
 
     override suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
-        var handler = handlers[intent.javaClass]
-        if (handler == null) {
+        @Suppress("UNCHECKED_CAST")
+        val handler = handlers[intent.javaClass] as IntentHandler<I, S, E>? ?: run {
             logger.w(TAG) {
                 "No handler registered for ${intent.javaClass.simpleName}, fallback to defaultHandler"
             }
-            handler = defaultHandler
-        } else {
-            @Suppress("UNCHECKED_CAST")
-            handler as IntentHandler<I, S, E>
+            defaultHandler
         }
         logger.i(TAG) { "Handling intent: ${intent.javaClass.simpleName}" }
         return handler.handle(intent)

@@ -76,7 +76,7 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  * If not configured, the framework uses sensible defaults:
  * - **Handle Strategy**: HYBRID (balanced between concurrent and sequential)
  * - **Retry Policy**: Retry on Exceptions (but not Errors), up to 3 attempts
- * - **Logger**: Default logger with INFO level
+     * - **Logger**: Default logger with WARN level
  * - **Hybrid Config**: Empty configuration (no grouping)
  *
  * ## Thread Safety
@@ -169,6 +169,24 @@ object KMvi {
      * - Does NOT retry [Error]s (serious problems that should not be retried)
      * - Limits retries to a maximum of 3 attempts
      * - Logs each retry attempt with the exception details
+     *
+     * ## ⚠️ Production Warning
+     *
+     * `Exception` is a broad category that includes non-transient errors
+     * (e.g., [IllegalStateException], [IllegalArgumentException]). Retrying
+     * these unconditionally can mask bugs or cause unexpected side effects.
+     *
+     * **Recommendation**: Override this in production with a more targeted policy:
+     *
+     * ```kotlin
+     * KMvi.setup {
+     *     copy(
+     *         retryPolicy = { attempt, cause ->
+     *             attempt <= 3 && (cause is IOException || cause is HttpException)
+     *         }
+     *     )
+     * }
+     * ```
      *
      * @param attempt The retry attempt number (1 for first retry, 2 for second, etc.)
      * @param cause The throwable that caused the failure

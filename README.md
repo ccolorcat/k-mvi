@@ -274,7 +274,7 @@ KMvi.setup {
     copy(
         handleStrategy = HandleStrategy.HYBRID,
         hybridConfig = HybridConfig(
-            groupSelector = { intent ->
+            groupTagSelector = { intent ->
                 when (intent) {
                     is LoadIntent -> "load_group"
                     is SaveIntent -> "save_group"
@@ -297,7 +297,7 @@ class MyViewModel : ViewModel() {
         initState = MyState(),
         strategy = HandleStrategy.HYBRID,
         config = HybridConfig(
-            groupSelector = { intent ->
+            groupTagSelector = { intent ->
                 when (intent) {
                     // Database operations - process sequentially within this group
                     is MyIntent.SaveUser,
@@ -309,10 +309,9 @@ class MyViewModel : ViewModel() {
                     is MyIntent.UploadData -> "network"
                     // Default: return class name so same type intents execute sequentially
                     else -> intent::class.java.name
-                    else -> null
                 }
             },
-            bufferCapacity = Channel.BUFFERED
+            groupChannelCapacity = Channel.BUFFERED
         )
     ) {
         register(MyIntent.SaveUser::class.java, ::handleSaveUser)
@@ -326,7 +325,6 @@ class MyViewModel : ViewModel() {
 - All `SaveUser`, `UpdateUser`, and `DeleteUser` intents will execute sequentially (one after another) within the "database" group
 - All `FetchData` and `UploadData` intents will execute sequentially within the "network" group
 - Other intents use their class name as group key by default, ensuring same-type intents execute sequentially
-- Intents returning `null` from `groupSelector` will use their `Concurrent`/`Sequential` marker
 
 ## Usage Guide
 
@@ -498,7 +496,7 @@ class UserViewModel : ViewModel() {
         initState = UserState(),
         strategy = HandleStrategy.HYBRID,
         config = HybridConfig(
-            groupSelector = { intent ->
+            groupTagSelector = { intent ->
                 when (intent) {
                     // Group all database operations together
                     is UserIntent.Save,
@@ -582,7 +580,7 @@ class UserViewModel : ViewModel() {
         initState = UserState(),
         strategy = HandleStrategy.HYBRID,
         config = HybridConfig(
-            groupSelector = { intent ->
+            groupTagSelector = { intent ->
                 when (intent) {
                     is UserIntent.Save,
                     is UserIntent.Update,
@@ -689,18 +687,19 @@ button.doOnClick { MyIntent.ButtonClicked }
     .launchCollect(this) { viewModel.dispatch(it) }
 
 // Text changes
-editText.doOnTextChanged { text -> MyIntent.TextChanged(text) }
-    .debounce(300) // Wait for user to stop typing
-    .launchCollect(this) { viewModel.dispatch(it) }
+editText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
+    send(MyIntent.TextChanged(editable?.toString().orEmpty()))
+}.launchCollect(this) { viewModel.dispatch(it) }
 
 // Checkbox changes
-checkbox.doOnCheckedChanged { checked -> MyIntent.CheckboxToggled(checked) }
-    .launchCollect(this) { viewModel.dispatch(it) }
+checkbox.doOnCheckedChange { isChecked ->
+    send(MyIntent.CheckboxToggled(isChecked))
+}.launchCollect(this) { viewModel.dispatch(it) }
 ```
 
 ### Debouncing and Throttling
 
-#### debounceFirst
+#### debounceLeading
 Responds to the **first** event, then ignores subsequent events for a time window. Perfect for preventing accidental double-clicks:
 
 ```kotlin
@@ -713,9 +712,9 @@ button.doOnClick { SubmitIntent }
 Responds to the **last** event after a period of silence. Perfect for search as user types:
 
 ```kotlin
-searchEditText.doOnTextChanged { SearchIntent(it) }
-    .debounce(300) // Wait 300ms after user stops typing
-    .launchCollect(this) { viewModel.dispatch(it) }
+searchEditText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
+    send(SearchIntent(editable?.toString().orEmpty()))
+}.launchCollect(this) { viewModel.dispatch(it) }
 ```
 
 ## Configuration
@@ -739,7 +738,7 @@ class MyApplication : Application() {
                 
                 // Hybrid strategy configuration
                 hybridConfig = HybridConfig(
-                    groupSelector = { intent ->
+                    groupTagSelector = { intent ->
                         // Return a group key for intents that should be grouped
                         when (intent) {
                             is DatabaseIntent -> "database"
@@ -748,16 +747,11 @@ class MyApplication : Application() {
                             else -> intent::class.java.name
                         }
                     },
-                    bufferCapacity = Channel.BUFFERED
+                    groupChannelCapacity = Channel.BUFFERED
                 ),
                 
-                // Logger configuration
-                logger = Logger(
-                    minLevel = if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO,
-                    output = { level, tag, message ->
-                        Log.println(level.priority, tag, message)
-                    }
-                )
+                // Logger configuration: WARN by default; use DEBUG in debug builds
+                logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
             )
         }
     }
@@ -777,18 +771,43 @@ A function `(attempt: Long, cause: Throwable) -> Boolean` that determines whethe
 Default policy:
 ```kotlin
 { attempt, cause -> 
-    attempt <= 3 && cause !is Error // Retry up to 3 times, but not for Errors
+    attempt <= 3 && cause is Exception // Retry up to 3 times for all Exceptions (not Errors)
 }
 ```
 
+> ⚠️ **Production warning**: `Exception` is broad and includes non-transient errors like
+> `IllegalStateException`. Override this in production with a more targeted policy.
+
 #### HybridConfig
 Configuration for HYBRID strategy:
-- `groupSelector`: Function to assign intents to groups for sequential processing
-- `bufferCapacity`: Buffer size for grouped intent channels
+- `groupTagSelector`: Function to assign a group tag to each fallback intent for sequential processing
+- `groupChannelCapacity`: Buffer size for grouped intent channels (default: `Channel.BUFFERED` = 64)
 
 #### Logger
-- `minLevel`: Minimum log level to output
-- `output`: Custom log output function (defaults to Android Log)
+`Logger` is a `fun interface` with a single `log(priority, tag, error, message)` method.
+Use the factory `Logger(threshold: Int)` to create a default Android-Log-backed instance
+that filters messages below the given priority level (default: `Logger.WARN`):
+
+```kotlin
+// Only log WARN and above (production default)
+Logger()
+
+// Log everything from DEBUG in debug builds
+Logger(Logger.DEBUG)
+
+// Fully custom backend (e.g., Timber)
+val customLogger = Logger { priority, tag, error, message ->
+    val msg = buildString {
+        append(message())
+        if (error != null) append("\n${error.stackTraceToString()}")
+    }
+    when (priority) {
+        Logger.DEBUG, Logger.INFO -> Timber.tag(tag).d(msg)
+        Logger.WARN -> Timber.tag(tag).w(msg)
+        Logger.ERROR -> Timber.tag(tag).e(msg)
+    }
+}
+```
 
 ## Advanced Features
 
@@ -896,26 +915,32 @@ fun `error event is emitted on failure`() = runTest {
 
 ### Custom Logger
 
-Implement a custom logger for advanced logging needs:
+`Logger` is a `fun interface` — implement it directly or use the provided factory:
 
 ```kotlin
-class CustomLogger : Logger(
-    minLevel = LogLevel.DEBUG,
-    output = { level, tag, message ->
-        when (level) {
-            LogLevel.DEBUG, LogLevel.INFO -> Timber.tag(tag).d(message)
-            LogLevel.WARN -> Timber.tag(tag).w(message)
-            LogLevel.ERROR -> {
-                Timber.tag(tag).e(message)
-                // Send to crash reporting
-                Crashlytics.log("[$tag] $message")
-            }
+// Option 1: threshold-based default logger (uses Android Log)
+KMvi.setup {
+    copy(logger = Logger(Logger.DEBUG))  // Log DEBUG and above
+}
+
+// Option 2: fully custom backend (e.g., Timber + Crashlytics)
+val customLogger = Logger { priority, tag, error, message ->
+    val msg = buildString {
+        append(message())
+        if (error != null) append("\n${error.stackTraceToString()}")
+    }
+    when (priority) {
+        Logger.DEBUG, Logger.INFO -> Timber.tag(tag).d(msg)
+        Logger.WARN -> Timber.tag(tag).w(msg)
+        Logger.ERROR -> {
+            Timber.tag(tag).e(msg)
+            Crashlytics.log("[$tag] $msg")
         }
     }
-)
+}
 
 KMvi.setup {
-    copy(logger = CustomLogger())
+    copy(logger = customLogger)
 }
 ```
 

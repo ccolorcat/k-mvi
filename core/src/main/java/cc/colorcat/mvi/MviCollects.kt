@@ -4,7 +4,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.lifecycle.withStateAtLeast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -13,9 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -559,44 +556,43 @@ fun <T> Flow<T>.launchCollect(
 
 
 /**
- * Dispatches intents when lifecycle reaches at least the specified state.
+ * Dispatches intents with full lifecycle awareness using [repeatOnLifecycle].
  *
- * This function waits for the lifecycle to reach the specified state, then
- * starts dispatching intents from the flow. If the lifecycle falls below the
- * required state, dispatching continues (unlike [launchCollect] which pauses).
+ * Collection starts when the lifecycle reaches [state] and **pauses** when the
+ * lifecycle drops below that state. Collection automatically resumes when the
+ * lifecycle returns to the required state. This matches the behavior of
+ * [launchCollect] and [collectState] / [collectEvent].
  *
  * ## Usage Example
  *
  * ```kotlin
- * intentFlow.dispatchAtLeast(
+ * intentFlow.dispatchWithLifecycle(
  *     owner = viewLifecycleOwner,
- *     state = Lifecycle.State.RESUMED,
+ *     state = Lifecycle.State.STARTED,
  *     dispatch = viewModel::dispatch
  * )
  * ```
  *
- * ## Note
+ * ## Lifecycle Behavior
  *
- * This uses [withStateAtLeast] rather than [repeatOnLifecycle], meaning:
- * - Waits for the lifecycle to reach the state once
- * - Then dispatches all intents continuously
- * - Does NOT pause dispatching if lifecycle state drops
+ * - Collection pauses when lifecycle drops below [state] (e.g., Fragment goes to background)
+ * - Collection resumes when lifecycle returns to [state]
+ * - Collection stops permanently when the lifecycle is destroyed
  *
  * @param I The intent type
  * @param owner The lifecycle owner
- * @param state The minimum lifecycle state required to start dispatching
+ * @param state The minimum lifecycle state required for collection
  * @param dispatch The function to dispatch each intent
  * @return A Job that can be cancelled
+ * @see launchCollect
  */
-fun <I : Mvi.Intent> Flow<I>.dispatchAtLeast(
+fun <I : Mvi.Intent> Flow<I>.dispatchWithLifecycle(
     owner: LifecycleOwner,
     state: Lifecycle.State,
     dispatch: (I) -> Unit
-): Job {
-    return owner.lifecycleScope.launch {
-        owner.withStateAtLeast(state) {
-            onEach { dispatch(it) }.launchIn(owner.lifecycleScope)
-        }
+): Job = owner.lifecycleScope.launch {
+    owner.repeatOnLifecycle(state) {
+        collect { dispatch(it) }
     }
 }
 

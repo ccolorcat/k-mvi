@@ -145,10 +145,33 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     /**
      * Extracts non-null events from snapshots.
      *
-     * Characteristics:
+     * ## Characteristics
      * - Started lazily to save resources when no collector is active
      * - No replay (events are one-time side effects)
      * - Only emits when an event is present in the snapshot
+     *
+     * ## ⚠️ Important: Collector Must Be Active Before Dispatch
+     *
+     * Unlike [stateFlow] (which is persistent and always holds the latest state),
+     * events are **fire-and-forget**: they are emitted only to currently active
+     * collectors. If no collector is subscribed at the moment an event is produced,
+     * that event is **permanently lost** and will never be replayed.
+     *
+     * This is by design — events represent one-time side effects (navigation,
+     * toasts, dialogs) that should not be re-delivered after the fact.
+     *
+     * **Correct pattern**: subscribe to `eventFlow` before any `dispatch()` call
+     * that may produce events (e.g., in `onViewCreated`, before any initial intent).
+     *
+     * ```kotlin
+     * // ✅ Subscribe BEFORE dispatching any intent that may emit events
+     * viewModel.eventFlow.collectEvent(viewLifecycleOwner) { ... }
+     * viewModel.dispatch(MyIntent.Initialize)
+     *
+     * // ❌ Events from Initialize may be lost if subscribed too late
+     * viewModel.dispatch(MyIntent.Initialize)
+     * viewModel.eventFlow.collectEvent(viewLifecycleOwner) { ... }
+     * ```
      */
     override val eventFlow: Flow<E> = snapshots.mapNotNull { it.event }
         .shareIn(scope, SharingStarted.Lazily, 0)

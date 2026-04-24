@@ -234,7 +234,8 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
 }
 
 /**
- * Converts a TextView's text changes into a Flow of Intents with optional debouncing.
+ * Converts a TextView's text change events (after text has changed) into a Flow of Intents
+ * with optional debouncing.
  *
  * The Flow will emit an Intent after the text changes (after the user finishes editing).
  * Debouncing helps reduce unnecessary emissions during rapid typing.
@@ -243,7 +244,7 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  * ## Usage Example
  *
  * ```kotlin
- * searchEditText.afterTextChanged(debounceMillis = 500L) { editable ->
+ * searchEditText.doOnAfterTextChanged(debounceMillis = 500L) { editable ->
  *     send(SearchIntent.QueryChanged(editable?.toString().orEmpty()))
  * }.launchCollect(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
@@ -255,7 +256,7 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  * @param block A lambda that receives the Editable and produces an Intent
  * @return A Flow that emits Intents after text changes (with optional debouncing)
  */
-fun <I : Mvi.Intent> TextView.afterTextChanged(
+fun <I : Mvi.Intent> TextView.doOnAfterTextChanged(
     debounceMillis: Long = 500L,
     block: ProducerScope<I>.(Editable?) -> Unit
 ): Flow<I> {
