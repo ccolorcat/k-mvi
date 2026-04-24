@@ -254,6 +254,12 @@ sealed interface Mvi {
         /**
          * Applies this change to the given snapshot, producing a new snapshot.
          *
+         * **Design contract**: This function must be **lightweight and pure** — it should
+         * only perform synchronous state transformations (e.g., `copy()`). All asynchronous
+         * work (network calls, database queries, etc.) belongs in [IntentHandler][cc.colorcat.mvi.IntentHandler]
+         * which emits `PartialChange` values via a `Flow`. Placing heavy or side-effectful
+         * logic here bypasses the retry policy and can block the state-accumulation pipeline.
+         *
          * @param old The current snapshot containing the current state and any pending event
          * @return A new snapshot with the updated state and/or event
          */
