@@ -109,12 +109,12 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  * // User's first click is processed immediately, subsequent rapid clicks are ignored
  * button.doOnClick { send(SubmitIntent) }
  *     .debounceLeading(500L)  // 500ms sliding window
- *     .launchCollect(this) { viewModel.dispatch(it) }
+ *     .launchCollect(viewLifecycleOwner) { viewModel.dispatch(it) }
  *
  * // Compare with standard debounce (waits for user to stop, then responds)
  * searchEditText.afterTextChanged()
  *     .debounce(500L)  // Waits for user to stop typing
- *     .launchCollect(this) { viewModel.dispatch(SearchIntent(it)) }
+ *     .launchCollect(viewLifecycleOwner) { viewModel.dispatch(SearchIntent(it)) }
  * ```
  *
  * ## Use Cases

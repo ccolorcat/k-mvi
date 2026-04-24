@@ -274,11 +274,15 @@ sealed interface Mvi {
      * - **Event Lifecycle**: Events are typically cleared when state is updated
      * - **Type-Safe**: Compiler ensures state and event types match
      *
-     * ## Constructor
+     * ## Construction
      *
-     * The constructor is `internal` to ensure snapshots are created through the
-     * proper channels (via [PartialChange] or framework methods), maintaining
-     * architectural consistency.
+     * Snapshots can be created directly via the primary constructor or via the
+     * [Snapshot.of] convenience factory:
+     *
+     * ```kotlin
+     * val snapshot = Mvi.Snapshot(MyState())
+     * val snapshotWithEvent = Mvi.Snapshot.of(MyState(), MyEvent.ShowToast("Hi"))
+     * ```
      *
      * @param S The state type
      * @param E The event type
@@ -287,11 +291,31 @@ sealed interface Mvi {
      * @see State
      * @see Event
      */
-    @Suppress("NON_PUBLIC_PRIMARY_CONSTRUCTOR_OF_DATA_CLASS")
-    data class Snapshot<S : State, E : Event> internal constructor(
+    data class Snapshot<S : State, E : Event>(
         val state: S,
         val event: E? = null
     ) {
+        companion object {
+            /**
+             * Creates a [Snapshot] with the given [state] and optional [event].
+             *
+             * Equivalent to calling the primary constructor directly. Provided as a
+             * named factory for readability in tests and explicit construction scenarios.
+             *
+             * ```kotlin
+             * val snapshot = Mvi.Snapshot.of(MyState())
+             * val result = myPartialChange.apply(snapshot)
+             * assertEquals(expectedState, result.state)
+             * ```
+             *
+             * @param state The initial state
+             * @param event An optional one-time event
+             * @return A new [Snapshot] containing the given state and event
+             */
+            fun <S : State, E : Event> of(state: S, event: E? = null): Snapshot<S, E> =
+                Snapshot(state, event)
+        }
+
         /**
          * Creates a new snapshot with an updated state.
          *

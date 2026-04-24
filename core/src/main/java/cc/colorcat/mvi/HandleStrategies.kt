@@ -333,6 +333,43 @@ enum class HandleStrategy {
  *                         Intents with the same tag are processed sequentially within
  *                         their group. Different tags process in parallel.
  *                         Defaults to the intent's class name.
+ *
+ *                         ## ⚠️ ProGuard / R8 Warning
+ *
+ *                         The default implementation uses `it.javaClass.name`, which relies on
+ *                         the class's fully-qualified name at runtime. In release builds with
+ *                         ProGuard or R8 minification enabled, class names are typically
+ *                         **obfuscated** (e.g., `a`, `b`, `c`). This can cause previously
+ *                         distinct intent types to collide on the same group tag, silently
+ *                         converting what should be parallelism into unintended serialization.
+ *
+ *                         **Recommendation**: Always supply an explicit, stable groupTagSelector
+ *                         in production apps, or add a `-keepnames` ProGuard rule for your
+ *                         Intent classes:
+ *
+ *                         ```kotlin
+ *                         // ✅ Explicit, obfuscation-safe selector
+ *                         HybridConfig<MyIntent> { intent ->
+ *                             when (intent) {
+ *                                 is LoadUser   -> "user"
+ *                                 is LoadPost   -> "post"
+ *                                 else          -> "default"
+ *                             }
+ *                         }
+ *                         ```
+ *
+ *                         ```proguard
+ *                         # ProGuard rule alternative
+ *                         -keepnames class cc.example.intent.**
+ *                         ```
+ *
+ * ## Note on `internal` Properties
+ *
+ * [groupChannelCapacity] and [groupTagSelector] are declared `internal` so they cannot
+ * be accessed from outside the `cc.colorcat.mvi` library module. They are configurable
+ * **only** via the primary constructor or `copy()` when inside the module. End-users
+ * interact with them solely through the constructor or [KMvi.setup].
+ *
  * @see HandleStrategy.HYBRID
  * @see Mvi.Intent.Concurrent
  * @see Mvi.Intent.Sequential

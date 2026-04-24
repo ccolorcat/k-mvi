@@ -581,14 +581,14 @@ fun <T> Flow<T>.launchCollect(
  *
  * @param I The intent type
  * @param owner The lifecycle owner
- * @param state The minimum lifecycle state required for collection
+ * @param state The minimum lifecycle state required for collection (default: STARTED)
  * @param dispatch The function to dispatch each intent
  * @return A Job that can be cancelled
  * @see launchCollect
  */
 fun <I : Mvi.Intent> Flow<I>.dispatchWithLifecycle(
     owner: LifecycleOwner,
-    state: Lifecycle.State,
+    state: Lifecycle.State = Lifecycle.State.STARTED,
     dispatch: (I) -> Unit
 ): Job = owner.lifecycleScope.launch {
     owner.repeatOnLifecycle(state) {

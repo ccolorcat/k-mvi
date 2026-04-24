@@ -64,7 +64,7 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  *         KMvi.setup {
  *             copy(
  *                 handleStrategy = HandleStrategy.CONCURRENT,
- *                 logger = Logger(minLevel = LogLevel.DEBUG)
+ *                 logger = Logger(Logger.DEBUG)
  *             )
  *         }
  *     }
@@ -76,7 +76,7 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  * If not configured, the framework uses sensible defaults:
  * - **Handle Strategy**: HYBRID (balanced between concurrent and sequential)
  * - **Retry Policy**: Retry on Exceptions (but not Errors), up to 3 attempts
-     * - **Logger**: Default logger with WARN level
+ * - **Logger**: Default logger with WARN level
  * - **Hybrid Config**: Empty configuration (no grouping)
  *
  * ## Thread Safety
@@ -139,9 +139,7 @@ object KMvi {
      *             copy(
      *                 handleStrategy = HandleStrategy.CONCURRENT,
      *                 retryPolicy = { attempt, _ -> attempt <= 3 },
-     *                 logger = Logger(
-     *                     minLevel = if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.WARN
-     *                 )
+     *                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
      *             )
      *         }
      *     }
@@ -226,7 +224,7 @@ object KMvi {
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
      * @property hybridConfig The hybrid grouping configuration. Default: empty config
      * @property retryPolicy The retry policy for failed processing. Default: retry on Exception up to 3 times
-     * @property logger The logger instance. Default: Logger with INFO level
+     * @property logger The logger instance. Default: Logger with WARN level
      *
      * @see HandleStrategy
      * @see HybridConfig

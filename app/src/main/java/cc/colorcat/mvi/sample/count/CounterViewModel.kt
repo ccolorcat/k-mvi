@@ -109,24 +109,52 @@ class CounterViewModel : ViewModel() {
     /**
      * Pattern 2: Early return branching - Multiple return paths with separate PartialChange instances.
      *
-     * This approach checks conditions early and returns different PartialChange instances
-     * for different execution paths. Each branch returns its own PartialChange, making
-     * the separation of concerns more explicit.
+     * This approach evaluates the current state **before** constructing a PartialChange and
+     * returns a different PartialChange for each execution path. This makes coarse-grained
+     * branching visible at the handler level rather than buried inside a single lambda.
      *
      * **Advantages:**
-     * - Clear separation between different execution paths
-     * - Easier to understand complex branching logic
-     * - Each branch can be tested independently
-     * - Better for guard clauses and early exits
+     * - Clear separation between different execution paths at handler level
+     * - Each branch returns a focused, single-purpose PartialChange
+     * - Natural fit for guard clauses that must run before async work starts
+     *   (e.g., validating inputs and returning `emptyFlow()` on failure)
      *
-     * **Note:** This example reads `stateFlow.value` to demonstrate the pattern, but
-     * for production code, prefer using `it.state` inside the PartialChange (like Pattern 1)
-     * to avoid potential race conditions.
+     * ## ⚠️ State Access: Prefer `old.state` over `stateFlow.value`
      *
-     * **Best for:**
-     * - Complex conditional logic with distinct execution paths
-     * - When branches have significantly different logic
-     * - Guard clause patterns
+     * This example intentionally reads `stateFlow.value` to showcase the pattern,
+     * but this is **generally not the recommended approach** when branching depends
+     * on the current state. Prefer placing the condition **inside** the [PartialChange]
+     * lambda (as in [handleIncrement]), where `old.state` reflects the most-recent
+     * accumulated state at the exact moment of application:
+     *
+     * ```kotlin
+     * // ✅ Recommended: decide inside PartialChange using old.state
+     * return PartialChange { old ->
+     *     if (old.state.count == COUNT_MIN) {
+     *         old.withEvent(Event.ShowToast("Already reached $COUNT_MIN"))
+     *     } else {
+     *         old.updateState { copy(count = count - 1) }
+     *     }
+     * }
+     *
+     * // ⚠️ Acceptable only when pre-handler logic is required
+     * //    (e.g., early exit with emptyFlow, or suspend pre-validation)
+     * if (stateFlow.value.count == COUNT_MIN) return emptyFlow()
+     * ```
+     *
+     * In HYBRID/CONCURRENT strategies, multiple handlers can run in parallel.
+     * `stateFlow.value` captures a snapshot at handler invocation time, which may
+     * already be stale by the time the [PartialChange] is applied by the `scan`
+     * accumulator. `old.state` inside [PartialChange] is always up-to-date.
+     *
+     * ## General PartialChange guideline
+     *
+     * Keep [PartialChange] lambdas **as simple as possible** — ideally just a call to
+     * `updateState`, `withEvent`, or `updateWith` on the received snapshot.
+     * When state-based branching is needed, the inline-conditional pattern shown in
+     * [handleIncrement] (a single [PartialChange] with `if/else` over `old.state`) is
+     * preferred. Reserve this multi-return pattern for cases that require handler-level
+     * decisions, such as pre-flight validation or early-exit via `emptyFlow()`.
      *
      * @param intent The decrement intent (unused but required by register signature)
      * @return A PartialChange that either decrements count or emits a toast event
