@@ -166,7 +166,7 @@ class MainActivity : AppCompatActivity() {
         
         // Dispatch intents
         incrementButton.doOnClick { IMain.Intent.Increment }
-            .debounceFirst(500)
+            .debounceLeading(500)
             .launchCollect(this) { viewModel.dispatch(it) }
     }
 }
@@ -685,7 +685,7 @@ K-MVI provides convenient extensions for common UI events:
 ```kotlin
 // Button clicks
 button.doOnClick { MyIntent.ButtonClicked }
-    .debounceFirst(500) // Prevent rapid clicks
+    .debounceLeading(500) // Prevent rapid clicks
     .launchCollect(this) { viewModel.dispatch(it) }
 
 // Text changes
@@ -705,7 +705,7 @@ Responds to the **first** event, then ignores subsequent events for a time windo
 
 ```kotlin
 button.doOnClick { SubmitIntent }
-    .debounceFirst(500) // Ignore clicks within 500ms of the first click
+    .debounceLeading(500) // Ignore clicks within 500ms of the first click
     .launchCollect(this) { viewModel.dispatch(it) }
 ```
 
