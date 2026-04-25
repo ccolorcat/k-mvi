@@ -12,9 +12,10 @@ import cc.colorcat.mvi.RetryPolicy
 import cc.colorcat.mvi.toPartialChange
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
@@ -39,10 +41,10 @@ import kotlinx.coroutines.launch
  *
  * ## Processing Pipeline
  *
- * 1. **Intent Collection**: Intents are received via [dispatch] and buffered in a [MutableSharedFlow]
+ * 1. **Intent Collection**: Intents are received via `dispatch` and buffered in a [Channel]
  * 2. **Intent Transformation**: [IntentTransformer] converts intents to flows of [Mvi.PartialChange]
  * 3. **State Accumulation**: [scan] accumulates partial changes into [Mvi.Snapshot]
- * 4. **State/Event Extraction**: Snapshot is split into [stateFlow] and [eventFlow]
+ * 4. **State/Event Extraction**: Snapshot is split into `stateFlow` and `eventFlow`
  *
  * ## Thread Dispatching Strategy
  *
@@ -82,6 +84,9 @@ import kotlinx.coroutines.launch
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
+private const val INTENT_BUFFER_CAPACITY = 64
+private const val SNAPSHOT_BUFFER_CAPACITY = 64
+
 internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val scope: CoroutineScope,
     initState: S,
@@ -89,26 +94,41 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
     /**
-     * Internal flow for collecting dispatched intents.
+     * Channel for buffering dispatched intents before they enter the processing pipeline.
+     *
+     * A [Channel] is used instead of [kotlinx.coroutines.flow.MutableSharedFlow] because there is
+     * exactly **one consumer** — the [snapshots] pipeline. A Channel is a lightweight FIFO queue
+     * optimised for single-producer → single-consumer scenarios, with lower overhead than the
+     * broadcast machinery of a SharedFlow.
      *
      * Configured with:
-     * - Buffer capacity: 64 (reasonable for most use cases)
-     * - Overflow strategy: SUSPEND (waits when buffer is full, avoiding intent loss)
+     * - Capacity: [INTENT_BUFFER_CAPACITY] items
+     * - Overflow strategy: [BufferOverflow.SUSPEND] — suspends the producer when full,
+     *   guaranteeing no intent is silently dropped
+     *
+     * The channel is closed automatically via [Job.invokeOnCompletion] when the coroutine scope
+     * ends, signalling the downstream pipeline to terminate and releasing buffered items.
+     *
+     * **Note**: the pipeline uses [receiveAsFlow] (not `consumeAsFlow`) so the channel is NOT
+     * closed when [retryWhen] re-collects, allowing buffered intents to survive a retry.
      */
-    private val intents = MutableSharedFlow<I>(
-        extraBufferCapacity = 64,
-        onBufferOverflow = BufferOverflow.SUSPEND
-    )
+    private val intentsChannel = Channel<I>(
+        capacity = INTENT_BUFFER_CAPACITY,
+        onBufferOverflow = BufferOverflow.SUSPEND,
+    ).also { channel ->
+        scope.coroutineContext[Job]?.invokeOnCompletion { channel.close() }
+    }
 
     /**
      * Shared flow of state snapshots produced by processing intents.
      *
      * Processing pipeline:
-     * 1. Transform intents to partial changes (with retry on failure)
+     * 1. Receive intents from [intentsChannel] and transform to partial changes (with retry on failure)
      * 2. Execute transformation on IO dispatcher (for network/database operations)
      * 3. Accumulate changes into snapshots via [scan]
-     * 4. Buffer snapshots (64 capacity, drop oldest on overflow)
-     * 5. Execute state updates on Default dispatcher (for CPU-bound operations)
+     * 4. Execute state accumulation on Default dispatcher (CPU-bound operations)
+     * 5. Buffer snapshots between Default computation and [shareIn] ([SNAPSHOT_BUFFER_CAPACITY]
+     *    capacity, drop oldest on overflow — see class KDoc for rationale)
      * 6. Share among collectors (started eagerly, no replay)
      *
      * ## Retry Strategy
@@ -119,7 +139,8 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * - State accumulation ([scan]) and buffering are not affected by retries
      * - Better performance (no unnecessary re-computation of state)
      */
-    private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intents.toPartialChange(transformer)
+    private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intentsChannel.receiveAsFlow()
+        .toPartialChange(transformer)
         // IMPORTANT: retryWhen must be BEFORE flowOn to only retry intent handling,
         // not the entire downstream pipeline (scan, buffer, etc.)
         .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
@@ -127,8 +148,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
             partialChange.apply(oldSnapshot)
         }
-        .buffer(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         .flowOn(Dispatchers.Default)
+        // Buffer AFTER flowOn so DROP_OLDEST applies at the true dispatcher boundary
+        // (between Default computation and shareIn), not inside the Default coroutine.
+        .buffer(capacity = SNAPSHOT_BUFFER_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         .shareIn(scope, SharingStarted.Eagerly, 0)
 
     /**
@@ -178,10 +201,14 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
 
     override fun dispatch(intent: I) {
         if (scope.isActive) {
-            scope.launch { intents.emit(intent) }
+            // Fast path: send without suspending when the channel buffer has space (common case).
+            // Fall back to a short-lived coroutine only when the buffer is full.
+            if (!intentsChannel.trySend(intent).isSuccess) {
+                scope.launch { intentsChannel.send(intent) }
+            }
         } else {
             // Only log class name to avoid exposing sensitive data in intent
-            logger.w(TAG) { "Scope inactive, intent discarded: ${intent::class.simpleName}" }
+            logger.w(TAG) { "Scope inactive, intent discarded: ${intent::class.simpleName ?: "unknown"}" }
         }
     }
 }

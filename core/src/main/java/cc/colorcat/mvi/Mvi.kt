@@ -254,11 +254,17 @@ sealed interface Mvi {
         /**
          * Applies this change to the given snapshot, producing a new snapshot.
          *
-         * **Design contract**: This function must be **lightweight and pure** — it should
-         * only perform synchronous state transformations (e.g., `copy()`). All asynchronous
-         * work (network calls, database queries, etc.) belongs in [IntentHandler][cc.colorcat.mvi.IntentHandler]
-         * which emits `PartialChange` values via a `Flow`. Placing heavy or side-effectful
-         * logic here bypasses the retry policy and can block the state-accumulation pipeline.
+         * ## Design Contract
+         *
+         * This function is called synchronously inside `scan` on [kotlinx.coroutines.Dispatchers.Default]
+         * during state accumulation. It **must** be:
+         * - **Pure**: no side effects, I/O, or coroutine launching
+         * - **Lightweight**: only `copy()` calls and simple branching; all async / heavy work
+         *   belongs in [IntentHandler.handle][cc.colorcat.mvi.IntentHandler.handle], which produces
+         *   `PartialChange` values through a `Flow`
+         * - **Non-throwing**: `apply` runs downstream of `retryWhen`, so any exception it throws
+         *   will **not** be caught by the retry policy — it will propagate directly and terminate
+         *   the entire state pipeline, causing `stateFlow` and `eventFlow` to stop updating
          *
          * @param old The current snapshot containing the current state and any pending event
          * @return A new snapshot with the updated state and/or event
