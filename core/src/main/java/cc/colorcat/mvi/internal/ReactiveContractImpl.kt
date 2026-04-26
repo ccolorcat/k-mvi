@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,8 +55,28 @@ import kotlinx.coroutines.launch
  *
  * ## Buffer and Backpressure
  *
- * - **Intent buffer**: 64 items with [BufferOverflow.SUSPEND] (waits when full)
- * - **Snapshot buffer**: 64 items with [BufferOverflow.DROP_OLDEST] (drops old snapshots)
+ * The pipeline contains four channel boundaries, each with a distinct role:
+ *
+ * ```
+ * intentsChannel        (explicit  : 64, SUSPEND)     — preserves every intent
+ *     ↓ [IO coroutine]  toPartialChange + retryWhen
+ * Channel A             (implicit  : 64, SUSPEND)     — created by flowOn(IO); back-pressures IO
+ *     ↓ [Default coroutine] scan
+ * Channel B             (fused     : 64, DROP_OLDEST) — flowOn(Default) + buffer fused into one
+ *     ↓
+ * shareIn (Eagerly, replay = 0)
+ * ```
+ *
+ * **Channel A** is created implicitly by `flowOn(Dispatchers.IO)` with the framework default
+ * capacity (64, SUSPEND). It is not configured explicitly because PartialChanges must never
+ * be silently dropped: if `scan` is momentarily busy, IO coroutines suspend rather than lose work.
+ *
+ * **Channel B** is the result of operator fusion: adjacent `flowOn` and `buffer` operators
+ * are merged by the framework (`ChannelFlow.fuse()`) into a single channel regardless of
+ * their relative order. The current order (`flowOn` then `buffer`) is chosen for readability —
+ * it mirrors the data flow direction and makes the intent clear, not because order is required
+ * for correctness. The DROP_OLDEST policy is intentional — stale snapshots (including their
+ * events) should be discarded rather than delivered late, keeping events timely and relevant.
  *
  * ## Error Handling
  *
@@ -133,24 +154,30 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * ## Retry Strategy
      *
-     * [retryWhen] is positioned before [flowOn] to only retry the Intent processing
-     * ([toPartialChange]). This ensures:
-     * - Only the potentially failing operation (Intent handling) is retried
-     * - State accumulation ([scan]) and buffering are not affected by retries
-     * - Better performance (no unnecessary re-computation of state)
+     * [retryWhen] immediately follows [toPartialChange] so that retries are scoped exclusively
+     * to Intent handling. When a retry occurs, the flow restarts from the Intent→PartialChange
+     * conversion; [scan] and all downstream operators are unaffected.
+     *
+     * ## Operator Fusion
+     *
+     * Adjacent `flowOn` and `buffer` operators are merged by the framework (`ChannelFlow.fuse()`)
+     * into a **single** Channel B regardless of their relative order (see class KDoc). The current
+     * order — `flowOn(Default)` then `buffer` — is chosen for readability (mirrors data-flow
+     * direction), not because order affects correctness. No redundant intermediate channel is
+     * created; DROP_OLDEST applies precisely at the boundary between Default coroutine and [shareIn].
      */
     private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intentsChannel.receiveAsFlow()
         .toPartialChange(transformer)
-        // IMPORTANT: retryWhen must be BEFORE flowOn to only retry intent handling,
-        // not the entire downstream pipeline (scan, buffer, etc.)
+        // retryWhen immediately follows toPartialChange: retries are scoped to Intent handling
+        // only. Channel A (64, SUSPEND) is created implicitly by flowOn(IO).
         .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .flowOn(Dispatchers.IO)
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
             partialChange.apply(oldSnapshot)
         }
+        // flowOn(Default) + buffer fuse into single Channel B (64, DROP_OLDEST) via ChannelFlow.fuse().
+        // Order (flowOn before buffer) is a readability choice; both orderings produce the same result.
         .flowOn(Dispatchers.Default)
-        // Buffer AFTER flowOn so DROP_OLDEST applies at the true dispatcher boundary
-        // (between Default computation and shareIn), not inside the Default coroutine.
         .buffer(capacity = SNAPSHOT_BUFFER_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         .shareIn(scope, SharingStarted.Eagerly, 0)
 
@@ -200,15 +227,27 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         .shareIn(scope, SharingStarted.Lazily, 0)
 
     override fun dispatch(intent: I) {
-        if (scope.isActive) {
-            // Fast path: send without suspending when the channel buffer has space (common case).
-            // Fall back to a short-lived coroutine only when the buffer is full.
-            if (!intentsChannel.trySend(intent).isSuccess) {
-                scope.launch { intentsChannel.send(intent) }
-            }
-        } else {
-            // Only log class name to avoid exposing sensitive data in intent
+        if (!scope.isActive) {
             logger.w(TAG) { "Scope inactive, intent discarded: ${intent::class.simpleName ?: "unknown"}" }
+            return
+        }
+
+        val result = intentsChannel.trySend(intent)
+        if (result.isSuccess) return
+
+        if (result.isClosed) {
+            logger.w(TAG) { "intentsChannel closed, intent discarded: ${intent::class.simpleName ?: "unknown"}" }
+            return
+        }
+
+        scope.launch {
+            try {
+                intentsChannel.send(intent)
+            } catch (_: ClosedSendChannelException) {
+                logger.w(TAG) { "Failed to send, channel closed: ${intent::class.simpleName ?: "unknown"}" }
+            }
+            // CancellationException is intentionally not caught: it propagates normally,
+            // allowing the coroutine to honour structured cancellation.
         }
     }
 }
