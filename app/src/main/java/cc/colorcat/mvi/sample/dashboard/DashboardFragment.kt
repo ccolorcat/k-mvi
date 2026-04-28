@@ -1,5 +1,6 @@
 package cc.colorcat.mvi.sample.dashboard
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -148,6 +149,7 @@ class DashboardFragment : Fragment() {
 
     // ── State / Event observers ───────────────────────────────────────────────────────────
 
+    @SuppressLint("SetTextI18n")
     private fun setupObservers(): Unit = binding.run {
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
             // Section 1
