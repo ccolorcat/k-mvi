@@ -33,6 +33,7 @@ class NavigationFragment : Fragment() {
         binding.run {
             login.setOnClickListener { navigate(R.id.loginFragment) }
             counter.setOnClickListener { navigate(R.id.counterFragment) }
+            dashboard.setOnClickListener { navigate(R.id.dashboardFragment) }
         }
     }
 

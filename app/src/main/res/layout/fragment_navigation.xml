@@ -21,4 +21,11 @@
         android:layout_height="wrap_content"
         android:text="Count Sample"
         android:textAllCaps="false" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/dashboard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Concurrency Demo (Concurrent / Sequential / Grouped)"
+        android:textAllCaps="false" />
 </LinearLayout>

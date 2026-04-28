@@ -14,6 +14,9 @@
         <action
             android:id="@+id/action_navigation_to_login"
             app:destination="@id/loginFragment" />
+        <action
+            android:id="@+id/action_navigation_to_dashboard"
+            app:destination="@id/dashboardFragment" />
     </fragment>
 
     <fragment
@@ -25,4 +28,9 @@
         android:id="@+id/loginFragment"
         android:name="cc.colorcat.mvi.sample.login.LoginFragment"
         android:label="Login" />
+
+    <fragment
+        android:id="@+id/dashboardFragment"
+        android:name="cc.colorcat.mvi.sample.dashboard.DashboardFragment"
+        android:label="Concurrency Demo" />
 </navigation>
