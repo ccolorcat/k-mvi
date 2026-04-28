@@ -6,7 +6,6 @@ import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Internal extension functions for MVI Intent handling and Flow processing.
@@ -71,7 +70,7 @@ internal val Mvi.Intent.isFallback: Boolean
             // If both are true, it's a conflict - log warning
             if (concurrent) {
                 logger.w(TAG) {
-                    "${javaClass.name} implements both Concurrent and Sequential, " +
+                    "$diagnosticName implements both Concurrent and Sequential, " +
                             "which may lead to unpredictable behavior."
                 }
             }
@@ -80,6 +79,20 @@ internal val Mvi.Intent.isFallback: Boolean
 
         return false
     }
+
+/**
+ * A stable, human-readable name for this intent, intended for logging and diagnostics only.
+ *
+ * Returns [kotlin.reflect.KClass.qualifiedName] when available (normal named classes), falling
+ * back to [Class.name][java.lang.Class.name] for anonymous or local classes where `qualifiedName`
+ * is `null`. The result always contains only class identity — never intent field data — so it is
+ * safe to include in logs without risk of leaking sensitive information.
+ *
+ * **Do not use for persistence or serialization.** Names may be obfuscated by R8/ProGuard in
+ * release builds and are not guaranteed to be stable across builds.
+ */
+internal val Mvi.Intent.diagnosticName: String
+    get() = this::class.qualifiedName ?: this.javaClass.name
 
 /**
  * Groups intents by tag and handles each group independently with parallel processing.
@@ -92,17 +105,23 @@ internal val Mvi.Intent.isFallback: Boolean
  * encountered, a new channel is created and a handler Flow is emitted. Subsequent
  * intents with the same tag are sent to the existing channel.
  *
- * **Thread Safety**: This function uses [ConcurrentHashMap] to ensure thread-safe
- * channel management across concurrent Flow collectors.
+ * **Execution Model**: The `collect` lambda runs sequentially in a single coroutine,
+ * so a plain [HashMap] is used for channel management — no concurrent access occurs.
  *
- * **Resource Management**: All channels are properly closed when the upstream Flow
- * completes or when an error occurs.
+ * **Resource Management**: All channels are closed when the upstream Flow completes
+ * or throws. If the upstream throws, the exception is passed as the close cause so
+ * that each inner Flow terminates with the same error rather than silently completing.
+ *
+ * **Dropped intents**: If a channel is closed externally (i.e., by the handler side)
+ * while an intent is being sent, the intent is logged and discarded; the channel entry
+ * is removed from the map so a fresh channel can be created on the next intent with
+ * the same tag.
  *
  * Example usage:
  * ```
  * intentFlow
  *     .groupHandle(
- *         capacity = Channel.UNLIMITED,
+ *         capacity = Channel.BUFFERED,
  *         tagSelector = { it.userId },
  *         handler = { tag ->
  *             map { intent -> processIntent(tag, intent) }
@@ -114,47 +133,47 @@ internal val Mvi.Intent.isFallback: Boolean
  *
  * @param I The intent type, must extend [Mvi.Intent]
  * @param R The result type produced by the handler
- * @param capacity The capacity of each channel. Use [Channel.BUFFERED] for default buffering,
- *                 [Channel.UNLIMITED] for no limit, or a specific number for fixed buffer size.
+ * @param capacity The capacity of each channel buffer. Use [Channel.BUFFERED] for the
+ *                 default size, [Channel.UNLIMITED] to never suspend the sender, or a
+ *                 positive integer for a fixed buffer.
  * @param tagSelector Function to extract the grouping tag from an intent
  * @param handler Function that processes the Flow of intents for each tag and produces results
  * @return A Flow of Flows, where each inner Flow represents a tagged group of processed results
  *
  * @see Channel.BUFFERED
  * @see Channel.UNLIMITED
- * @see ConcurrentHashMap
  */
 internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     capacity: Int,
     tagSelector: (I) -> String,
     handler: Flow<I>.(tag: String) -> Flow<R>,
 ): Flow<Flow<R>> = flow {
-    val activeChannels = ConcurrentHashMap<String, Channel<I>>()
+    val activeChannels = hashMapOf<String, Channel<I>>()
+    var cause: Throwable? = null
     try {
         collect { intent ->
             val tag = tagSelector(intent)
-            var shouldEmitFlow = false
-            val channel = activeChannels.computeIfAbsent(tag) {
-                shouldEmitFlow = true
-                Channel(capacity)
-            }
-            if (shouldEmitFlow) {
+            val existingChannel = activeChannels[tag]
+            val channel = existingChannel ?: Channel<I>(capacity).also { activeChannels[tag] = it }
+            if (existingChannel == null) {
                 emit(channel.consumeAsFlow().handler(tag))
             }
             try {
                 channel.send(intent)
-            } catch (e: ClosedSendChannelException) {
-                // Channel was closed externally, log and clean up
-                logger.w(TAG) { "Channel for tag '$tag' was closed externally" }
-                if (activeChannels.remove(tag, channel)) {
-                    channel.close()
-                }
+            } catch (_: ClosedSendChannelException) {
+                // The handler side closed the channel; the triggering intent is dropped.
+                logger.w(TAG) { "Channel for tag '$tag' was closed externally; intent dropped: ${intent.diagnosticName}" }
+                activeChannels.remove(tag, channel)
             }
         }
+    } catch (t: Throwable) {
+        cause = t
+        throw t
     } finally {
-        // Clean up: close all remaining channels
+        // Close all remaining channels, propagating the upstream error (if any) so that
+        // inner flows terminate with the same exception instead of silently completing.
         val channels = activeChannels.values.toList()
         activeChannels.clear()
-        channels.forEach { it.close() }
+        channels.forEach { it.close(cause) }
     }
 }

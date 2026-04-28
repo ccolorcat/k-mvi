@@ -1,6 +1,7 @@
 package cc.colorcat.mvi
 
 import cc.colorcat.mvi.internal.TAG
+import cc.colorcat.mvi.internal.diagnosticName
 import cc.colorcat.mvi.internal.i
 import cc.colorcat.mvi.internal.logger
 import cc.colorcat.mvi.internal.w
@@ -239,11 +240,11 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
         @Suppress("UNCHECKED_CAST")
         val handler = handlers[intent.javaClass] as IntentHandler<I, S, E>? ?: run {
             logger.w(TAG) {
-                "No handler registered for ${intent.javaClass.simpleName}, fallback to defaultHandler"
+                "No handler registered for ${intent.diagnosticName}, fallback to defaultHandler"
             }
             defaultHandler
         }
-        logger.i(TAG) { "Handling intent: ${intent.javaClass.simpleName}" }
+        logger.i(TAG) { "Handling intent: ${intent.diagnosticName}" }
         return handler.handle(intent)
     }
 }

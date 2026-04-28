@@ -228,7 +228,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
 
     override fun dispatch(intent: I) {
         if (!scope.isActive) {
-            logger.w(TAG) { "Scope inactive, intent discarded: ${intent::class.simpleName ?: "unknown"}" }
+            logger.w(TAG) { "Scope inactive, intent discarded: ${intent.diagnosticName}" }
             return
         }
 
@@ -236,7 +236,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         if (result.isSuccess) return
 
         if (result.isClosed) {
-            logger.w(TAG) { "intentsChannel closed, intent discarded: ${intent::class.simpleName ?: "unknown"}" }
+            logger.w(TAG) { "intentsChannel closed, intent discarded: ${intent.diagnosticName}" }
             return
         }
 
@@ -244,7 +244,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
             try {
                 intentsChannel.send(intent)
             } catch (_: ClosedSendChannelException) {
-                logger.w(TAG) { "Failed to send, channel closed: ${intent::class.simpleName ?: "unknown"}" }
+                logger.w(TAG) { "Failed to send, channel closed: ${intent.diagnosticName}" }
             }
             // CancellationException is intentionally not caught: it propagates normally,
             // allowing the coroutine to honour structured cancellation.
