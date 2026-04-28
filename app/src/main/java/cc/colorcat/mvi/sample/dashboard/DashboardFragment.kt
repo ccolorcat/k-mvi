@@ -7,34 +7,132 @@ import android.view.ViewGroup
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
+import cc.colorcat.mvi.debounceLeading
+import cc.colorcat.mvi.doOnClick
 import cc.colorcat.mvi.sample.R
 import cc.colorcat.mvi.sample.dashboard.DashboardContract.Intent
 import cc.colorcat.mvi.sample.dashboard.DashboardContract.State
 import cc.colorcat.mvi.sample.databinding.FragmentDashboardBinding
 import cc.colorcat.mvi.sample.util.showToast
 import cc.colorcat.mvi.sample.util.viewBinding
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
 
 /**
- * Dashboard fragment demonstrating three intent-handling strategies:
+ * Dashboard fragment demonstrating three intent-handling strategies.
  *
- * Section 1 - Concurrent : Trigger LoadBanners, LoadRecommendations and LoadFlashSale at the
- *   same time. Watch the log: all three START lines appear nearly simultaneously.
+ * Follows the same **reactive intent dispatch** pattern as CounterFragment:
+ * - Each button is converted to a [Flow]<[Intent]> via [doOnClick]
+ * - Related button flows are combined with [merge] into per-section helpers
+ * - A single top-level [intents] property merges all sections
+ * - One `intents.onEach { viewModel.dispatch(it) }.launchIn(lifecycleScope)` drives everything
  *
- * Section 2 - Sequential : Dispatch cart operations. Each intent's START line appears only
- *   after the previous intent's DONE line, proving strict FIFO ordering.
- *
- * Section 3 - Grouped    : Tap B1/B2/B3 for a category to queue three batches. The same-
- *   category batches are serialised (B2 waits for B1, etc.) while the three categories run
- *   in parallel with each other. Trigger All sends 9 intents at once to show this clearly.
- *
- * The monospace Operation Log at the bottom is the key observability tool.
+ * ### Debouncing strategy
+ * Single-emit buttons use [debounceLeading] to prevent accidental double-taps.
+ * Multi-emit "Trigger All" buttons intentionally skip debounce — [debounceLeading]
+ * would suppress the 2nd, 3rd… intents fired synchronously in the same click callback.
  */
 class DashboardFragment : Fragment() {
 
     private val viewModel: DashboardViewModel by viewModels()
     private val binding: FragmentDashboardBinding by viewBinding()
+
+    // ── Intent flows ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Merged stream of every user intent on this screen.
+     *
+     * Declared as a computed property (with `get()`) so the flow is rebuilt on each access,
+     * always referencing the current live [binding] instance — matching the pattern in
+     * CounterFragment.
+     */
+    private val intents: Flow<Intent>
+        get() = merge(
+            concurrentIntents(),
+            sequentialIntents(),
+            groupedIntents(),
+            binding.btnClearLog.doOnClick { trySend(Intent.ClearLog) },
+        )
+
+    /**
+     * Section 1 — Concurrent intent flows.
+     *
+     * Individual buttons are debounced. "Trigger All 3" emits three intents per click
+     * synchronously, so debounce is omitted on that flow to avoid dropping two of them.
+     */
+    private fun concurrentIntents(): Flow<Intent> = binding.run {
+        merge(
+            btnLoadBanners.doOnClick { trySend(Intent.LoadBanners) },
+            btnLoadRecs.doOnClick { trySend(Intent.LoadRecommendations) },
+            btnLoadFlashSale.doOnClick { trySend(Intent.LoadFlashSale) },
+            btnTriggerAllConcurrent.doOnClick {
+                trySend(Intent.LoadBanners)
+                trySend(Intent.LoadRecommendations)
+                trySend(Intent.LoadFlashSale)
+            },
+        )
+    }
+
+    /**
+     * Section 2 — Sequential intent flows.
+     *
+     * Individual cart buttons are debounced. "Trigger Sequence" fires four intents per click,
+     * so debounce is omitted there.
+     */
+    private fun sequentialIntents(): Flow<Intent> = binding.run {
+        merge(
+            btnAddApple.doOnClick { trySend(Intent.AddToCart("Apple")) },
+            btnAddBanana.doOnClick { trySend(Intent.AddToCart("Banana")) },
+            btnAddOrange.doOnClick { trySend(Intent.AddToCart("Orange")) },
+            btnRemoveLast.doOnClick { trySend(Intent.RemoveLastFromCart) },
+            btnCheckout.doOnClick { trySend(Intent.Checkout) },
+            // 4 intents per click — no debounce
+            btnTriggerSequence.doOnClick {
+                trySend(Intent.AddToCart("Apple"))
+                trySend(Intent.AddToCart("Banana"))
+                trySend(Intent.RemoveLastFromCart)
+                trySend(Intent.Checkout)
+            },
+        )
+    }
+
+    /**
+     * Section 3 — Grouped intent flows.
+     *
+     * Individual batch buttons are debounced. "Trigger All Groups" fires 9 intents per click
+     * (3 categories × 3 batches), so debounce is omitted.
+     */
+    private fun groupedIntents(): Flow<Intent> = binding.run {
+        merge(
+            // Phones
+            btnPhonesB1.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_PHONES, 1)) },
+            btnPhonesB2.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_PHONES, 2)) },
+            btnPhonesB3.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_PHONES, 3)) },
+            // Laptops
+            btnLaptopsB1.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_LAPTOPS, 1)) },
+            btnLaptopsB2.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_LAPTOPS, 2)) },
+            btnLaptopsB3.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_LAPTOPS, 3)) },
+            // Tablets
+            btnTabletsB1.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_TABLETS, 1)) },
+            btnTabletsB2.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_TABLETS, 2)) },
+            btnTabletsB3.doOnClick { trySend(Intent.LoadCategory(DashboardContract.CATEGORY_TABLETS, 3)) },
+            // 9 intents per click — no debounce
+            btnTriggerAllGroups.doOnClick {
+                for (batch in 1..3) {
+                    trySend(Intent.LoadCategory(DashboardContract.CATEGORY_PHONES, batch))
+                    trySend(Intent.LoadCategory(DashboardContract.CATEGORY_LAPTOPS, batch))
+                    trySend(Intent.LoadCategory(DashboardContract.CATEGORY_TABLETS, batch))
+                }
+            },
+        )
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────────────────
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -44,108 +142,75 @@ class DashboardFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setupClickListeners()
         setupObservers()
-    }
-
-    // ── Click listeners ───────────────────────────────────────────────────────────────────
-
-    private fun setupClickListeners() {
-        // Section 1 - individual
-        binding.btnLoadBanners.setOnClickListener   { dispatch(Intent.LoadBanners) }
-        binding.btnLoadRecs.setOnClickListener      { dispatch(Intent.LoadRecommendations) }
-        binding.btnLoadFlashSale.setOnClickListener { dispatch(Intent.LoadFlashSale) }
-        // Section 1 - trigger all at once
-        binding.btnTriggerAllConcurrent.setOnClickListener {
-            dispatch(Intent.LoadBanners)
-            dispatch(Intent.LoadRecommendations)
-            dispatch(Intent.LoadFlashSale)
-        }
-
-        // Section 2 - individual
-        binding.btnAddApple.setOnClickListener    { dispatch(Intent.AddToCart("Apple")) }
-        binding.btnAddBanana.setOnClickListener   { dispatch(Intent.AddToCart("Banana")) }
-        binding.btnAddOrange.setOnClickListener   { dispatch(Intent.AddToCart("Orange")) }
-        binding.btnRemoveLast.setOnClickListener  { dispatch(Intent.RemoveLastFromCart) }
-        binding.btnCheckout.setOnClickListener    { dispatch(Intent.Checkout) }
-        // Section 2 - trigger the full sequence in one tap
-        binding.btnTriggerSequence.setOnClickListener {
-            dispatch(Intent.AddToCart("Apple"))
-            dispatch(Intent.AddToCart("Banana"))
-            dispatch(Intent.RemoveLastFromCart)
-            dispatch(Intent.Checkout)
-        }
-
-        // Section 3 - phones
-        binding.btnPhonesB1.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_PHONES, 1)) }
-        binding.btnPhonesB2.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_PHONES, 2)) }
-        binding.btnPhonesB3.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_PHONES, 3)) }
-        // Section 3 - laptops
-        binding.btnLaptopsB1.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_LAPTOPS, 1)) }
-        binding.btnLaptopsB2.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_LAPTOPS, 2)) }
-        binding.btnLaptopsB3.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_LAPTOPS, 3)) }
-        // Section 3 - tablets
-        binding.btnTabletsB1.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_TABLETS, 1)) }
-        binding.btnTabletsB2.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_TABLETS, 2)) }
-        binding.btnTabletsB3.setOnClickListener { dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_TABLETS, 3)) }
-        // Section 3 - trigger all 9 intents at once
-        binding.btnTriggerAllGroups.setOnClickListener {
-            for (batch in 1..3) {
-                dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_PHONES, batch))
-                dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_LAPTOPS, batch))
-                dispatch(Intent.LoadCategory(DashboardContract.CATEGORY_TABLETS, batch))
-            }
-        }
-
-        // Log
-        binding.btnClearLog.setOnClickListener { dispatch(Intent.ClearLog) }
+        intents.onEach { viewModel.dispatch(it) }.launchIn(lifecycleScope)
     }
 
     // ── State / Event observers ───────────────────────────────────────────────────────────
 
-    private fun setupObservers() {
+    private fun setupObservers(): Unit = binding.run {
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
             // Section 1
-            collectPartial(State::bannerLoading)      { loading -> binding.btnLoadBanners.isEnabled = !loading }
-            collectPartial(State::recommendationsLoading) { loading -> binding.btnLoadRecs.isEnabled = !loading }
-            collectPartial(State::flashSaleLoading)   { loading -> binding.btnLoadFlashSale.isEnabled = !loading }
-            collectPartial(State::bannersText)        { text -> binding.tvBannersStatus.text = "Banners: $text" }
-            collectPartial(State::recommendationsText){ text -> binding.tvRecsStatus.text = "Recs: $text" }
-            collectPartial(State::flashSaleText)      { text -> binding.tvFlashStatus.text = "Flash Sale: $text" }
+            collectPartial(State::bannerLoading) { loading ->
+                btnLoadBanners.isEnabled = !loading
+            }
+            collectPartial(State::recommendationsLoading) { loading ->
+                btnLoadRecs.isEnabled = !loading
+            }
+            collectPartial(State::flashSaleLoading) { loading ->
+                btnLoadFlashSale.isEnabled = !loading
+            }
+            collectPartial(State::bannersText) { text ->
+                tvBannersStatus.text = "Banners: $text"
+            }
+            collectPartial(State::recommendationsText) { text ->
+                tvRecsStatus.text = "Recs: $text"
+            }
+            collectPartial(State::flashSaleText) { text ->
+                tvFlashStatus.text = "Flash Sale: $text"
+            }
 
             // Section 2
-            collectPartial(State::cartText)     { text -> binding.tvCartStatus.text = "Cart: $text" }
-            collectPartial(State::orderStatus)  { text -> binding.tvOrderStatus.text = "Order: $text" }
-            collectPartial(State::cartLoading)  { loading ->
-                binding.btnAddApple.isEnabled   = !loading
-                binding.btnAddBanana.isEnabled  = !loading
-                binding.btnAddOrange.isEnabled  = !loading
-                binding.btnRemoveLast.isEnabled = !loading
-                binding.btnCheckout.isEnabled   = !loading
+            collectPartial(State::cartText) { text -> tvCartStatus.text = "Cart: $text" }
+            collectPartial(State::orderStatus) { text ->
+                tvOrderStatus.text = "Order: $text"
+            }
+            collectPartial(State::cartLoading) { loading ->
+                btnAddApple.isEnabled = !loading
+                btnAddBanana.isEnabled = !loading
+                btnAddOrange.isEnabled = !loading
+                btnRemoveLast.isEnabled = !loading
+                btnCheckout.isEnabled = !loading
             }
 
             // Section 3
-            collectPartial(State::phonesText)   { text -> binding.tvPhonesStatus.text = "Phones: $text" }
-            collectPartial(State::laptopsText)  { text -> binding.tvLaptopsStatus.text = "Laptops: $text" }
-            collectPartial(State::tabletsText)  { text -> binding.tvTabletsStatus.text = "Tablets: $text" }
-            collectPartial(State::phonesLoading)  { loading ->
-                binding.btnPhonesB1.isVisible = !loading
-                binding.btnPhonesB2.isVisible = !loading
-                binding.btnPhonesB3.isVisible = !loading
+            collectPartial(State::phonesText) { text ->
+                tvPhonesStatus.text = "Phones: $text"
+            }
+            collectPartial(State::laptopsText) { text ->
+                tvLaptopsStatus.text = "Laptops: $text"
+            }
+            collectPartial(State::tabletsText) { text ->
+                tvTabletsStatus.text = "Tablets: $text"
+            }
+            collectPartial(State::phonesLoading) { loading ->
+                btnPhonesB1.isVisible = !loading
+                btnPhonesB2.isVisible = !loading
+                btnPhonesB3.isVisible = !loading
             }
             collectPartial(State::laptopsLoading) { loading ->
-                binding.btnLaptopsB1.isVisible = !loading
-                binding.btnLaptopsB2.isVisible = !loading
-                binding.btnLaptopsB3.isVisible = !loading
+                btnLaptopsB1.isVisible = !loading
+                btnLaptopsB2.isVisible = !loading
+                btnLaptopsB3.isVisible = !loading
             }
             collectPartial(State::tabletsLoading) { loading ->
-                binding.btnTabletsB1.isVisible = !loading
-                binding.btnTabletsB2.isVisible = !loading
-                binding.btnTabletsB3.isVisible = !loading
+                btnTabletsB1.isVisible = !loading
+                btnTabletsB2.isVisible = !loading
+                btnTabletsB3.isVisible = !loading
             }
 
             // Log
-            collectPartial(State::logText) { text -> binding.tvLog.text = text }
+            collectPartial(State::logText) { text -> tvLog.text = text }
         }
 
         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
@@ -154,7 +219,4 @@ class DashboardFragment : Fragment() {
             }
         }
     }
-
-    private fun dispatch(intent: Intent) = viewModel.dispatch(intent)
 }
-
