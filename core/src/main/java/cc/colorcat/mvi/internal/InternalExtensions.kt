@@ -4,6 +4,7 @@ import cc.colorcat.mvi.Mvi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
 
@@ -71,7 +72,7 @@ internal val Mvi.Intent.isFallback: Boolean
             if (concurrent) {
                 logger.w(TAG) {
                     "$diagnosticName implements both Concurrent and Sequential, " +
-                            "which may lead to unpredictable behavior."
+                        "which may lead to unpredictable behavior."
                 }
             }
             return true
@@ -113,9 +114,9 @@ internal val Mvi.Intent.diagnosticName: String
  * that each inner Flow terminates with the same error rather than silently completing.
  *
  * **Dropped intents**: If a channel is closed externally (i.e., by the handler side)
- * while an intent is being sent, the intent is logged and discarded; the channel entry
- * is removed from the map so a fresh channel can be created on the next intent with
- * the same tag.
+ * while an intent is being sent, the channel entry is removed from the map. If the channel
+ * previously existed, it is reopened immediately and the intent is retried once. If the retry
+ * fails or the channel was brand new, the intent is logged and discarded.
  *
  * Example usage:
  * ```
@@ -154,16 +155,23 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
         collect { intent ->
             val tag = tagSelector(intent)
             val existingChannel = activeChannels[tag]
-            val channel = existingChannel ?: Channel<I>(capacity).also { activeChannels[tag] = it }
-            if (existingChannel == null) {
-                emit(channel.consumeAsFlow().handler(tag))
-            }
+            val channel = existingChannel ?: openChannel(tag, capacity, activeChannels, handler)
             try {
                 channel.send(intent)
             } catch (_: ClosedSendChannelException) {
-                // The handler side closed the channel; the triggering intent is dropped.
-                logger.w(TAG) { "Channel for tag '$tag' was closed externally; intent dropped: ${intent.diagnosticName}" }
                 activeChannels.remove(tag, channel)
+                if (existingChannel != null) {
+                    logger.w(TAG) { "Channel for tag '$tag' was closed externally; recreating and retrying intent: ${intent.diagnosticName}" }
+                    val newChannel = openChannel(tag, capacity, activeChannels, handler)
+                    try {
+                        newChannel.send(intent)
+                    } catch (_: ClosedSendChannelException) {
+                        activeChannels.remove(tag, newChannel)
+                        logger.w(TAG) { "Channel for tag '$tag' was closed before retry could complete; intent dropped: ${intent.diagnosticName}" }
+                    }
+                } else {
+                    logger.w(TAG) { "Channel for tag '$tag' was closed before handler could process the intent; intent dropped: ${intent.diagnosticName}" }
+                }
             }
         }
     } catch (t: Throwable) {
@@ -176,4 +184,17 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
         activeChannels.clear()
         channels.forEach { it.close(cause) }
     }
+}
+
+
+private suspend fun <I : Mvi.Intent, R> FlowCollector<Flow<R>>.openChannel(
+    tag: String,
+    capacity: Int,
+    activeChannels: MutableMap<String, Channel<I>>,
+    handler: Flow<I>.(String) -> Flow<R>,
+): Channel<I> {
+    val channel = Channel<I>(capacity)
+    activeChannels[tag] = channel
+    emit(channel.consumeAsFlow().handler(tag))
+    return channel
 }
