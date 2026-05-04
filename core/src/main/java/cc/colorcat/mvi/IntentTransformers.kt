@@ -263,7 +263,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         return when (strategy) {
             HandleStrategy.CONCURRENT -> intentFlow.flatMapMerge { handler.handle(it) }
             HandleStrategy.SEQUENTIAL -> intentFlow.flatMapConcat { handler.handle(it) }
-            HandleStrategy.HYBRID -> intentFlow.hybrid().flattenMerge()
+            HandleStrategy.HYBRID -> intentFlow.hybrid().flattenMerge(concurrency = Int.MAX_VALUE)
         }
     }
 

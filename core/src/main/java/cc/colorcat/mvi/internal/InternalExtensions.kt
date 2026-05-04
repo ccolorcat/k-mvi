@@ -1,10 +1,9 @@
 package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.Mvi
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
 
@@ -113,11 +112,6 @@ internal val Mvi.Intent.diagnosticName: String
  * or throws. If the upstream throws, the exception is passed as the close cause so
  * that each inner Flow terminates with the same error rather than silently completing.
  *
- * **Dropped intents**: If a channel is closed externally (i.e., by the handler side)
- * while an intent is being sent, the channel entry is removed from the map. If the channel
- * previously existed, it is reopened immediately and the intent is retried once. If the retry
- * fails or the channel was brand new, the intent is logged and discarded.
- *
  * Example usage:
  * ```
  * intentFlow
@@ -128,7 +122,7 @@ internal val Mvi.Intent.diagnosticName: String
  *             map { intent -> processIntent(tag, intent) }
  *         }
  *     )
- *     .flattenMerge()
+ *     .flattenMerge(Int.MAX_VALUE)
  *     .collect { result -> /* handle result */ }
  * ```
  *
@@ -139,11 +133,16 @@ internal val Mvi.Intent.diagnosticName: String
  *                 positive integer for a fixed buffer.
  * @param tagSelector Function to extract the grouping tag from an intent
  * @param handler Function that processes the Flow of intents for each tag and produces results
- * @return A Flow of Flows, where each inner Flow represents a tagged group of processed results
+ * @return A Flow of Flows, where each inner Flow represents a tagged group of processed results.
+ *         **Important**: The caller must flatten this flow with a sufficiently large `concurrency`
+ *         value (e.g. `flattenMerge(Int.MAX_VALUE)`). Using the default concurrency of 16 will
+ *         cause `emit` to suspend when more than 16 groups exist, blocking all intent processing
+ *         in this single-coroutine context.
  *
  * @see Channel.BUFFERED
  * @see Channel.UNLIMITED
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     capacity: Int,
     tagSelector: (I) -> String,
@@ -151,28 +150,39 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
 ): Flow<Flow<R>> = flow {
     val activeChannels = hashMapOf<String, Channel<I>>()
     var cause: Throwable? = null
+
+    // Local function: creates a fresh Channel for [tag], registers it in [activeChannels]
+    // BEFORE calling emit so that if emit suspends the map already holds the new entry.
+    // The inner flow produced by [handler] is immediately subscribed by the downstream
+    // (e.g. flattenMerge) when emit returns, so subsequent sends are safely received.
+    suspend fun openChannel(tag: String): Channel<I> {
+        val channel = Channel<I>(capacity)
+        activeChannels[tag] = channel
+        emit(channel.consumeAsFlow().handler(tag))
+        return channel
+    }
+
     try {
         collect { intent ->
             val tag = tagSelector(intent)
             val existingChannel = activeChannels[tag]
-            val channel = existingChannel ?: openChannel(tag, capacity, activeChannels, handler)
-            try {
-                channel.send(intent)
-            } catch (_: ClosedSendChannelException) {
-                activeChannels.remove(tag, channel)
+            // Re-open a fresh channel when:
+            //   • no channel exists yet for this tag (first intent in the group), OR
+            //   • the existing channel was closed/cancelled externally (stale channel).
+            //     A stale channel can occur if flattenMerge cancelled an inner flow while
+            //     the outer pipeline was still running.  Sending to a closed channel would
+            //     otherwise throw ClosedSendChannelException and kill the entire pipeline.
+            val channel = if (existingChannel == null || existingChannel.isClosedForSend) {
+                // Remove the stale entry first so openChannel writes a clean new mapping.
                 if (existingChannel != null) {
-                    logger.w(TAG) { "Channel for tag '$tag' was closed externally; recreating and retrying intent: ${intent.diagnosticName}" }
-                    val newChannel = openChannel(tag, capacity, activeChannels, handler)
-                    try {
-                        newChannel.send(intent)
-                    } catch (_: ClosedSendChannelException) {
-                        activeChannels.remove(tag, newChannel)
-                        logger.w(TAG) { "Channel for tag '$tag' was closed before retry could complete; intent dropped: ${intent.diagnosticName}" }
-                    }
-                } else {
-                    logger.w(TAG) { "Channel for tag '$tag' was closed before handler could process the intent; intent dropped: ${intent.diagnosticName}" }
+                    activeChannels.remove(tag)
+                    logger.w(TAG) { "Stale channel detected for group \"$tag\", reopening." }
                 }
+                openChannel(tag)
+            } else {
+                existingChannel
             }
+            channel.send(intent)
         }
     } catch (t: Throwable) {
         cause = t
@@ -184,17 +194,4 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
         activeChannels.clear()
         channels.forEach { it.close(cause) }
     }
-}
-
-
-private suspend fun <I : Mvi.Intent, R> FlowCollector<Flow<R>>.openChannel(
-    tag: String,
-    capacity: Int,
-    activeChannels: MutableMap<String, Channel<I>>,
-    handler: Flow<I>.(String) -> Flow<R>,
-): Channel<I> {
-    val channel = Channel<I>(capacity)
-    activeChannels[tag] = channel
-    emit(channel.consumeAsFlow().handler(tag))
-    return channel
 }
