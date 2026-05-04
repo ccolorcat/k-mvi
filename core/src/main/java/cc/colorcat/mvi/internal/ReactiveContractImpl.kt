@@ -9,13 +9,14 @@ import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.RetryPolicy
+import cc.colorcat.mvi.register
 import cc.colorcat.mvi.toPartialChange
+import cc.colorcat.mvi.unregister
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -78,6 +79,13 @@ import kotlinx.coroutines.launch
  * for correctness. The DROP_OLDEST policy is intentional — stale snapshots (including their
  * events) should be discarded rather than delivered late, keeping events timely and relevant.
  *
+ * ## Intent Dispatching
+ *
+ * Intents arrive via a dedicated [Channel] + coroutine (`dispatchQueue`) that forwards them to
+ * `intentsChannel`. This keeps `dispatch()` non-blocking while guaranteeing FIFO ordering even
+ * when multiple callers trigger it concurrently. The queue uses an unlimited buffer so that
+ * `dispatch()` never suspends the caller.
+ *
  * ## Error Handling
  *
  * - Uses [retryWhen] with configurable [RetryPolicy]
@@ -127,17 +135,44 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * - Overflow strategy: [BufferOverflow.SUSPEND] — suspends the producer when full,
      *   guaranteeing no intent is silently dropped
      *
-     * The channel is closed automatically via [Job.invokeOnCompletion] when the coroutine scope
-     * ends, signalling the downstream pipeline to terminate and releasing buffered items.
-     *
      * **Note**: the pipeline uses [receiveAsFlow] (not `consumeAsFlow`) so the channel is NOT
      * closed when [retryWhen] re-collects, allowing buffered intents to survive a retry.
      */
     private val intentsChannel = Channel<I>(
         capacity = INTENT_BUFFER_CAPACITY,
         onBufferOverflow = BufferOverflow.SUSPEND,
-    ).also { channel ->
-        scope.coroutineContext[Job]?.invokeOnCompletion { channel.close() }
+    )
+
+    /**
+     * Dedicated queue that serialises intent submission into [intentsChannel].
+     *
+     * This [Channel] + [launch] pattern replaces the obsolete `actor` API while preserving
+     * identical semantics: `dispatch()` remains non-blocking, FIFO order is guaranteed, and
+     * the forwarding coroutine is a child of [scope] so it is automatically cancelled when the
+     * scope ends.
+     *
+     * **Lifecycle**: the forwarding loop exits when the coroutine is cancelled (scope ends).
+     * The `finally` block then closes this queue so that subsequent `dispatch()` calls see
+     * a `trySend` failure rather than silently succeeding. [intentsChannel] is never explicitly
+     * closed — it is simply collected by the downstream pipeline until the scope ends, at which
+     * point both the pipeline and this sender stop naturally.
+     *
+     * **Start mode**: [CoroutineStart.UNDISPATCHED] ensures the coroutine runs in the current
+     * call-frame until its first suspension (the empty-queue receive), so it is ready to
+     * forward before the constructor returns.
+     */
+    private val dispatchQueue = Channel<I>(Channel.UNLIMITED).also { queue ->
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                for (intent in queue) {
+                    intentsChannel.send(intent)
+                }
+            } finally {
+                // Forwarding stopped (cancelled or break); close the dispatch queue
+                // so subsequent dispatch() calls see trySend failures.
+                queue.close()
+            }
+        }
     }
 
     /**
@@ -226,20 +261,22 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     override val eventFlow: Flow<E> = snapshots.mapNotNull { it.event }
         .shareIn(scope, SharingStarted.Lazily, 0)
 
+    /**
+     * Dispatches an [intent] for processing.
+     *
+     * The call is non-blocking: the intent is enqueued into [dispatchQueue], which guarantees
+     * FIFO ordering and forwards the work to [intentsChannel] on a dedicated coroutine.
+     *
+     * @param intent The user intent to process.
+     */
     override fun dispatch(intent: I) {
         if (!scope.isActive) {
             logger.w(TAG) { "Scope inactive, intent discarded: ${intent.diagnosticName}" }
             return
         }
 
-        scope.launch {
-            try {
-                intentsChannel.send(intent)
-            } catch (_: ClosedSendChannelException) {
-                logger.w(TAG) { "Failed to send, channel closed: ${intent.diagnosticName}" }
-            }
-            // CancellationException is intentionally not caught: it propagates normally,
-            // allowing the coroutine to honour structured cancellation.
+        if (dispatchQueue.trySend(intent).isFailure) {
+            logger.w(TAG) { "Failed to enqueue, queue closed: ${intent.diagnosticName}" }
         }
     }
 }
@@ -308,7 +345,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     scope = scope,
     initState = initState,
     retryPolicy = retryPolicy,
-    transformer = IntentTransformer(strategy, config, delegate)
+    transformer = IntentTransformer(strategy, config, delegate),
 ) {
     /**
      * Public constructor that creates the delegate internally.
