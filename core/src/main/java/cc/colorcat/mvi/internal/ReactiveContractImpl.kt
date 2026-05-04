@@ -232,14 +232,6 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
             return
         }
 
-        val result = intentsChannel.trySend(intent)
-        if (result.isSuccess) return
-
-        if (result.isClosed) {
-            logger.w(TAG) { "intentsChannel closed, intent discarded: ${intent.diagnosticName}" }
-            return
-        }
-
         scope.launch {
             try {
                 intentsChannel.send(intent)
