@@ -231,7 +231,9 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * Extracts non-null events from snapshots.
      *
      * ## Characteristics
-     * - Started lazily to save resources when no collector is active
+     * - [SharingStarted.WhileSubscribed] with a 5 s stop timeout: avoids restarting
+     *   the upstream subscription during brief collector absences (configuration
+     *   changes, Fragment back-stack transitions)
      * - No replay (events are one-time side effects)
      * - Only emits when an event is present in the snapshot
      *
@@ -239,10 +241,15 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * Unlike [stateFlow] (which is persistent and always holds the latest state),
      * events are **fire-and-forget**: they are emitted only to currently active
-     * collectors. If no collector is subscribed at the moment an event is produced,
-     * that event is **permanently lost** and will never be replayed.
+     * collectors. An event may be permanently lost in two scenarios:
      *
-     * This is by design — events represent one-time side effects (navigation,
+     * 1. **No subscriber**: no collector is subscribed at the moment the event is
+     *    produced — the event is never delivered and will never be replayed.
+     * 2. **Pipeline congestion**: when downstream collectors are slower than
+     *    producers, the snapshot buffer ([SNAPSHOT_BUFFER_CAPACITY], DROP_OLDEST)
+     *    discards the oldest snapshots, including their events.
+     *
+     * Both are by design — events represent one-time side effects (navigation,
      * toasts, dialogs) that should not be re-delivered after the fact.
      *
      * **Correct pattern**: subscribe to `eventFlow` before any `dispatch()` call
@@ -259,7 +266,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * ```
      */
     override val eventFlow: Flow<E> = snapshots.mapNotNull { it.event }
-        .shareIn(scope, SharingStarted.Lazily, 0)
+        .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000), 0)
 
     /**
      * Dispatches an [intent] for processing.
