@@ -200,6 +200,7 @@ K-MVI follows the unidirectional data flow pattern:
 #### 1. Intent
 
 Represents user actions or system events. Can be marked as:
+
 - `Mvi.Intent.Concurrent`: Processed in parallel
 - `Mvi.Intent.Sequential`: Processed sequentially (one at a time)
 - Neither: Uses the default strategy from configuration
@@ -207,6 +208,7 @@ Represents user actions or system events. Can be marked as:
 #### 2. State
 
 Represents the complete UI state at any point in time. Should be:
+
 - **Immutable**: Use data classes with `copy()`
 - **Serializable**: For process death handling
 - **Complete**: Contains all information needed to render UI
@@ -214,6 +216,7 @@ Represents the complete UI state at any point in time. Should be:
 #### 3. Event
 
 Represents one-time side effects that don't belong in state:
+
 - Showing toasts or snackbars
 - Navigation actions
 - Triggering animations
@@ -222,6 +225,7 @@ Represents one-time side effects that don't belong in state:
 #### 4. PartialChange
 
 A function that takes the current `Snapshot` (state + event queue) and returns an updated `Snapshot`. It can:
+
 - Update state: `snapshot.updateState { copy(field = newValue) }`
 - Emit events: `snapshot.withEvent(MyEvent.SomeEvent)`
 - Chain updates: `snapshot.updateState { ... }.withEvent(...)`
@@ -229,12 +233,14 @@ A function that takes the current `Snapshot` (state + event queue) and returns a
 #### 5. Contract
 
 The read-only interface that exposes:
+
 - `stateFlow: StateFlow<S>`: Hot flow of state changes
 - `eventFlow: Flow<E>`: Cold flow of one-time events
 
 #### 6. ReactiveContract
 
 Extends Contract with the ability to dispatch intents:
+
 - `dispatch(intent: I)`: Send an intent for processing
 
 ### Intent Handling Strategies
@@ -242,6 +248,7 @@ Extends Contract with the ability to dispatch intents:
 K-MVI supports three strategies for processing intents:
 
 #### 1. CONCURRENT
+
 All intents are processed in parallel. Best for independent operations.
 
 ```kotlin
@@ -251,6 +258,7 @@ KMvi.setup {
 ```
 
 #### 2. SEQUENTIAL
+
 All intents are processed one-by-one in order. Best for operations that must maintain strict ordering.
 
 ```kotlin
@@ -260,7 +268,9 @@ KMvi.setup {
 ```
 
 #### 3. HYBRID (Recommended)
+
 Combines both approaches:
+
 - Intents marked with `Mvi.Intent.Concurrent` are processed in parallel
 - Intents marked with `Mvi.Intent.Sequential` are processed sequentially
 - Intents can be grouped (group members process sequentially, groups process in parallel)
@@ -322,6 +332,7 @@ class MyViewModel : ViewModel() {
 ```
 
 **How it works:**
+
 - All `SaveUser`, `UpdateUser`, and `DeleteUser` intents will execute sequentially (one after another) within the "database" group
 - All `FetchData` and `UploadData` intents will execute sequentially within the "network" group
 - Other intents use their class name as group key by default, ensuring same-type intents execute sequentially
@@ -393,6 +404,7 @@ class MainViewModel : ViewModel() {
 ```
 
 **Benefits:**
+
 - ✅ All intents visible in one place (`handleIntent` method)
 - ✅ Easy to understand the complete intent flow
 - ✅ Better code navigation and maintenance
@@ -460,11 +472,13 @@ class MainViewModel : ViewModel() {
 ```
 
 **Benefits:**
+
 - ✅ Minimal boilerplate code
 - ✅ Intent and state update logic in one place
 - ✅ Perfect for simple state updates
 
 **When to use:**
+
 - Simple intents with straightforward state updates
 - No async operations needed
 - State update logic is self-contained
@@ -483,6 +497,7 @@ private val contract by contract(
 ```
 
 Handlers can return:
+
 - Single `PartialChange`
 - `Flow<PartialChange>` for multiple updates
 
@@ -564,6 +579,7 @@ class UserViewModel : ViewModel() {
 ```
 
 **Benefits of this approach:**
+
 - ✅ All intents visible in `handleIntent` method
 - ✅ Different ViewModels can have different strategies
 - ✅ Fine-grained control over intent processing
@@ -700,6 +716,7 @@ checkbox.doOnCheckedChange { isChecked ->
 ### Debouncing and Throttling
 
 #### debounceLeading
+
 Responds to the **first** event, then ignores subsequent events for a time window. Perfect for preventing accidental double-clicks:
 
 ```kotlin
@@ -709,6 +726,7 @@ button.doOnClick { SubmitIntent }
 ```
 
 #### debounce (from Kotlin Flow)
+
 Responds to the **last** event after a period of silence. Perfect for search as user types:
 
 ```kotlin
@@ -761,14 +779,17 @@ class MyApplication : Application() {
 ### Configuration Options
 
 #### HandleStrategy
+
 - `CONCURRENT`: All intents process in parallel
 - `SEQUENTIAL`: All intents process one-by-one
 - `HYBRID`: Mix of concurrent and sequential based on intent markers and grouping
 
 #### RetryPolicy
+
 A function `(attempt: Long, cause: Throwable) -> Boolean` that determines whether to retry after a failure.
 
 Default policy:
+
 ```kotlin
 { attempt, cause -> 
     attempt <= 3 && cause is Exception // Retry up to 3 times for all Exceptions (not Errors)
@@ -779,11 +800,14 @@ Default policy:
 > `IllegalStateException`. Override this in production with a more targeted policy.
 
 #### HybridConfig
+
 Configuration for HYBRID strategy:
+
 - `groupTagSelector`: Function to assign a group tag to each fallback intent for sequential processing
 - `groupChannelCapacity`: Buffer size for grouped intent channels (default: `Channel.BUFFERED` = 64)
 
 #### Logger
+
 `Logger` is a `fun interface` with a single `log(priority, tag, error, message)` method.
 Use the factory `Logger(threshold: Int)` to create a default Android-Log-backed instance
 that filters messages below the given priority level (default: `Logger.WARN`):
@@ -947,6 +971,7 @@ KMvi.setup {
 ## Best Practices
 
 ### 1. Keep State Immutable
+
 Always use data classes and `copy()` for state updates:
 
 ```kotlin
@@ -961,6 +986,7 @@ state.count++ // Mutating state directly
 ```
 
 ### 2. Use Events for One-Time Actions
+
 Don't store transient information in state:
 
 ```kotlin
@@ -976,6 +1002,7 @@ data class State(
 ```
 
 ### 3. Choose Appropriate Intent Strategy
+
 - Use `Concurrent` for independent operations
 - Use `Sequential` for order-dependent operations
 - Group related sequential operations in HYBRID mode
@@ -989,6 +1016,7 @@ sealed interface Intent : Mvi.Intent {
 ```
 
 ### 4. Handle Errors Gracefully
+
 Always handle errors in intent handlers:
 
 ```kotlin
@@ -1010,6 +1038,7 @@ private fun handleSave(intent: SaveIntent): Flow<PartialChange> = flow {
 ```
 
 ### 5. Use Lifecycle-Aware Collection
+
 Always use `collectState` and `collectEvent` extensions:
 
 ```kotlin
@@ -1023,6 +1052,7 @@ lifecycleScope.launch {
 ```
 
 ### 6. Optimize State Collection
+
 Collect only what you need:
 
 ```kotlin
@@ -1058,6 +1088,7 @@ Check the [`app`](app/) module for complete examples.
 ## Dependencies
 
 K-MVI has minimal dependencies:
+
 - `androidx.lifecycle:lifecycle-viewmodel-ktx` - For ViewModel support
 - `androidx.lifecycle:lifecycle-runtime-ktx` - For lifecycle-aware collection
 - `org.jetbrains.kotlinx:kotlinx-coroutines-core` - For coroutines support
@@ -1087,6 +1118,7 @@ limitations under the License.
 ## Author
 
 **ccolorcat**
+
 - GitHub: [@ccolorcat](https://github.com/ccolorcat)
 
 ## Acknowledgments

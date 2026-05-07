@@ -196,7 +196,7 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  * @return A Flow that emits Intents on each long click
  */
 fun <I : Mvi.Intent> View.doOnLongClick(
-    block: ProducerScope<I>.() -> Boolean
+    block: ProducerScope<I>.() -> Boolean,
 ): Flow<I> = callbackFlow {
     setOnLongClickListener {
         this.block()
@@ -225,7 +225,7 @@ fun <I : Mvi.Intent> View.doOnLongClick(
  * @return A Flow that emits Intents on each checked state change
  */
 fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
-    block: ProducerScope<I>.(isChecked: Boolean) -> Unit
+    block: ProducerScope<I>.(isChecked: Boolean) -> Unit,
 ): Flow<I> = callbackFlow {
     setOnCheckedChangeListener { _, isChecked ->
         this.block(isChecked)
@@ -258,7 +258,7 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  */
 fun <I : Mvi.Intent> TextView.doOnAfterTextChanged(
     debounceMillis: Long = 500L,
-    block: ProducerScope<I>.(Editable?) -> Unit
+    block: ProducerScope<I>.(Editable?) -> Unit,
 ): Flow<I> {
     val flow = callbackFlow {
         val watcher = object : TextWatcher {

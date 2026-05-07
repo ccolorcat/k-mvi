@@ -44,7 +44,7 @@ class LoginFragment : Fragment() {
             if (!binding.errorText.text.isNullOrEmpty()) {
                 trySend(LoginContract.ClearError)
             }
-        }
+        },
     )
 
     private fun authIntents(): Flow<Intent> = merge(
@@ -55,13 +55,13 @@ class LoginFragment : Fragment() {
         },
         binding.logoutButton.doOnClick {
             trySend(Intent.Logout)
-        }
+        },
     )
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
-        savedInstanceState: Bundle?
+        savedInstanceState: Bundle?,
     ): View = inflater.inflate(R.layout.fragment_login, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {

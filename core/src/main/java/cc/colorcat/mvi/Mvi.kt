@@ -305,7 +305,7 @@ sealed interface Mvi {
      */
     data class Snapshot<S : State, E : Event>(
         val state: S,
-        val event: E? = null
+        val event: E? = null,
     ) {
         companion object {
             /**

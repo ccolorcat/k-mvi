@@ -283,7 +283,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asC
  * @param source The underlying [ReactiveContract] to wrap
  */
 private class ReadOnlyContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val source: ReactiveContract<I, S, E>
+    private val source: ReactiveContract<I, S, E>,
 ) : Contract<I, S, E> {
     override val stateFlow: StateFlow<S>
         get() = source.stateFlow

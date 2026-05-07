@@ -41,7 +41,7 @@ class CounterViewModel : ViewModel() {
      * Each handler can return either PartialChange or Flow<PartialChange>.
      */
     private val contract by contract(
-        initState = State()
+        initState = State(),
     ) {
         register(::handleIncrement)  // Pattern 1: Inline conditional
         register(::handleDecrement)  // Pattern 2: Early return branching
@@ -223,11 +223,12 @@ class CounterViewModel : ViewModel() {
 
             val count = randomCount()
             val target = randomCount()
-            emit(PartialChange {
+            val partialChange = PartialChange {
                 it.updateWith(Event.ShowToast("Reset Successfully")) {
                     copy(count = count, targetCount = target)
                 }
-            })
+            }
+            emit(partialChange)
         } catch (e: Exception) {
             emit(PartialChange { it.withEvent(Event.ShowToast("Reset Failure")) })
         } finally {

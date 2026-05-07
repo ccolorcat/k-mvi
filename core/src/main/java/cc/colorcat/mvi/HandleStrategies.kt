@@ -1,8 +1,5 @@
 package cc.colorcat.mvi
 
-import cc.colorcat.mvi.HandleStrategy.CONCURRENT
-import cc.colorcat.mvi.HandleStrategy.HYBRID
-import cc.colorcat.mvi.HandleStrategy.SEQUENTIAL
 import kotlinx.coroutines.channels.Channel
 
 /**
@@ -376,5 +373,5 @@ enum class HandleStrategy {
  */
 data class HybridConfig<in I : Mvi.Intent>(
     internal val groupChannelCapacity: Int = Channel.BUFFERED,
-    internal val groupTagSelector: (I) -> String = { it.javaClass.name }
+    internal val groupTagSelector: (I) -> String = { it.javaClass.name },
 )

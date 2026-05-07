@@ -18,7 +18,7 @@ import kotlin.reflect.KProperty
  * GitHub: https://github.com/ccolorcat
  */
 class FragmentViewBindingDelegate<T : ViewBinding>(
-    private val factory: (View) -> T
+    private val factory: (View) -> T,
 ) : ReadOnlyProperty<Fragment, T> {
 
     private var binding: T? = null
@@ -32,12 +32,14 @@ class FragmentViewBindingDelegate<T : ViewBinding>(
             "Should not attempt to get bindings when Fragment's view is null"
         }
         val vb = factory(view)
-        thisRef.viewLifecycleOwner.lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onDestroy(owner: LifecycleOwner) {
-                owner.lifecycle.removeObserver(this)
-                binding = null
-            }
-        })
+        thisRef.viewLifecycleOwner.lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onDestroy(owner: LifecycleOwner) {
+                    owner.lifecycle.removeObserver(this)
+                    binding = null
+                }
+            },
+        )
 
         binding = vb
         return vb
@@ -61,7 +63,7 @@ inline fun <reified T : ViewBinding> bind(view: View): T {
 
 
 class ActivityViewBindingDelegate<T : ViewBinding>(
-    private val factory: (LayoutInflater) -> T
+    private val factory: (LayoutInflater) -> T,
 ) : ReadOnlyProperty<Activity, T> {
     private var binding: T? = null
 

@@ -172,7 +172,7 @@ fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @see IntentTransformer
  */
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> Flow<I>.toPartialChange(
-    transformer: IntentTransformer<I, S, E>
+    transformer: IntentTransformer<I, S, E>,
 ): Flow<Mvi.PartialChange<S, E>> = transformer.transform(this)
 
 

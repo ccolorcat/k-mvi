@@ -1,6 +1,9 @@
 package cc.colorcat.mvi.sample.dashboard
 
 import cc.colorcat.mvi.Mvi
+import cc.colorcat.mvi.sample.dashboard.DashboardContract.Companion.CATEGORY_LAPTOPS
+import cc.colorcat.mvi.sample.dashboard.DashboardContract.Companion.CATEGORY_PHONES
+import cc.colorcat.mvi.sample.dashboard.DashboardContract.Companion.CATEGORY_TABLETS
 
 /**
  * Contract for the Concurrency Demo Dashboard sample.
@@ -152,7 +155,7 @@ sealed interface DashboardContract {
     // ──────────────────────────────────────────────────────────────────────────────────────
 
     companion object {
-        const val CATEGORY_PHONES  = "Phones"
+        const val CATEGORY_PHONES = "Phones"
         const val CATEGORY_LAPTOPS = "Laptops"
         const val CATEGORY_TABLETS = "Tablets"
     }

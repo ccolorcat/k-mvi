@@ -1,8 +1,8 @@
 package cc.colorcat.mvi.sample
 
 import android.app.Application
-import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.KMvi
+import cc.colorcat.mvi.Logger
 
 /**
  * Author: ccolorcat

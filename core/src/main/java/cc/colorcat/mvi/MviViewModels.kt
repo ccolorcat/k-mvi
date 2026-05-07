@@ -87,14 +87,14 @@ import kotlinx.coroutines.flow.emptyFlow
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
     retryPolicy: RetryPolicy = KMvi.retryPolicy,
-    transformer: IntentTransformer<I, S, E>
+    transformer: IntentTransformer<I, S, E>,
 ): Lazy<ReactiveContract<I, S, E>> {
     return ReactiveContractLazy {
         CoreReactiveContract(
             scope = viewModelScope,
             initState = initState,
             retryPolicy = retryPolicy,
-            transformer = transformer
+            transformer = transformer,
         )
     }
 }
@@ -178,7 +178,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     strategy: HandleStrategy = KMvi.handleStrategy,
     config: HybridConfig<I> = KMvi.hybridConfig,
     defaultHandler: IntentHandler<I, S, E> = IntentHandler { emptyFlow() },
-    setup: IntentHandlerRegistry<I, S, E>.() -> Unit = {}
+    setup: IntentHandlerRegistry<I, S, E>.() -> Unit = {},
 ): Lazy<ReactiveContract<I, S, E>> {
     return ReactiveContractLazy {
         StrategyReactiveContract(
@@ -187,7 +187,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
             retryPolicy = retryPolicy,
             strategy = strategy,
             config = config,
-            defaultHandler = defaultHandler
+            defaultHandler = defaultHandler,
         ).also { it.setupIntentHandlers(setup) }
     }
 }
@@ -211,7 +211,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param create Factory function that creates the ReactiveContract instance
  */
 internal class ReactiveContractLazy<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val create: () -> ReactiveContract<I, S, E>
+    private val create: () -> ReactiveContract<I, S, E>,
 ) : Lazy<ReactiveContract<I, S, E>> {
     private var cached: ReactiveContract<I, S, E>? = null
 

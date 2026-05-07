@@ -169,7 +169,7 @@ class DashboardViewModel : ViewModel() {
     // ── Helpers ───────────────────────────────────────────────────────────────────────────
 
     private val fmtTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    private val fmtMs   = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+    private val fmtMs = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
 
     private fun now(): String = fmtTime.format(Date())
     private fun stamp(msg: String): String = "[${fmtMs.format(Date())}] $msg"

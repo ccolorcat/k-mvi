@@ -73,9 +73,9 @@ class LoginViewModel : ViewModel() {
     private val contract by contract(
         initState = State(),
         config = HybridConfig(
-            groupTagSelector = ::intentGroupTag
+            groupTagSelector = ::intentGroupTag,
         ),
-        defaultHandler = ::handleIntent
+        defaultHandler = ::handleIntent,
     )
 
     private fun intentGroupTag(intent: Intent): String = when (intent) {

@@ -224,7 +224,7 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @see Mvi.Intent.Sequential
  */
 internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val defaultHandler: IntentHandler<I, S, E>
+    private val defaultHandler: IntentHandler<I, S, E>,
 ) : IntentHandlerRegistry<I, S, E>, IntentHandler<I, S, E> {
     private val handlers = ConcurrentHashMap<Class<*>, IntentHandler<*, S, E>>()
 
@@ -271,7 +271,7 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
  * @param handler A suspend function that transforms the intent into a single partial change
  */
 inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in T, S, E>.register(
-    noinline handler: suspend (intent: T) -> Mvi.PartialChange<S, E>
+    noinline handler: suspend (intent: T) -> Mvi.PartialChange<S, E>,
 ) {
     register(T::class.java) { handler(it).asSingleFlow() }
 }
@@ -296,7 +296,7 @@ inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerR
  * @param handler The handler that will process intents of this type
  */
 inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in T, S, E>.register(
-    handler: IntentHandler<T, S, E>
+    handler: IntentHandler<T, S, E>,
 ) {
     register(T::class.java, handler)
 }

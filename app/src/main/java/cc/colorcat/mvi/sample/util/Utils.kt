@@ -27,14 +27,14 @@ suspend fun randomDelay(min: Long = 1000, max: Long = 3000) =
 
 
 fun <I : Mvi.Intent> TextView.doOnTextChanged(
-    block: ProducerScope<I>.(text: CharSequence?) -> Unit
+    block: ProducerScope<I>.(text: CharSequence?) -> Unit,
 ): Flow<I> = callbackFlow {
     val watcher = object : TextWatcher {
         override fun beforeTextChanged(
             s: CharSequence?,
             start: Int,
             count: Int,
-            after: Int
+            after: Int,
         ) {
         }
 
@@ -42,7 +42,7 @@ fun <I : Mvi.Intent> TextView.doOnTextChanged(
             s: CharSequence?,
             start: Int,
             before: Int,
-            count: Int
+            count: Int,
         ) {
             this@callbackFlow.block(s)
         }

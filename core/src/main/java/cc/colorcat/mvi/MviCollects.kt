@@ -151,7 +151,7 @@ class StateCollector<S : Mvi.State> internal constructor(
      */
     fun <A> collectPartial(
         property: KProperty1<S, A>,
-        block: suspend (A) -> Unit
+        block: suspend (A) -> Unit,
     ): Job = collectPartial(property, state, block)
 
     /**
@@ -179,7 +179,7 @@ class StateCollector<S : Mvi.State> internal constructor(
     fun <A> collectPartial(
         property: KProperty1<S, A>,
         state: Lifecycle.State,
-        block: suspend (A) -> Unit
+        block: suspend (A) -> Unit,
     ): Job {
         return flow.map { property.get(it) }
             .distinctUntilChanged()
@@ -367,7 +367,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
      * @return A Job for this specific collector
      */
     inline fun <reified A : E> collectParticular(
-        noinline block: suspend (A) -> Unit
+        noinline block: suspend (A) -> Unit,
     ): Job = collectParticular(state, block)
 
     /**
@@ -380,7 +380,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
      */
     inline fun <reified A : E> collectParticular(
         state: Lifecycle.State,
-        noinline block: suspend (A) -> Unit
+        noinline block: suspend (A) -> Unit,
     ): Job = collectParticular(A::class, state, block)
 
     /**
@@ -395,7 +395,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
      */
     fun <A : E> collectParticular(
         clazz: KClass<A>,
-        block: suspend (A) -> Unit
+        block: suspend (A) -> Unit,
     ): Job = collectParticular(clazz, state, block)
 
     /**
@@ -410,7 +410,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
     fun <A : E> collectParticular(
         clazz: KClass<A>,
         state: Lifecycle.State,
-        block: suspend (A) -> Unit
+        block: suspend (A) -> Unit,
     ): Job {
         @Suppress("UNCHECKED_CAST")
         return (flow.filter { clazz.isInstance(it) } as Flow<A>)
@@ -589,7 +589,7 @@ fun <T> Flow<T>.launchCollect(
 fun <I : Mvi.Intent> Flow<I>.dispatchWithLifecycle(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
-    dispatch: (I) -> Unit
+    dispatch: (I) -> Unit,
 ): Job = owner.lifecycleScope.launch {
     owner.repeatOnLifecycle(state) {
         collect { dispatch(it) }
@@ -628,7 +628,7 @@ inline fun <T> Flow<T>.launchWithLifecycle(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     context: CoroutineContext = EmptyCoroutineContext,
-    crossinline block: suspend (T) -> Unit
+    crossinline block: suspend (T) -> Unit,
 ): Job = owner.lifecycleScope.launch(context) {
     owner.repeatOnLifecycle(state) {
         this@launchWithLifecycle.collect { block(it) }

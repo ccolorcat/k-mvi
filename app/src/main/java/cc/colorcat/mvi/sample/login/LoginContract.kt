@@ -148,7 +148,7 @@ sealed interface LoginContract {
                     copy(
                         isLoggedIn = true,
                         username = this@PartialChange.username,
-                        errorMessage = ""
+                        errorMessage = "",
                     )
                 }
 
