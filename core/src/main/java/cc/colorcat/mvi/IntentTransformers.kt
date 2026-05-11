@@ -1,12 +1,6 @@
 package cc.colorcat.mvi
 
-import cc.colorcat.mvi.internal.TAG
-import cc.colorcat.mvi.internal.groupHandle
-import cc.colorcat.mvi.internal.i
-import cc.colorcat.mvi.internal.isConcurrent
-import cc.colorcat.mvi.internal.isFallback
-import cc.colorcat.mvi.internal.isSequential
-import cc.colorcat.mvi.internal.logger
+import cc.colorcat.mvi.internal.*
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
@@ -335,10 +329,17 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      */
     private fun assignGroupTag(intent: I): String {
         return when {
-            intent.isFallback -> TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)
             intent.isConcurrent -> TAG_CONCURRENT
             intent.isSequential -> TAG_SEQUENTIAL
-            else -> throw AssertionError("Unexpected Intent type reached in assignGroupTag: $intent")
+            else -> {
+                if (intent is Mvi.Intent.Concurrent && intent is Mvi.Intent.Sequential) {
+                    logger.w(TAG) {
+                        "${intent.diagnosticName} implements both Concurrent and Sequential, " +
+                            "which may lead to unpredictable behavior."
+                    }
+                }
+                TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)
+            }
         }
     }
 }

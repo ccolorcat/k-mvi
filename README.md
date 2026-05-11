@@ -3,7 +3,8 @@
 [![Maven Central](https://img.shields.io/maven-central/v/cc.colorcat.mvi/core.svg)](https://search.maven.org/artifact/cc.colorcat.mvi/core)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A lightweight, powerful, and type-safe MVI (Model-View-Intent) architecture library for Android, written in Kotlin with Coroutines and Flow.
+A lightweight, powerful, and type-safe MVI (Model-View-Intent) architecture library for Android, written in Kotlin with
+Coroutines and Flow.
 
 ## Features
 
@@ -118,15 +119,17 @@ class MainViewModel : ViewModel() {
 
     private fun handleLoadData(intent: IMain.Intent.LoadData): Flow<IMain.PartialChange> = flow {
         emit(IMain.PartialChange { it.updateState { copy(loading = true) } })
-        
+
         try {
             val data = repository.loadData(intent.id)
             emit(IMain.PartialChange { it.updateState { copy(loading = false, data = data) } })
         } catch (e: Exception) {
-            emit(IMain.PartialChange { 
-                it.updateState { copy(loading = false) }
-                  .withEvent(IMain.Event.ShowToast("Load failed: ${e.message}"))
-            })
+            emit(
+                IMain.PartialChange {
+                    it.updateState { copy(loading = false) }
+                        .withEvent(IMain.Event.ShowToast("Load failed: ${e.message}"))
+                }
+            )
         }
     }
 }
@@ -137,33 +140,33 @@ class MainViewModel : ViewModel() {
 ```kotlin
 class MainActivity : AppCompatActivity() {
     private val viewModel: MainViewModel by viewModels()
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        
+
         // Collect state changes
         viewModel.stateFlow.collectState(this) {
             collectPartial(IMain.State::count) { count ->
                 countTextView.text = count.toString()
             }
-            
+
             collectPartial(IMain.State::loading) { loading ->
                 progressBar.isVisible = loading
             }
         }
-        
+
         // Collect one-time events
         viewModel.eventFlow.collectEvent(this) {
             collectParticular<IMain.Event.ShowToast> { event ->
                 Toast.makeText(this@MainActivity, event.message, Toast.LENGTH_SHORT).show()
             }
-            
+
             collectParticular<IMain.Event.NavigateToDetail> { event ->
                 // Navigate to detail screen
             }
         }
-        
+
         // Dispatch intents
         incrementButton.doOnClick { IMain.Intent.Increment }
             .debounceLeading(500)
@@ -299,7 +302,8 @@ KMvi.setup {
 
 ##### Per-Contract Configuration (More Common)
 
-Configure the strategy for a specific contract in your ViewModel. This is the **recommended approach** as it provides more flexibility:
+Configure the strategy for a specific contract in your ViewModel. This is the **recommended approach** as it provides
+more flexibility:
 
 ```kotlin
 class MyViewModel : ViewModel() {
@@ -312,11 +316,13 @@ class MyViewModel : ViewModel() {
                     // Database operations - process sequentially within this group
                     is MyIntent.SaveUser,
                     is MyIntent.UpdateUser,
-                    is MyIntent.DeleteUser -> "database"
-                    
+                    is MyIntent.DeleteUser
+                        -> "database"
+
                     // Network operations - process sequentially within this group
                     is MyIntent.FetchData,
-                    is MyIntent.UploadData -> "network"
+                    is MyIntent.UploadData
+                        -> "network"
                     // Default: return class name so same type intents execute sequentially
                     else -> intent::class.java.name
                 }
@@ -333,7 +339,8 @@ class MyViewModel : ViewModel() {
 
 **How it works:**
 
-- All `SaveUser`, `UpdateUser`, and `DeleteUser` intents will execute sequentially (one after another) within the "database" group
+- All `SaveUser`, `UpdateUser`, and `DeleteUser` intents will execute sequentially (one after another) within the "
+  database" group
 - All `FetchData` and `UploadData` intents will execute sequentially within the "network" group
 - Other intents use their class name as group key by default, ensuring same-type intents execute sequentially
 
@@ -343,7 +350,8 @@ class MyViewModel : ViewModel() {
 
 #### Using defaultHandler (Recommended)
 
-The **recommended approach** is to use `defaultHandler` to handle all intents in a single method. This makes the code more readable as you can see all intent handling logic in one place:
+The **recommended approach** is to use `defaultHandler` to handle all intents in a single method. This makes the code
+more readable as you can see all intent handling logic in one place:
 
 ```kotlin
 class MainViewModel : ViewModel() {
@@ -351,12 +359,12 @@ class MainViewModel : ViewModel() {
         initState = MyState(),
         defaultHandler = ::handleIntent
     )
-    
+
     val stateFlow: StateFlow<MyState> = contract.stateFlow
     val eventFlow: Flow<MyEvent> = contract.eventFlow
-    
+
     fun dispatch(intent: MyIntent) = contract.dispatch(intent)
-    
+
     // All intent handling in one method - easy to read and maintain
     private suspend fun handleIntent(intent: MyIntent): Flow<MyPartialChange> {
         return when (intent) {
@@ -366,13 +374,13 @@ class MainViewModel : ViewModel() {
             is MyIntent.SaveData -> handleSaveData(intent)
         }.asSingleFlow()
     }
-    
+
     private fun handleIncrement(intent: MyIntent.Increment): MyPartialChange {
         return MyPartialChange { snapshot ->
             snapshot.updateState { copy(count = count + 1) }
         }
     }
-    
+
     private fun handleDecrement(intent: MyIntent.Decrement): MyPartialChange {
         return MyPartialChange { snapshot ->
             if (snapshot.state.count > 0) {
@@ -382,21 +390,23 @@ class MainViewModel : ViewModel() {
             }
         }
     }
-    
+
     private fun handleLoadData(intent: MyIntent.LoadData): Flow<MyPartialChange> = flow {
         emit(MyPartialChange { it.updateState { copy(loading = true) } })
-        
+
         try {
             val data = repository.loadData(intent.id)
             emit(MyPartialChange { it.updateState { copy(loading = false, data = data) } })
         } catch (e: Exception) {
-            emit(MyPartialChange { 
-                it.updateState { copy(loading = false) }
-                  .withEvent(MyEvent.ShowToast("Load failed: ${e.message}"))
-            })
+            emit(
+                MyPartialChange {
+                    it.updateState { copy(loading = false) }
+                        .withEvent(MyEvent.ShowToast("Load failed: ${e.message}"))
+                }
+            )
         }
     }
-    
+
     private fun handleSaveData(intent: MyIntent.SaveData): Flow<MyPartialChange> = flow {
         // Save logic...
     }
@@ -417,13 +427,13 @@ For even simpler code, you can make your Intent implement PartialChange directly
 ```kotlin
 sealed interface IMain {
     data class State(val count: Int = 0) : Mvi.State
-    
+
     sealed interface Event : Mvi.Event {
         data class ShowToast(val message: String) : Event
     }
-    
+
     sealed interface Intent : Mvi.Intent
-    
+
     // PartialChange that can also be an Intent
     sealed class PartialChange : Mvi.PartialChange<State, Event> {
         override fun apply(old: Mvi.Snapshot<State, Event>): Mvi.Snapshot<State, Event> {
@@ -445,7 +455,7 @@ sealed interface IMain {
             }
         }
     }
-    
+
     // Intents that are also PartialChanges
     data object Increment : PartialChange(), Intent
     data object Decrement : PartialChange(), Intent
@@ -456,12 +466,12 @@ class MainViewModel : ViewModel() {
         initState = IMain.State(),
         defaultHandler = ::handleIntent
     )
-    
+
     val stateFlow: StateFlow<IMain.State> = contract.stateFlow
     val eventFlow: Flow<IMain.Event> = contract.eventFlow
-    
+
     fun dispatch(intent: IMain.Intent) = contract.dispatch(intent)
-    
+
     // Simple handler - just cast and return
     private suspend fun handleIntent(intent: IMain.Intent): Flow<IMain.PartialChange> {
         return when (intent) {
@@ -503,7 +513,8 @@ Handlers can return:
 
 #### HYBRID Strategy with defaultHandler
 
-For more complex applications, you can configure the intent handling strategy and grouping per-contract using `defaultHandler`:
+For more complex applications, you can configure the intent handling strategy and grouping per-contract using
+`defaultHandler`:
 
 ```kotlin
 class UserViewModel : ViewModel() {
@@ -516,12 +527,14 @@ class UserViewModel : ViewModel() {
                     // Group all database operations together
                     is UserIntent.Save,
                     is UserIntent.Update,
-                    is UserIntent.Delete -> "db_operations"
-                    
+                    is UserIntent.Delete
+                        -> "db_operations"
+
                     // Group all sync operations together
                     is UserIntent.SyncToServer,
-                    is UserIntent.DownloadFromServer -> "sync_operations"
-                    
+                    is UserIntent.DownloadFromServer
+                        -> "sync_operations"
+
                     // Default: return class name so same type intents execute sequentially
                     else -> intent::class.java.name
                 }
@@ -529,12 +542,12 @@ class UserViewModel : ViewModel() {
         ),
         defaultHandler = ::handleIntent
     )
-    
+
     val stateFlow: StateFlow<UserState> = contract.stateFlow
     val eventFlow: Flow<UserEvent> = contract.eventFlow
-    
+
     fun dispatch(intent: UserIntent) = contract.dispatch(intent)
-    
+
     // All intent routing in one place
     private suspend fun handleIntent(intent: UserIntent): Flow<UserPartialChange> {
         return when (intent) {
@@ -546,31 +559,31 @@ class UserViewModel : ViewModel() {
             is UserIntent.Load -> handleLoad(intent)
         }
     }
-    
+
     // Database operations - will execute sequentially within "db_operations" group
     private fun handleSave(intent: UserIntent.Save): Flow<UserPartialChange> = flow {
         emit(UserPartialChange { it.updateState { copy(saving = true) } })
         repository.save(intent.user)
         emit(UserPartialChange { it.updateState { copy(saving = false) } })
     }
-    
+
     private fun handleUpdate(intent: UserIntent.Update): Flow<UserPartialChange> = flow {
         // Update logic - sequential with other db operations
     }
-    
+
     private fun handleDelete(intent: UserIntent.Delete): Flow<UserPartialChange> = flow {
         // Delete logic - sequential with other db operations
     }
-    
+
     // Sync operations - will execute sequentially within "sync_operations" group
     private fun handleSync(intent: UserIntent.SyncToServer): Flow<UserPartialChange> = flow {
         // Sync logic - sequential with other sync operations
     }
-    
+
     private fun handleDownload(intent: UserIntent.DownloadFromServer): Flow<UserPartialChange> = flow {
         // Download logic - sequential with other sync operations
     }
-    
+
     // Other operations - grouped by class name
     private fun handleLoad(intent: UserIntent.Load): Flow<UserPartialChange> = flow {
         // Load logic
@@ -600,9 +613,11 @@ class UserViewModel : ViewModel() {
                 when (intent) {
                     is UserIntent.Save,
                     is UserIntent.Update,
-                    is UserIntent.Delete -> "db_operations"
+                    is UserIntent.Delete
+                        -> "db_operations"
                     is UserIntent.SyncToServer,
-                    is UserIntent.DownloadFromServer -> "sync_operations"
+                    is UserIntent.DownloadFromServer
+                        -> "sync_operations"
                     else -> intent::class.java.name
                 }
             }
@@ -656,7 +671,7 @@ viewModel.stateFlow.collectState(this) {
     collectPartial(MyState::loading) { isLoading ->
         progressBar.isVisible = isLoading
     }
-    
+
     collectPartial(MyState::title) { title ->
         titleTextView.text = title
     }
@@ -685,7 +700,7 @@ viewModel.eventFlow.collectEvent(this) {
     collectParticular<MyEvent.ShowToast> { event ->
         Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
     }
-    
+
     collectParticular<MyEvent.Navigate> { event ->
         findNavController().navigate(event.destination)
     }
@@ -717,7 +732,8 @@ checkbox.doOnCheckedChange { isChecked ->
 
 #### debounceLeading
 
-Responds to the **first** event, then ignores subsequent events for a time window. Perfect for preventing accidental double-clicks:
+Responds to the **first** event, then ignores subsequent events for a time window. Perfect for preventing accidental
+double-clicks:
 
 ```kotlin
 button.doOnClick { SubmitIntent }
@@ -743,17 +759,17 @@ Configure K-MVI globally in your Application class:
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        
+
         KMvi.setup {
             copy(
                 // Intent handling strategy
                 handleStrategy = HandleStrategy.HYBRID,
-                
+
                 // Retry policy for failed intent processing
                 retryPolicy = { attempt, cause ->
                     attempt <= 3 && cause !is CancellationException
                 },
-                
+
                 // Hybrid strategy configuration
                 hybridConfig = HybridConfig(
                     groupTagSelector = { intent ->
@@ -767,7 +783,7 @@ class MyApplication : Application() {
                     },
                     groupChannelCapacity = Channel.BUFFERED
                 ),
-                
+
                 // Logger configuration: WARN by default; use DEBUG in debug builds
                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
             )
@@ -791,7 +807,7 @@ A function `(attempt: Long, cause: Throwable) -> Boolean` that determines whethe
 Default policy:
 
 ```kotlin
-{ attempt, cause -> 
+{ attempt, cause ->
     attempt <= 3 && cause is Exception // Retry up to 3 times for all Exceptions (not Errors)
 }
 ```
@@ -842,24 +858,30 @@ val customLogger = Logger { priority, tag, error, message ->
 ```kotlin
 private fun handleLoadData(intent: LoadDataIntent): Flow<IMain.PartialChange> = flow {
     emit(IMain.PartialChange { it.updateState { copy(loading = true) } })
-    
+
     try {
         val data = repository.loadData()
-        emit(IMain.PartialChange { 
-            it.updateState { copy(loading = false, data = data) }
-        })
+        emit(
+            IMain.PartialChange {
+                it.updateState { copy(loading = false, data = data) }
+            }
+        )
     } catch (e: Exception) {
-        emit(IMain.PartialChange { 
-            it.updateState { copy(loading = false, error = e.message) }
-              .withEvent(MyEvent.ShowError(e.message))
-        })
+        emit(
+            IMain.PartialChange {
+                it.updateState { copy(loading = false, error = e.message) }
+                    .withEvent(MyEvent.ShowError(e.message))
+            }
+        )
     }
 }
 ```
 
 #### Global Retry Policy
 
-The global retry policy will automatically retry failed intent processing:
+The global retry policy will automatically restart the pipeline subscription after an unhandled handler exception, so
+subsequent intents can still be processed. The failing intent is not replayed — handlers should use try-catch for
+intent-level error recovery:
 
 ```kotlin
 KMvi.setup {
@@ -884,14 +906,14 @@ K-MVI's clean architecture makes testing straightforward:
 ```kotlin
 @Test
 fun `increment intent increases count`() = runTest {
-    val viewModel = MainViewModel()
-    val initialState = viewModel.stateFlow.value
-    
-    viewModel.dispatch(IMain.Intent.Increment)
-    
-    advanceUntilIdle()
-    assertEquals(initialState.count + 1, viewModel.stateFlow.value.count)
-}
+        val viewModel = MainViewModel()
+        val initialState = viewModel.stateFlow.value
+
+        viewModel.dispatch(IMain.Intent.Increment)
+
+        advanceUntilIdle()
+        assertEquals(initialState.count + 1, viewModel.stateFlow.value.count)
+    }
 ```
 
 #### Testing State Flow
@@ -899,21 +921,21 @@ fun `increment intent increases count`() = runTest {
 ```kotlin
 @Test
 fun `loading state changes correctly`() = runTest {
-    val viewModel = MainViewModel()
-    val states = mutableListOf<MyState>()
-    
-    val job = launch {
-        viewModel.stateFlow.collect { states.add(it) }
+        val viewModel = MainViewModel()
+        val states = mutableListOf<MyState>()
+
+        val job = launch {
+            viewModel.stateFlow.collect { states.add(it) }
+        }
+
+        viewModel.dispatch(LoadDataIntent)
+        advanceUntilIdle()
+
+        assertTrue(states.any { it.loading })
+        assertFalse(states.last().loading)
+
+        job.cancel()
     }
-    
-    viewModel.dispatch(LoadDataIntent)
-    advanceUntilIdle()
-    
-    assertTrue(states.any { it.loading })
-    assertFalse(states.last().loading)
-    
-    job.cancel()
-}
 ```
 
 #### Testing Event Flow
@@ -921,20 +943,20 @@ fun `loading state changes correctly`() = runTest {
 ```kotlin
 @Test
 fun `error event is emitted on failure`() = runTest {
-    val viewModel = MainViewModel()
-    val events = mutableListOf<MyEvent>()
-    
-    val job = launch {
-        viewModel.eventFlow.collect { events.add(it) }
+        val viewModel = MainViewModel()
+        val events = mutableListOf<MyEvent>()
+
+        val job = launch {
+            viewModel.eventFlow.collect { events.add(it) }
+        }
+
+        viewModel.dispatch(FailingIntent)
+        advanceUntilIdle()
+
+        assertTrue(events.any { it is MyEvent.ShowError })
+
+        job.cancel()
     }
-    
-    viewModel.dispatch(FailingIntent)
-    advanceUntilIdle()
-    
-    assertTrue(events.any { it is MyEvent.ShowError })
-    
-    job.cancel()
-}
 ```
 
 ### Custom Logger
@@ -1024,15 +1046,19 @@ private fun handleSave(intent: SaveIntent): Flow<PartialChange> = flow {
     try {
         emit(PartialChange { it.updateState { copy(saving = true) } })
         repository.save(intent.data)
-        emit(PartialChange { 
-            it.updateState { copy(saving = false) }
-              .withEvent(Event.SaveSuccess)
-        })
+        emit(
+            PartialChange {
+                it.updateState { copy(saving = false) }
+                    .withEvent(Event.SaveSuccess)
+            }
+        )
     } catch (e: Exception) {
-        emit(PartialChange { 
-            it.updateState { copy(saving = false) }
-              .withEvent(Event.SaveError(e.message))
-        })
+        emit(
+            PartialChange {
+                it.updateState { copy(saving = false) }
+                    .withEvent(Event.SaveError(e.message))
+            }
+        )
     }
 }
 ```

@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.flow
  *
  * @return `true` if the Intent is purely concurrent, `false` otherwise
  * @see isSequential
- * @see isFallback
  */
 internal val Mvi.Intent.isConcurrent: Boolean
     get() = this is Mvi.Intent.Concurrent && this !is Mvi.Intent.Sequential
@@ -41,44 +40,9 @@ internal val Mvi.Intent.isConcurrent: Boolean
  *
  * @return `true` if the Intent is purely sequential, `false` otherwise
  * @see isConcurrent
- * @see isFallback
  */
 internal val Mvi.Intent.isSequential: Boolean
     get() = this is Mvi.Intent.Sequential && this !is Mvi.Intent.Concurrent
-
-/**
- * Checks if the Intent is a fallback type (neither concurrent nor sequential, or both).
- *
- * This property returns `true` in two cases:
- * 1. The Intent implements neither [Mvi.Intent.Concurrent] nor [Mvi.Intent.Sequential]
- * 2. The Intent implements both interfaces (conflicting - logs a warning)
- *
- * When an Intent implements both Concurrent and Sequential, a warning is logged because
- * this leads to unpredictable behavior. The framework will treat such intents as fallback.
- *
- * @return `true` if the Intent should be treated as fallback, `false` otherwise
- * @see isConcurrent
- * @see isSequential
- */
-internal val Mvi.Intent.isFallback: Boolean
-    get() {
-        val concurrent = this is Mvi.Intent.Concurrent
-        val sequential = this is Mvi.Intent.Sequential
-
-        // If neither or both, it's a fallback
-        if (concurrent == sequential) {
-            // If both are true, it's a conflict - log warning
-            if (concurrent) {
-                logger.w(TAG) {
-                    "$diagnosticName implements both Concurrent and Sequential, " +
-                        "which may lead to unpredictable behavior."
-                }
-            }
-            return true
-        }
-
-        return false
-    }
 
 /**
  * A stable, human-readable name for this intent, intended for logging and diagnostics only.

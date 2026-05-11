@@ -9,12 +9,11 @@ import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.RetryPolicy
-import cc.colorcat.mvi.register
 import cc.colorcat.mvi.toPartialChange
-import cc.colorcat.mvi.unregister
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -115,6 +114,7 @@ import kotlinx.coroutines.launch
  */
 private const val INTENT_BUFFER_CAPACITY = 64
 private const val SNAPSHOT_BUFFER_CAPACITY = 64
+private const val DISPATCH_QUEUE_CAPACITY = 256
 
 internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val scope: CoroutineScope,
@@ -151,6 +151,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * the forwarding coroutine is a child of [scope] so it is automatically cancelled when the
      * scope ends.
      *
+     * **Capacity**: [DISPATCH_QUEUE_CAPACITY] items. When the buffer is full, [dispatch]
+     * discards the intent and logs a warning — a deliberate trade-off to keep `dispatch()`
+     * non-blocking while preventing unbounded memory growth.
+     *
      * **Lifecycle**: the forwarding loop exits when the coroutine is cancelled (scope ends).
      * The `finally` block then closes this queue so that subsequent `dispatch()` calls see
      * a `trySend` failure rather than silently succeeding. [intentsChannel] is never explicitly
@@ -161,7 +165,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * call-frame until its first suspension (the empty-queue receive), so it is ready to
      * forward before the constructor returns.
      */
-    private val dispatchQueue = Channel<I>(Channel.UNLIMITED).also { queue ->
+    private val dispatchQueue = Channel<I>(DISPATCH_QUEUE_CAPACITY).also { queue ->
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 for (intent in queue) {
@@ -189,9 +193,11 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * ## Retry Strategy
      *
-     * [retryWhen] immediately follows [toPartialChange] so that retries are scoped exclusively
-     * to Intent handling. When a retry occurs, the flow restarts from the Intent→PartialChange
-     * conversion; [scan] and all downstream operators are unaffected.
+     * [retryWhen] immediately follows [toPartialChange]. When an unhandled exception escapes
+     * an intent handler, [retryWhen] restarts the pipeline subscription so that subsequent
+     * intents can still be processed. The intent whose handler threw the exception is **not**
+     * replayed — handlers should use try-catch internally for intent-level error recovery.
+     * [scan] and all downstream operators are unaffected by the restart.
      *
      * ## Operator Fusion
      *
@@ -283,7 +289,12 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         }
 
         if (dispatchQueue.trySend(intent).isFailure) {
-            logger.w(TAG) { "Failed to enqueue, queue closed: ${intent.diagnosticName}" }
+            @OptIn(ExperimentalCoroutinesApi::class)
+            if (dispatchQueue.isClosedForSend) {
+                logger.w(TAG) { "Dispatch queue closed, intent discarded: ${intent.diagnosticName}" }
+            } else {
+                logger.w(TAG) { "Dispatch queue full (capacity=$DISPATCH_QUEUE_CAPACITY), intent discarded: ${intent.diagnosticName}" }
+            }
         }
     }
 }

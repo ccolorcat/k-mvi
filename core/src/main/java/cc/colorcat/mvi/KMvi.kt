@@ -16,14 +16,19 @@ import cc.colorcat.mvi.internal.e
  */
 
 /**
- * A policy function that determines whether to retry after a failure.
+ * A policy function that determines whether to restart the pipeline after an
+ * unhandled exception during intent processing.
  *
- * This function is called when Intent processing fails, and should return `true`
- * to retry or `false` to give up.
+ * When an intent handler throws an uncaught exception, the pipeline subscription
+ * is restarted so that subsequent intents can still be processed. The intent
+ * whose handler threw the exception is **not** replayed — handlers should use
+ * try-catch internally for intent-level error handling.
+ *
+ * Return `true` to restart the pipeline subscription, or `false` to terminate it.
  *
  * ## Parameters
  *
- * - **attempt**: The retry attempt number (1 for first retry, 2 for second, etc.)
+ * - **attempt**: The restart attempt number (1 for first attempt, 2 for second, etc.)
  * - **cause**: The throwable that caused the failure
  *
  * ## Usage Example
@@ -88,7 +93,8 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  * @see setup
  */
 object KMvi {
-    private var default: Configuration = Configuration()
+    @Volatile
+    private var config: Configuration = Configuration()
 
     /**
      * The global logger instance used throughout the framework.
@@ -96,7 +102,7 @@ object KMvi {
      * This is used internally for logging Intent processing, state changes, and errors.
      */
     internal val logger: Logger
-        get() = default.logger
+        get() = config.logger
 
     /**
      * The global Intent handling strategy.
@@ -104,7 +110,7 @@ object KMvi {
      * Determines how Intents are processed: CONCURRENT, SEQUENTIAL, or HYBRID.
      */
     internal val handleStrategy: HandleStrategy
-        get() = default.handleStrategy
+        get() = config.handleStrategy
 
     /**
      * The global hybrid configuration for Intent grouping.
@@ -112,15 +118,15 @@ object KMvi {
      * Used when [handleStrategy] is HYBRID to determine how to group Intents.
      */
     internal val hybridConfig: HybridConfig<Mvi.Intent>
-        get() = default.hybridConfig
+        get() = config.hybridConfig
 
     /**
-     * The global retry policy for failed Intent processing.
+     * The global retry policy for unhandled exceptions during intent processing.
      *
-     * Determines whether to retry after an Intent processing failure.
+     * Determines whether to restart the pipeline subscription after a failure.
      */
     internal val retryPolicy: RetryPolicy
-        get() = default.retryPolicy
+        get() = config.retryPolicy
 
     /**
      * Configures the global K-MVI framework settings.
@@ -151,12 +157,12 @@ object KMvi {
      * This method is NOT thread-safe. It should only be called from the main thread
      * during application initialization.
      *
-     * @param config A lambda with receiver that transforms the current configuration.
-     *               Use `copy()` to create a modified configuration.
+     * @param transform A lambda with receiver that transforms the current configuration.
+     *                  Use `copy()` to create a modified configuration.
      */
-    fun setup(config: Configuration.() -> Configuration) {
-        default = default.config()
-        logger.d(TAG) { "setup config: $default" }
+    fun setup(transform: Configuration.() -> Configuration) {
+        config = config.transform()
+        logger.d(TAG) { "setup config: $config" }
     }
 
     /**
