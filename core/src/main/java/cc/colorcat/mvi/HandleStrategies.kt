@@ -371,7 +371,11 @@ enum class HandleStrategy {
  * @see Mvi.Intent.Concurrent
  * @see Mvi.Intent.Sequential
  */
-data class HybridConfig<in I : Mvi.Intent>(
+class HybridConfig<in I : Mvi.Intent>(
     internal val groupChannelCapacity: Int = Channel.BUFFERED,
     internal val groupTagSelector: (I) -> String = { it.javaClass.name },
-)
+) {
+    override fun toString(): String {
+        return "HybridConfig(groupChannelCapacity=$groupChannelCapacity, groupTagSelector=$groupTagSelector)"
+    }
+}
