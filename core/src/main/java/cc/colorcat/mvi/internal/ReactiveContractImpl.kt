@@ -82,8 +82,8 @@ import kotlinx.coroutines.launch
  *
  * Intents arrive via a dedicated [Channel] + coroutine (`dispatchQueue`) that forwards them to
  * `intentsChannel`. This keeps `dispatch()` non-blocking while guaranteeing FIFO ordering even
- * when multiple callers trigger it concurrently. The queue uses an unlimited buffer so that
- * `dispatch()` never suspends the caller.
+ * when multiple callers trigger it concurrently. When the buffer is full, [dispatch] discards
+ * the intent with a warning — a deliberate trade-off to prevent unbounded memory growth.
  *
  * ## Error Handling
  *
@@ -102,6 +102,7 @@ import kotlinx.coroutines.launch
  * @param E The event type
  * @param scope The coroutine scope for flow collection
  * @param initState The initial state
+ * @param intentQueueCapacity The dispatch queue buffer size
  * @param retryPolicy Policy for retrying on errors
  * @param transformer Transforms intents to partial changes
  * @see ReactiveContract
@@ -114,11 +115,11 @@ import kotlinx.coroutines.launch
  */
 private const val INTENT_BUFFER_CAPACITY = 64
 private const val SNAPSHOT_BUFFER_CAPACITY = 64
-private const val DISPATCH_QUEUE_CAPACITY = 256
 
 internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val scope: CoroutineScope,
     initState: S,
+    intentQueueCapacity: Int,
     retryPolicy: RetryPolicy,
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
@@ -151,7 +152,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * the forwarding coroutine is a child of [scope] so it is automatically cancelled when the
      * scope ends.
      *
-     * **Capacity**: [DISPATCH_QUEUE_CAPACITY] items. When the buffer is full, [dispatch]
+     * **Capacity**: [intentQueueCapacity] items. When the buffer is full, [dispatch]
      * discards the intent and logs a warning — a deliberate trade-off to keep `dispatch()`
      * non-blocking while preventing unbounded memory growth.
      *
@@ -165,7 +166,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * call-frame until its first suspension (the empty-queue receive), so it is ready to
      * forward before the constructor returns.
      */
-    private val dispatchQueue = Channel<I>(DISPATCH_QUEUE_CAPACITY).also { queue ->
+    private val dispatchQueue = Channel<I>(intentQueueCapacity).also { queue ->
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 for (intent in queue) {
@@ -291,9 +292,9 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         if (dispatchQueue.trySend(intent).isFailure) {
             @OptIn(ExperimentalCoroutinesApi::class)
             if (dispatchQueue.isClosedForSend) {
-                logger.w(TAG) { "Dispatch queue closed, intent discarded: ${intent.diagnosticName}" }
+                logger.w(TAG) { "Intent queue closed, intent discarded: ${intent.diagnosticName}" }
             } else {
-                logger.w(TAG) { "Dispatch queue full (capacity=$DISPATCH_QUEUE_CAPACITY), intent discarded: ${intent.diagnosticName}" }
+                logger.w(TAG) { "Intent queue full, intent discarded: ${intent.diagnosticName}" }
             }
         }
     }
@@ -355,6 +356,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
 internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> private constructor(
     scope: CoroutineScope,
     initState: S,
+    intentQueueCapacity: Int,
     retryPolicy: RetryPolicy,
     strategy: HandleStrategy,
     config: HybridConfig<I>,
@@ -362,6 +364,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
 ) : CoreReactiveContract<I, S, E>(
     scope = scope,
     initState = initState,
+    intentQueueCapacity = intentQueueCapacity,
     retryPolicy = retryPolicy,
     transformer = IntentTransformer(strategy, config, delegate),
 ) {
@@ -370,6 +373,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
      *
      * @param scope The coroutine scope for flow collection
      * @param initState The initial state
+     * @param intentQueueCapacity The dispatch queue buffer size
      * @param retryPolicy Policy for retrying on errors
      * @param strategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
      * @param config Configuration for HYBRID strategy
@@ -378,6 +382,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     constructor(
         scope: CoroutineScope,
         initState: S,
+        intentQueueCapacity: Int,
         retryPolicy: RetryPolicy,
         strategy: HandleStrategy,
         config: HybridConfig<I>,
@@ -385,6 +390,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     ) : this(
         scope = scope,
         initState = initState,
+        intentQueueCapacity = intentQueueCapacity,
         retryPolicy = retryPolicy,
         strategy = strategy,
         config = config,

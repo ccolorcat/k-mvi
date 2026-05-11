@@ -129,6 +129,16 @@ object KMvi {
         get() = config.retryPolicy
 
     /**
+     * The global dispatch queue capacity.
+     *
+     * Controls the size of the dispatch queue buffer for each contract.
+     * When the buffer is full, [ReactiveContract.dispatch] discards the intent
+     * and logs a warning.
+     */
+    internal val intentQueueCapacity: Int
+        get() = config.intentQueueCapacity
+
+    /**
      * Configures the global K-MVI framework settings.
      *
      * This should be called once during application initialization, typically in
@@ -227,6 +237,7 @@ object KMvi {
      * }
      * ```
      *
+     * @property intentQueueCapacity The dispatch queue buffer size per contract. Default: 256
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
      * @property hybridConfig The hybrid grouping configuration. Default: empty config
      * @property retryPolicy The retry policy for failed processing. Default: retry on Exception up to 3 times
@@ -238,6 +249,7 @@ object KMvi {
      * @see Logger
      */
     data class Configuration(
+        val intentQueueCapacity: Int = 256,
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
         val hybridConfig: HybridConfig<Mvi.Intent> = HybridConfig(),
         val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
