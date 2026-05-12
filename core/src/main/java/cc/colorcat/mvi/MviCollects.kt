@@ -558,8 +558,8 @@ fun <T> Flow<T>.launchCollect(
 /**
  * Dispatches intents with full lifecycle awareness using [repeatOnLifecycle].
  *
- * Collection starts when the lifecycle reaches [state] and **pauses** when the
- * lifecycle drops below that state. Collection automatically resumes when the
+ * Collection starts when the lifecycle reaches [state] and **stops** when the
+ * lifecycle drops below that state. Collection automatically restarts when the
  * lifecycle returns to the required state. This matches the behavior of
  * [launchCollect] and [collectState] / [collectEvent].
  *

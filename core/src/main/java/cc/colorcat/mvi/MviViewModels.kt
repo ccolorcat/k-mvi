@@ -134,7 +134,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *         strategy = HandleStrategy.HYBRID
  *     ) {
  *         // Register handlers for different Intent types
- *         registerHandler<LoadIntent> { intent ->
+ *         register<LoadIntent> { intent ->
  *             flow {
  *                 emit(PartialChange.Loading(true))
  *                 val data = repository.loadData(intent.id)
@@ -143,13 +143,9 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *             }
  *         }
  *
- *         // Group related Intents for sequential processing
- *         registerHandler<RefreshIntent>(group = "refresh") { intent ->
- *             refreshData()
- *         }
- *
- *         registerHandler<UpdateIntent>(group = "refresh") { intent ->
- *             updateData(intent.data)
+ *         // Register a handler returning a single PartialChange
+ *         register<RefreshIntent> { intent ->
+ *             PartialChange.Refreshing
  *         }
  *     }
  *

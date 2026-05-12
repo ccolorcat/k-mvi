@@ -325,7 +325,6 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * @param intent The intent to classify
      * @return The group tag for this intent
-     * @throws AssertionError if the intent doesn't match any known type (should never happen)
      */
     private fun assignGroupTag(intent: I): String {
         return when {

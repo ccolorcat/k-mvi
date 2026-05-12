@@ -244,7 +244,7 @@ object KMvi {
      *
      * @property intentQueueCapacity The dispatch queue buffer size per contract. Default: 256
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
-     * @property hybridConfig The hybrid grouping configuration. Default: empty config
+     * @property hybridConfig The hybrid grouping configuration. Default: class-name based grouping
      * @property retryPolicy The retry policy for failed processing. Default: retry on Exception up to 3 times
      * @property logger The logger instance. Default: Logger with WARN level
      *

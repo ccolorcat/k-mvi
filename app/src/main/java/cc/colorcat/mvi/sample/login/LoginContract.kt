@@ -65,9 +65,6 @@ sealed interface LoginContract {
         /**
          * Display text for authentication status.
          */
-        /**
-         * Display text for authentication status.
-         */
         val statusText: String
             get() = when {
                 isLoading -> "Processing..."

@@ -190,8 +190,8 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
      *
      * ## Processing Behavior
      *
-     * - Intent is added to an internal queue (buffer capacity: 64)
-     * - If buffer is full, the dispatch is suspended until space is available
+     * - Intent is enqueued into a dispatch queue (buffer capacity configurable, default: 256)
+     * - If the queue is full, the intent is discarded with a warning log
      * - If the coroutine scope is inactive, the intent is discarded with a warning log
      *
      * ## Thread Safety
