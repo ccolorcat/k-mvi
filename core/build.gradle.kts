@@ -45,8 +45,20 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+}
+
+tasks.withType<Test> {
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = true
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }
 
 
