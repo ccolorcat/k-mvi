@@ -89,6 +89,16 @@ internal fun Logger.w(tag: String, message: () -> String) =
     log(Logger.WARN, tag, null, message)
 
 /**
+ * Logs a warning message with a throwable.
+ *
+ * @param tag The tag to identify the source of the log message
+ * @param error The throwable to be logged with stack trace and cause chain
+ * @param message A lambda that produces the log message (evaluated lazily)
+ */
+internal fun Logger.w(tag: String, error: Throwable, message: () -> String) =
+    log(Logger.WARN, tag, error, message)
+
+/**
  * Logs an error message.
  *
  * @param tag The tag to identify the source of the log message

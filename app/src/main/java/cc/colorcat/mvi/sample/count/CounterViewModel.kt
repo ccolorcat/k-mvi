@@ -1,5 +1,6 @@
 package cc.colorcat.mvi.sample.count
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.contract
 import cc.colorcat.mvi.register
@@ -230,6 +231,7 @@ class CounterViewModel : ViewModel() {
             }
             emit(partialChange)
         } catch (e: Exception) {
+            Log.w("k-mvi", "handleReset failed", e)
             emit(PartialChange { it.withEvent(Event.ShowToast("Reset Failure")) })
         } finally {
             emit(PartialChange { it.updateState { copy(showLoading = false) } })

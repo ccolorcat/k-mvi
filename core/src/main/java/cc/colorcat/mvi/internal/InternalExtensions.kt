@@ -149,6 +149,7 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
             channel.send(intent)
         }
     } catch (t: Throwable) {
+        logger.e(TAG, t) { "groupHandle failed, upstream will be cancelled" }
         cause = t
         throw t
     } finally {

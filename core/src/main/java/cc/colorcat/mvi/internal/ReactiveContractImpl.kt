@@ -215,7 +215,12 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .flowOn(Dispatchers.IO)
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
-            partialChange.apply(oldSnapshot)
+            try {
+                partialChange.apply(oldSnapshot)
+            } catch (t: Throwable) {
+                logger.e(TAG, t) { "PartialChange.apply threw, pipeline will terminate" }
+                throw t
+            }
         }
         // flowOn(Default) + buffer fuse into single Channel B (64, DROP_OLDEST) via ChannelFlow.fuse().
         // Order (flowOn before buffer) is a readability choice; both orderings produce the same result.

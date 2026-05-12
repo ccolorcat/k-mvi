@@ -1,5 +1,6 @@
 package cc.colorcat.mvi.sample.dashboard
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridConfig
@@ -66,6 +67,7 @@ class DashboardViewModel : ViewModel() {
             val data = listOf("Summer Sale 50%OFF", "New Arrivals", "Flash Deals", "Gift Cards", "Free Shipping")
             emit(PartialChange { s -> s.updateState { copy(bannerLoading = false, banners = data, operationLog = operationLog + stamp("DONE  $tag")) } })
         } catch (e: Exception) {
+            Log.w("k-mvi", "handleLoadBanners failed", e)
             emit(PartialChange { s -> s.updateState { copy(bannerLoading = false, operationLog = operationLog + stamp("FAIL  $tag")) } })
         }
     }
@@ -78,6 +80,7 @@ class DashboardViewModel : ViewModel() {
             val data = listOf("iPhone 16 Pro", "MacBook Air M3", "Sony WH-1000XM5", "iPad Pro 13in", "Apple Watch Ultra 2")
             emit(PartialChange { s -> s.updateState { copy(recommendationsLoading = false, recommendations = data, operationLog = operationLog + stamp("DONE  $tag")) } })
         } catch (e: Exception) {
+            Log.w("k-mvi", "handleLoadRecommendations failed", e)
             emit(PartialChange { s -> s.updateState { copy(recommendationsLoading = false, operationLog = operationLog + stamp("FAIL  $tag")) } })
         }
     }
@@ -90,6 +93,7 @@ class DashboardViewModel : ViewModel() {
             val data = listOf("Galaxy S25 Ultra -30%", "Pixel 9 Pro -20%", "OnePlus 13 -15%")
             emit(PartialChange { s -> s.updateState { copy(flashSaleLoading = false, flashSale = data, operationLog = operationLog + stamp("DONE  $tag")) } })
         } catch (e: Exception) {
+            Log.w("k-mvi", "handleLoadFlashSale failed", e)
             emit(PartialChange { s -> s.updateState { copy(flashSaleLoading = false, operationLog = operationLog + stamp("FAIL  $tag")) } })
         }
     }

@@ -3,6 +3,7 @@ package cc.colorcat.mvi
 import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.d
 import cc.colorcat.mvi.internal.e
+import cc.colorcat.mvi.internal.w
 
 /**
  * Global configuration and entry point for the K-MVI framework.
@@ -207,8 +208,12 @@ object KMvi {
      * @return `true` if should retry (attempt <= 3 and cause is Exception), `false` otherwise
      */
     private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
-        logger.e(TAG, cause) { "retry count: $attempt" }
-        return attempt <= 3 && cause is Exception
+        if (attempt <= 3 && cause is Exception) {
+            logger.w(TAG, cause) { "retry count: $attempt" }
+            return true
+        }
+        logger.e(TAG, cause) { "give up retry after $attempt attempts" }
+        return false
     }
 
     /**

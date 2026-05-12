@@ -1,5 +1,6 @@
 package cc.colorcat.mvi.sample.login
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.asSingleFlow
@@ -157,6 +158,7 @@ class LoginViewModel : ViewModel() {
 
         } catch (e: Exception) {
             // Error: emit failure with error message
+            Log.w("k-mvi", "handleLogin failed", e)
             emit(PartialChange.FailLogin("Login failed: ${e.message}"))
         } finally {
             // Cleanup: always stop loading
@@ -198,6 +200,7 @@ class LoginViewModel : ViewModel() {
 
         } catch (e: Exception) {
             // Error: show toast but maintain current login state
+            Log.w("k-mvi", "handleLogout failed", e)
             emit(PartialChange.FailLogout("Logout failed: ${e.message}"))
         } finally {
             // Cleanup: always stop loading
