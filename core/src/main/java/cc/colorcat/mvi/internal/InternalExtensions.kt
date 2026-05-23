@@ -72,6 +72,18 @@ internal val Mvi.Intent.diagnosticName: String
  * **Execution Model**: The `collect` lambda runs sequentially in a single coroutine,
  * so a plain [HashMap] is used for channel management — no concurrent access occurs.
  *
+ * ## ⚠️ Bottleneck: All Groups Share One Sender Coroutine
+ *
+ * The outer `collect { }` loop is a **single coroutine** shared by all groups. When
+ * [channel.send] suspends because a particular group's channel is full (backpressure
+ * from a slow handler), **all groups** are blocked — even groups whose channels have
+ * free capacity. New intents for unrelated groups cannot be routed until the blocked
+ * send completes.
+ *
+ * **Mitigation**: Choose [capacity] large enough for your peak per-group throughput
+ * (default [Channel.BUFFERED] = 64). Consider [Channel.UNLIMITED] if you never want
+ * group-level backpressure to block the router (at the cost of unbounded memory).
+ *
  * **Resource Management**: All channels are closed when the upstream Flow completes
  * or throws. If the upstream throws, the exception is passed as the close cause so
  * that each inner Flow terminates with the same error rather than silently completing.
@@ -92,9 +104,13 @@ internal val Mvi.Intent.diagnosticName: String
  *
  * @param I The intent type, must extend [Mvi.Intent]
  * @param R The result type produced by the handler
- * @param capacity The capacity of each channel buffer. Use [Channel.BUFFERED] for the
- *                 default size, [Channel.UNLIMITED] to never suspend the sender, or a
- *                 positive integer for a fixed buffer.
+ * @param capacity The capacity of each channel buffer.
+ *
+ *   **Performance note**: When a group's channel is full (e.g. handler is slow),
+ *   [channel.send] suspends the single outer `collect` coroutine, blocking *all*
+ *   groups (see ⚠️ above). Default is [Channel.BUFFERED] (64). Increase for
+ *   high-throughput scenarios, or use [Channel.UNLIMITED] to eliminate per-group
+ *   backpressure (risk: unbounded memory).
  * @param tagSelector Function to extract the grouping tag from an intent
  * @param handler Function that processes the Flow of intents for each tag and produces results
  * @return A Flow of Flows, where each inner Flow represents a tagged group of processed results.

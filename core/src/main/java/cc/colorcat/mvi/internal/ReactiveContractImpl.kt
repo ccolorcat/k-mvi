@@ -78,6 +78,12 @@ import kotlinx.coroutines.launch
  * for correctness. The DROP_OLDEST policy is intentional — stale snapshots (including their
  * events) should be discarded rather than delivered late, keeping events timely and relevant.
  *
+ * **Warning**: Because snapshots carry events, DROP_OLDEST may silently drop events when
+ * [eventFlow]'s downstream collector is slower than the state pipeline. For example, if
+ * the UI thread is busy and the buffer is full, the oldest snapshot (with its event) is
+ * dropped before the collector can read it. Ensure [eventFlow] collectors are lightweight
+ * (no heavy computation, I/O, or blocking calls inside `collect`).
+ *
  * ## Intent Dispatching
  *
  * Intents arrive via a dedicated [Channel] + coroutine (`dispatchQueue`) that forwards them to
@@ -285,6 +291,12 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * The call is non-blocking: the intent is enqueued into [dispatchQueue], which guarantees
      * FIFO ordering and forwards the work to [intentsChannel] on a dedicated coroutine.
+     *
+     * **Buffer overflow**: [dispatchQueue] has a fixed capacity ([intentQueueCapacity], default 256).
+     * When the queue is full, the intent is silently discarded and a warning is logged. This is a
+     * deliberate trade-off to keep [dispatch] non-blocking and prevent unbounded memory growth.
+     * Increase [intentQueueCapacity] in [KMvi.setup] or per-contract if your app dispatches
+     * intents faster than they can be consumed (e.g. rapid scroll events in a low-latency list).
      *
      * @param intent The user intent to process.
      */

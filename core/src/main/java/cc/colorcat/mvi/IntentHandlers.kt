@@ -141,6 +141,11 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
      * When an intent of type [T] is processed, the registered handler will be invoked.
      * If a handler is already registered for this type, it will be replaced.
      *
+     * **Note**: Handler lookup uses exact class matching ([Class] equality). Registering
+     * a handler for a base class will **not** trigger for subclass dispatches — the
+     * subclass falls back to [defaultHandler]. Register handlers per concrete intent
+     * type, or use [defaultHandler] with a `when` expression for polymorphic dispatch.
+     *
      * @param T The specific intent type to handle (must be a subtype of [I])
      * @param intentType The class of the intent type to register
      * @param handler The handler that will process intents of this type
@@ -238,6 +243,7 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
 
     override suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
         @Suppress("UNCHECKED_CAST")
+        // Exact class match only — see IntentHandlerRegistry.register KDoc.
         val handler = handlers[intent.javaClass] as IntentHandler<I, S, E>? ?: run {
             logger.w(TAG) {
                 "No handler registered for ${intent.diagnosticName}, fallback to defaultHandler"

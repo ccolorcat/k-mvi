@@ -342,30 +342,3 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         }
     }
 }
-
-
-//internal class StrategyIntentTransformer2<I : MVI.Intent, S : MVI.State, E : MVI.Event>(
-//    private val scope: CoroutineScope,
-//    private val strategy: HandleStrategy,
-//    private val config: HybridConfig<I>,
-//    private val handler: IntentHandler<I, S, E>,
-//) : IntentTransformer<I, S, E> {
-//
-//    override fun transform(intentFlow: Flow<I>): Flow<MVI.PartialChange<S, E>> {
-//        val flow = intentFlow.shareIn(scope, SharingStarted.Eagerly)
-//        @OptIn(FlowPreview::class)
-//        return when (strategy) {
-//            HandleStrategy.CONCURRENT -> flow.flatMapMerge { handler.handle(it) }
-//            HandleStrategy.SEQUENTIAL -> flow.flatMapConcat { handler.handle(it) }
-//            HandleStrategy.HYBRID -> merge(
-//                flow.filter { it.isConcurrent }.flatMapMerge { handler.handle(it) },
-//                flow.filter { it.isSequential }.flatMapConcat { handler.handle(it) },
-//                flow.filter { it.isFallback }.segment().flatMapMerge { it.flatMapConcat { i -> handler.handle(i) } },
-//            )
-//        }
-//    }
-//
-//    private fun Flow<I>.segment(): Flow<Flow<I>> {
-//        return groupHandle(config.groupChannelCapacity, config.groupTagSelector) { this }
-//    }
-//}
