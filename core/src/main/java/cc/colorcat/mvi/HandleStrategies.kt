@@ -1,5 +1,6 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.internal.requireSupportedCapacity
 import kotlinx.coroutines.channels.Channel
 
 /**
@@ -324,6 +325,8 @@ enum class HandleStrategy {
  *
  * @param I The intent type
  * @param groupChannelCapacity The capacity of internal channels used for grouping.
+ *                             Allowed values: [Channel.BUFFERED], [Channel.CONFLATED],
+ *                             [Channel.RENDEZVOUS], or any positive Int.
  *                             Defaults to [Channel.BUFFERED] (64).
  *                             Adjust based on your intent frequency and backpressure needs.
  * @param groupTagSelector A function that assigns a group tag to each fallback intent.
@@ -375,6 +378,10 @@ class HybridConfig<in I : Mvi.Intent>(
     internal val groupChannelCapacity: Int = Channel.BUFFERED,
     internal val groupTagSelector: (I) -> String = { it.javaClass.name },
 ) {
+    init {
+        requireSupportedCapacity("groupChannelCapacity", groupChannelCapacity)
+    }
+
     override fun toString(): String {
         return "HybridConfig(groupChannelCapacity=$groupChannelCapacity, groupTagSelector=$groupTagSelector)"
     }

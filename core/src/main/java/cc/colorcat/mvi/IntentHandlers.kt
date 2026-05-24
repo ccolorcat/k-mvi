@@ -273,13 +273,13 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
  * }
  * ```
  *
- * @param T The specific intent type to handle
+ * @param I The specific intent type to handle
  * @param handler A suspend function that transforms the intent into a single partial change
  */
-inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in T, S, E>.register(
-    noinline handler: suspend (intent: T) -> Mvi.PartialChange<S, E>,
+inline fun <reified I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in I, S, E>.register(
+    noinline handler: suspend (intent: I) -> Mvi.PartialChange<S, E>,
 ) {
-    register(T::class.java) { handler(it).asSingleFlow() }
+    register(I::class.java) { handler(it).asSingleFlow() }
 }
 
 /**
@@ -298,13 +298,13 @@ inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerR
  * })
  * ```
  *
- * @param T The specific intent type to handle
+ * @param I The specific intent type to handle
  * @param handler The handler that will process intents of this type
  */
-inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in T, S, E>.register(
-    handler: IntentHandler<T, S, E>,
+inline fun <reified I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in I, S, E>.register(
+    handler: IntentHandler<I, S, E>,
 ) {
-    register(T::class.java, handler)
+    register(I::class.java, handler)
 }
 
 /**
@@ -318,8 +318,8 @@ inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerR
  * registry.unregister<LoadDataIntent>()
  * ```
  *
- * @param T The intent type to unregister
+ * @param I The intent type to unregister
  */
-inline fun <reified T : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<T, S, E>.unregister() {
-    unregister(T::class.java)
+inline fun <reified I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in I, S, E>.unregister() {
+    unregister(I::class.java)
 }

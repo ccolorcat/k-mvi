@@ -767,7 +767,7 @@ class MyApplication : Application() {
 
                 // Retry policy for failed intent processing
                 retryPolicy = { attempt, cause ->
-                    attempt <= 3 && cause !is CancellationException
+                    attempt < 3 && cause !is CancellationException // attempt is 0-based
                 },
 
                 // Hybrid strategy configuration
@@ -803,12 +803,13 @@ class MyApplication : Application() {
 #### RetryPolicy
 
 A function `(attempt: Long, cause: Throwable) -> Boolean` that determines whether to retry after a failure.
+`attempt` follows `Flow.retryWhen` semantics and is **0-based** (`0` = first retry).
 
 Default policy:
 
 ```kotlin
 { attempt, cause ->
-    attempt <= 3 && cause is Exception // Retry up to 3 times for all Exceptions (not Errors)
+    attempt < 3 && cause is Exception // Retries on attempt 0..2 (up to 3 retries)
 }
 ```
 
@@ -820,7 +821,8 @@ Default policy:
 Configuration for HYBRID strategy:
 
 - `groupTagSelector`: Function to assign a group tag to each fallback intent for sequential processing
-- `groupChannelCapacity`: Buffer size for grouped intent channels (default: `Channel.BUFFERED` = 64)
+- `groupChannelCapacity`: Buffer size for grouped intent channels (default: `Channel.BUFFERED` = 64).
+  Allowed values are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any positive `Int` (including `Channel.UNLIMITED`).
 
 #### Logger
 
@@ -888,8 +890,8 @@ KMvi.setup {
     copy(
         retryPolicy = { attempt, cause ->
             when (cause) {
-                is NetworkException -> attempt <= 5 // Retry network errors
-                is TimeoutException -> attempt <= 2 // Retry timeouts
+                is NetworkException -> attempt < 5 // Retry network errors (0-based attempt)
+                is TimeoutException -> attempt < 2 // Retry timeouts (0-based attempt)
                 else -> false
             }
         }
@@ -1153,4 +1155,3 @@ K-MVI is inspired by and builds upon concepts from:
 ---
 
 **Star this repo** ⭐ if you find it useful!
-

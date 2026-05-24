@@ -129,6 +129,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     retryPolicy: RetryPolicy,
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
+    init {
+        requireSupportedCapacity("intentQueueCapacity", intentQueueCapacity)
+    }
+
     /**
      * Channel for buffering dispatched intents before they enter the processing pipeline.
      *
@@ -158,9 +162,9 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * the forwarding coroutine is a child of [scope] so it is automatically cancelled when the
      * scope ends.
      *
-     * **Capacity**: [intentQueueCapacity] items. When the buffer is full, [dispatch]
-     * discards the intent and logs a warning — a deliberate trade-off to keep `dispatch()`
-     * non-blocking while preventing unbounded memory growth.
+     * **Capacity**: [intentQueueCapacity]. For bounded capacities, when the buffer is full,
+     * [dispatch] discards the intent and logs a warning — a deliberate trade-off to keep
+     * `dispatch()` non-blocking while preventing unbounded memory growth.
      *
      * **Lifecycle**: the forwarding loop exits when the coroutine is cancelled (scope ends).
      * The `finally` block then closes this queue so that subsequent `dispatch()` calls see
@@ -292,9 +296,9 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * The call is non-blocking: the intent is enqueued into [dispatchQueue], which guarantees
      * FIFO ordering and forwards the work to [intentsChannel] on a dedicated coroutine.
      *
-     * **Buffer overflow**: [dispatchQueue] has a fixed capacity ([intentQueueCapacity], default 256).
-     * When the queue is full, the intent is silently discarded and a warning is logged. This is a
-     * deliberate trade-off to keep [dispatch] non-blocking and prevent unbounded memory growth.
+     * **Buffer overflow**: [dispatchQueue] uses [intentQueueCapacity] (default 256). For bounded
+     * capacities, when the queue is full, the intent is silently discarded and a warning is logged.
+     * This is a deliberate trade-off to keep [dispatch] non-blocking and prevent unbounded memory growth.
      * Increase [intentQueueCapacity] in [KMvi.setup] or per-contract if your app dispatches
      * intents faster than they can be consumed (e.g. rapid scroll events in a low-latency list).
      *
@@ -454,4 +458,3 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         delegate.apply(setup)
     }
 }
-

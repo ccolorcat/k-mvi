@@ -9,6 +9,7 @@ import cc.colorcat.mvi.TestLogger
 import kotlinx.coroutines.channels.Channel
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -63,12 +64,24 @@ class KMviTest {
     }
 
     @Test
-    fun `setup allows negative intentQueueCapacity`() {
+    fun `setup allows CONFLATED intentQueueCapacity`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = -1,
+                intentQueueCapacity = Channel.CONFLATED,
                 logger = Logger { _, _, _, _ -> },
             )
+        }
+    }
+
+    @Test
+    fun `setup rejects invalid negative intentQueueCapacity`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            KMvi.setup {
+                copy(
+                    intentQueueCapacity = -3,
+                    logger = Logger { _, _, _, _ -> },
+                )
+            }
         }
     }
 
@@ -115,6 +128,17 @@ class KMviTest {
     }
 
     @Test
+    fun `setup allows CONFLATED groupChannelCapacity`() {
+        KMvi.setup {
+            copy(
+                intentQueueCapacity = 256,
+                logger = Logger { _, _, _, _ -> },
+                hybridConfig = HybridConfig<Mvi.Intent>(groupChannelCapacity = Channel.CONFLATED),
+            )
+        }
+    }
+
+    @Test
     fun `setup can be called multiple times`() {
         KMvi.setup {
             copy(
@@ -137,12 +161,13 @@ class KMviTest {
         // Already set up with no-op logger in @Before
         val policy = KMvi.retryPolicy
 
-        // cause is Exception, attempt <= 3 — retry
+        // attempt is 0-based from Flow.retryWhen
+        assertTrue("attempt 0 should retry", policy(0, RuntimeException("test")))
         assertTrue("attempt 1 should retry", policy(1, RuntimeException("test")))
         assertTrue("attempt 2 should retry", policy(2, RuntimeException("test")))
-        assertTrue("attempt 3 should retry", policy(3, RuntimeException("test")))
+        assertFalse("attempt 3 should stop", policy(3, RuntimeException("test")))
 
-        // cause is Exception, attempt > 3 — stop
+        // cause is Exception, attempt > 2 — stop
         assertFalse("attempt 4 should stop", policy(4, RuntimeException("test")))
 
         // cause is Error — don't retry

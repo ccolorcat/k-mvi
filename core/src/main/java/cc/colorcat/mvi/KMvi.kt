@@ -3,6 +3,7 @@ package cc.colorcat.mvi
 import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.d
 import cc.colorcat.mvi.internal.e
+import cc.colorcat.mvi.internal.requireSupportedCapacity
 import cc.colorcat.mvi.internal.w
 
 /**
@@ -29,7 +30,7 @@ import cc.colorcat.mvi.internal.w
  *
  * ## Parameters
  *
- * - **attempt**: The restart attempt number (1 for first attempt, 2 for second, etc.)
+ * - **attempt**: The restart attempt index from `retryWhen` (0 for first retry, 1 for second, etc.)
  * - **cause**: The throwable that caused the failure
  *
  * ## Usage Example
@@ -37,7 +38,7 @@ import cc.colorcat.mvi.internal.w
  * ```kotlin
  * val customRetryPolicy: RetryPolicy = { attempt, cause ->
  *     when {
- *         attempt > 3 -> false  // Give up after 3 retries
+ *         attempt >= 3 -> false  // Give up after 3 retries (attempt = 0, 1, 2)
  *         cause is NetworkException -> true  // Retry network errors
  *         else -> false  // Don't retry other errors
  *     }
@@ -81,7 +82,7 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  *
  * If not configured, the framework uses sensible defaults:
  * - **Handle Strategy**: HYBRID (balanced between concurrent and sequential)
- * - **Retry Policy**: Retry on Exceptions (but not Errors), up to 3 attempts
+ * - **Retry Policy**: Retry on Exceptions (but not Errors), up to 3 retries (`attempt` = 0..2)
  * - **Logger**: Default logger with WARN level
  * - **Hybrid Config**: Empty configuration (no grouping)
  *
@@ -155,7 +156,7 @@ object KMvi {
      *         KMvi.setup {
      *             copy(
      *                 handleStrategy = HandleStrategy.CONCURRENT,
-     *                 retryPolicy = { attempt, _ -> attempt <= 3 },
+     *                 retryPolicy = { attempt, _ -> attempt < 3 }, // 0-based attempt from retryWhen
      *                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
      *             )
      *         }
@@ -182,7 +183,7 @@ object KMvi {
      * This policy:
      * - Retries all [Exception]s (runtime errors that may be transient)
      * - Does NOT retry [Error]s (serious problems that should not be retried)
-     * - Limits retries to a maximum of 3 attempts
+     * - Limits retries to a maximum of 3 retries (`attempt` = 0..2)
      * - Logs each retry attempt with the exception details
      *
      * ## ⚠️ Production Warning
@@ -197,18 +198,18 @@ object KMvi {
      * KMvi.setup {
      *     copy(
      *         retryPolicy = { attempt, cause ->
-     *             attempt <= 3 && (cause is IOException || cause is HttpException)
+     *             attempt < 3 && (cause is IOException || cause is HttpException)
      *         }
      *     )
      * }
      * ```
      *
-     * @param attempt The retry attempt number (1 for first retry, 2 for second, etc.)
+     * @param attempt The retry attempt index from `retryWhen` (0 for first retry, 1 for second, etc.)
      * @param cause The throwable that caused the failure
-     * @return `true` if should retry (attempt <= 3 and cause is Exception), `false` otherwise
+     * @return `true` if should retry (attempt < 3 and cause is Exception), `false` otherwise
      */
     private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
-        if (attempt <= 3 && cause is Exception) {
+        if (attempt < 3 && cause is Exception) {
             logger.w(TAG, cause) { "retry count: $attempt" }
             return true
         }
@@ -236,16 +237,19 @@ object KMvi {
      *     copy(
      *         handleStrategy = HandleStrategy.SEQUENTIAL,
      *         retryPolicy = { attempt, cause ->
-     *             attempt <= 3 && cause is IOException
+     *             attempt < 3 && cause is IOException
      *         }
      *     )
      * }
      * ```
      *
-     * @property intentQueueCapacity The dispatch queue buffer size per contract. Default: 256
+     * @property intentQueueCapacity The dispatch queue buffer size per contract. Allowed values:
+     *                               [Channel.BUFFERED], [Channel.CONFLATED], [Channel.RENDEZVOUS], or any positive Int.
+     *                               Default: 256
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
      * @property hybridConfig The hybrid grouping configuration. Default: class-name based grouping
-     * @property retryPolicy The retry policy for failed processing. Default: retry on Exception up to 3 times
+     * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
+     *                       Default: retry on Exception when `attempt < 3` (up to 3 retries)
      * @property logger The logger instance. Default: Logger with WARN level
      *
      * @see HandleStrategy
@@ -259,5 +263,9 @@ object KMvi {
         val hybridConfig: HybridConfig<Mvi.Intent> = HybridConfig(),
         val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
         val logger: Logger = Logger(),
-    )
+    ) {
+        init {
+            requireSupportedCapacity("intentQueueCapacity", intentQueueCapacity)
+        }
+    }
 }

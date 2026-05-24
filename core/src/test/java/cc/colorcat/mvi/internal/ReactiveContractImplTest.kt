@@ -24,6 +24,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -152,6 +153,23 @@ class ReactiveContractImplTest {
 
         assertEquals(99, contract.stateFlow.value.count)
         assertEquals("init", contract.stateFlow.value.data)
+    }
+
+    @Test
+    fun `invalid intentQueueCapacity throws`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            CoreReactiveContract(
+                scope = testScope,
+                initState = TestState(),
+                intentQueueCapacity = -3,
+                retryPolicy = { _, _ -> false },
+                transformer = IntentTransformer(
+                    strategy = HandleStrategy.CONCURRENT,
+                    config = HybridConfig(),
+                    handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                ),
+            )
+        }
     }
 
     // --- eventFlow ---
