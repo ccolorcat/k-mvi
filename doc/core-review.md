@@ -154,23 +154,21 @@ fun updateState(transform: S.() -> S): Snapshot<S, E> {
 
 `EventCollector.state` 被标记为 `@PublishedApi internal`，供 `inline fun collectTyped` 访问，符合 Kotlin 规范。
 
-### 4.6 `EventCollector.collectTyped` 的过载设计
+### 4.6 `EventCollector.collectTyped` 的过载设计 ✅ 已修复
 
 ```kotlin
 inline fun <reified A : E> collectTyped(block: suspend (A) -> Unit): Job
 inline fun <reified A : E> collectTyped(state: Lifecycle.State, block: suspend (A) -> Unit): Job
-fun <A : E> collectTyped(clazz: KClass<A>, block: suspend (A) -> Unit): Job
 fun <A : E> collectTyped(clazz: KClass<A>, state: Lifecycle.State, block: suspend (A) -> Unit): Job
 ```
 
-四个重载全部提供是合理的（涵盖 reified 版本和 KClass 版本），但参数顺序略有问题：inline 版本是 `(block)` / `(state, block)`，KClass 版本是 `(clazz, block)` / `(clazz, state, block)`。`state` 参数在中间位置（非最后），对于 Kotlin 的尾随 lambda 语法来说，带 state 的重载略显尴尬：
+已删除 `collectTyped(clazz, block)` 重载。该重载仅是 `collectTyped(clazz, state, block)` 的默认参数简写，而 KClass 变体本身属于动态派发的逃生舱，在这类场景中几乎必然需要显式指定 `state`；省略 `state` 的便利性极低，却额外增加了 API 表面积。reified 路径提供两个重载（有无 state）保留不变，因为它们是日常高频用法的快捷键。
+
+现存三个重载的参数顺序（`state` 位于 `block` 之前）保证了尾随 lambda 的可读性：
 
 ```kotlin
 collectTyped<ShowToast>(Lifecycle.State.RESUMED) { event -> ... }
-// 还好，因为 block 是最后一个参数
 ```
-
-目前实际影响不大，可接受。
 
 ### 4.7 `ReactiveContractLazy` 非线程安全
 
@@ -253,6 +251,7 @@ override val value: ReactiveContract<I, S, E>
 | 命名 | 低 | `KMvi` 名称不直观 |
 | 命名 | 低 | `HybridConfig` 未体现"仅针对 fallback"的语义 |
 | 命名 | 低 | ~~`collectPartial` vs `collectParticular` 不对称~~ ✅ 已修复：`collectParticular` → `collectTyped` |
+| Kotlin 写法 | 低 | ~~`collectTyped(clazz, block)` 重载冗余，KClass 场景几乎必需显式 state~~ ✅ 已修复：已删除 |
 | Kotlin 写法 | 低 | `Snapshot` 方法内多余的 `this.`，`doOnClick` 中多余的 `this.block()` |
 | Kotlin 写法 | 低 | `ReactiveContractLazy.cached` 缺少 `@Volatile` |
 | 文档 | **高** | ~~`doOnClick` 等 KDoc 示例错误（与正确性问题同源）~~ ✅ 已修复 |

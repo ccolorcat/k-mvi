@@ -384,22 +384,12 @@ class EventCollector<E : Mvi.Event> internal constructor(
     ): Job = collectTyped(A::class, state, block)
 
     /**
-     * Collects events of a specific type using KClass.
+     * Collects events of a specific type using a [KClass] reference with a specific lifecycle state.
      *
-     * This is the non-inline version that accepts a class reference.
-     *
-     * @param A The specific event type to collect
-     * @param clazz The class of the event type
-     * @param block The suspend function to call with each event of type A
-     * @return A Job for this specific collector
-     */
-    fun <A : E> collectTyped(
-        clazz: KClass<A>,
-        block: suspend (A) -> Unit,
-    ): Job = collectTyped(clazz, state, block)
-
-    /**
-     * Collects events of a specific type using KClass with a specific lifecycle state.
+     * This is the non-inline implementation used by the reified [collectTyped] overloads internally.
+     * Prefer the reified overloads (`collectTyped<MyEvent> { ... }`) at call sites where the type
+     * is known at compile time. Use this overload only when the type must be supplied dynamically
+     * at runtime.
      *
      * @param A The specific event type to collect
      * @param clazz The class of the event type
