@@ -16,6 +16,6 @@ import kotlinx.coroutines.channels.Channel
 internal fun requireSupportedCapacity(name: String, capacity: Int) {
     val isNamedConst = capacity == Channel.BUFFERED || capacity == Channel.CONFLATED || capacity == Channel.RENDEZVOUS
     require(isNamedConst || capacity > 0) {
-        "$name must be Channel.BUFFERED, Channel.CONFLATED, Channel.RENDEZVOUS, or a positive Int, but was $capacity"
+        "$name must be Channel.BUFFERED, Channel.CONFLATED, Channel.RENDEZVOUS, or any positive Int, but was $capacity"
     }
 }

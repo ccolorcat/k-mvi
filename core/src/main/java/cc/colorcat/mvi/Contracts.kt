@@ -217,6 +217,7 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
      * @param intent The intent to dispatch
      * @see Mvi.Intent
      * @see HandleStrategy
+     * @see KMvi.Configuration
      */
     fun dispatch(intent: I)
 }

@@ -80,11 +80,7 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  *
  * ## Default Configuration
  *
- * If not configured, the framework uses sensible defaults:
- * - **Handle Strategy**: HYBRID (balanced between concurrent and sequential)
- * - **Retry Policy**: Retry on Exceptions (but not Errors), up to 3 retries (`attempt` = 0..2)
- * - **Logger**: Default logger with WARN level
- * - **Hybrid Config**: Empty configuration (no grouping)
+ * If not configured, the framework uses sensible defaults — see [Configuration] for details.
  *
  * ## Thread Safety
  *

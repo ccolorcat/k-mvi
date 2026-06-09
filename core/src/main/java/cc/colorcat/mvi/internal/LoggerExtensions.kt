@@ -31,9 +31,9 @@ internal const val TAG = "k-mvi"
  * in [KMvi.logger].
  *
  * Example:
- * ```
- * // Configure custom logger
- * KMvi.logger = Logger(threshold = Logger.DEBUG)
+ * ```kotlin
+ * // Configure custom logger via KMvi.setup
+ * KMvi.setup { copy(logger = Logger(Logger.DEBUG)) }
  *
  * // All internal framework logs will use this logger
  * ```

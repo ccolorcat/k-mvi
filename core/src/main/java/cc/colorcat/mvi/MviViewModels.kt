@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.emptyFlow
  * class MyViewModel : ViewModel() {
  *     private val contract by contract(
  *         initState = MyState(),
+ *         // Define your own PartialChange subtypes implementing Mvi.PartialChange
  *         transformer = { intent ->
  *             when (intent) {
  *                 is MyIntent.Load -> flow {
@@ -82,7 +83,7 @@ import kotlinx.coroutines.flow.emptyFlow
  *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int.
  *                            Defaults to global config [KMvi.intentQueueCapacity]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
- * @param transformer The function that transforms Intents into Flows of PartialChanges
+ * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
  * @see ReactiveContract
  * @see IntentTransformer
@@ -134,6 +135,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * class MyViewModel : ViewModel() {
  *     private val contract by contract(
  *         initState = MyState(),
+ *         // Define your own PartialChange subtypes implementing Mvi.PartialChange
  *         strategy = HandleStrategy.HYBRID
  *     ) {
  *         // Register handlers for different Intent types
