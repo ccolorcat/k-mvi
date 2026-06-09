@@ -288,12 +288,9 @@ object Mvi {
      *
      * ## Construction
      *
-     * Snapshots can be created directly via the primary constructor or via the
-     * [Snapshot.of] convenience factory:
-     *
      * ```kotlin
      * val snapshot = Mvi.Snapshot(MyState())
-     * val snapshotWithEvent = Mvi.Snapshot.of(MyState(), MyEvent.ShowToast("Hi"))
+     * val snapshotWithEvent = Mvi.Snapshot(MyState(), MyEvent.ShowToast("Hi"))
      * ```
      *
      * @param S The state type
@@ -307,26 +304,6 @@ object Mvi {
         val state: S,
         val event: E? = null,
     ) {
-        companion object {
-            /**
-             * Creates a [Snapshot] with the given [state] and optional [event].
-             *
-             * Equivalent to calling the primary constructor directly. Provided as a
-             * named factory for readability in tests and explicit construction scenarios.
-             *
-             * ```kotlin
-             * val snapshot = Mvi.Snapshot.of(MyState())
-             * val result = myPartialChange.apply(snapshot)
-             * assertEquals(expectedState, result.state)
-             * ```
-             *
-             * @param state The initial state
-             * @param event An optional one-time event
-             * @return A new [Snapshot] containing the given state and event
-             */
-            fun <S : State, E : Event> of(state: S, event: E? = null): Snapshot<S, E> =
-                Snapshot(state, event)
-        }
 
         /**
          * Creates a new snapshot with an updated state.

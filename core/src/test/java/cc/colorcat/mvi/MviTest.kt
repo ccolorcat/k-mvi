@@ -32,15 +32,8 @@ class MviTest {
     // --- Snapshot creation ---
 
     @Test
-    fun `Snapshot of with only state`() {
-        val snapshot: Mvi.Snapshot<TestState, TestEvent> = Mvi.Snapshot.of(TestState(5))
-        assertEquals(TestState(5), snapshot.state)
-        assertNull(snapshot.event)
-    }
-
-    @Test
-    fun `Snapshot of with state and event`() {
-        val snapshot: Mvi.Snapshot<TestState, TestEvent> = Mvi.Snapshot.of(TestState(5), TestEvent.Toast)
+    fun `Snapshot constructor with state and event`() {
+        val snapshot: Mvi.Snapshot<TestState, TestEvent> = Mvi.Snapshot(TestState(5), TestEvent.Toast)
         assertEquals(TestState(5), snapshot.state)
         assertEquals(TestEvent.Toast, snapshot.event)
     }
@@ -63,7 +56,7 @@ class MviTest {
 
     @Test
     fun `updateState clears pending event`() {
-        val snapshot = Mvi.Snapshot.of(TestState(0), TestEvent.Toast)
+        val snapshot = Mvi.Snapshot(TestState(0), TestEvent.Toast)
         val result = snapshot.updateState { copy(count = 5) }
         assertEquals(5, result.state.count)
         assertNull("event must be cleared after updateState", result.event)
@@ -109,7 +102,7 @@ class MviTest {
 
     @Test
     fun `withEvent overwrites existing event`() {
-        val snapshot: Mvi.Snapshot<TestState, TestEvent> = Mvi.Snapshot.of(TestState(1), TestEvent.Toast)
+        val snapshot: Mvi.Snapshot<TestState, TestEvent> = Mvi.Snapshot(TestState(1), TestEvent.Toast)
         val result = snapshot.withEvent(TestEvent.Navigation("detail"))
         assertEquals(TestEvent.Navigation("detail"), result.event)
     }
@@ -129,7 +122,7 @@ class MviTest {
 
     @Test
     fun `updateWith overwrites previous event`() {
-        val snapshot: Mvi.Snapshot<TestState, TestEvent> = Mvi.Snapshot.of(TestState(0), TestEvent.Toast)
+        val snapshot: Mvi.Snapshot<TestState, TestEvent> = Mvi.Snapshot(TestState(0), TestEvent.Toast)
         val result = snapshot.updateWith(TestEvent.Navigation("next")) { copy(count = 3) }
         assertEquals(TestEvent.Navigation("next"), result.event)
     }

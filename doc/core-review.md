@@ -50,14 +50,9 @@ StrategyReactiveContract    -- 在 Core 基础上增加策略 + 动态注册
 
 已将 `sealed interface Mvi` 改为 `object Mvi`。`Mvi` 作为命名空间容器语义更直观，内部嵌套类型（`Intent`、`State`、`Event`、`PartialChange`、`Snapshot`）通过 `Mvi.Xxx` 访问方式不变，对用户完全透明。
 
-**`Snapshot.of()` 工厂方法**
+**~~`Snapshot.of()` 工厂方法~~** ✅ 已修复
 
-```kotlin
-fun <S : State, E : Event> of(state: S, event: E? = null): Snapshot<S, E> =
-    Snapshot(state, event)
-```
-
-与主构造函数完全等价，没有任何附加行为。KDoc 说"用于测试中的可读性"，但 `Mvi.Snapshot(state)` 和 `Mvi.Snapshot.of(state)` 在可读性上差别微乎其微。这是一个多余的 API 表面。
+已删除 `Snapshot.companion object`（含 `of()` 工厂方法）。`Mvi.Snapshot(state)` 与 `Mvi.Snapshot(state, event)` 即为直接构造，无需额外工厂。相关 KDoc 与测试同步更新。
 
 ---
 
@@ -278,20 +273,9 @@ button.doOnClick { send(LoginIntent.ClickLoginButton) }
 button.doOnClick { trySend(LoginIntent.ClickLoginButton) }
 ```
 
-### 5.3 文档冗余
+### 5.3 ~~文档冗余~~ ✅ 已修复
 
-**`Snapshot.of()` 的文档**
-
-```kotlin
-/**
- * Equivalent to calling the primary constructor directly. Provided as a
- * named factory for readability in tests and explicit construction scenarios.
- */
-fun <S : State, E : Event> of(state: S, event: E? = null): Snapshot<S, E> =
-    Snapshot(state, event)
-```
-
-`Mvi.Snapshot(state)` 与 `Mvi.Snapshot.of(state)` 的可读性差别极小，这个方法可直接删除，减少 API 表面积。
+`Snapshot.of()` 已删除，相关 KDoc 示例已改为直接使用主构造函数。
 
 ### 5.4 日期标注已过时
 
@@ -346,9 +330,9 @@ fun <S : State, E : Event> of(state: S, event: E? = null): Snapshot<S, E> =
 | Kotlin 写法 | 低 | `Snapshot` 方法内多余的 `this.`，`doOnClick` 中多余的 `this.block()` |
 | Kotlin 写法 | 低 | `ReactiveContractLazy.cached` 缺少 `@Volatile` |
 | 文档 | **高** | `doOnClick` 等 KDoc 示例错误（与正确性问题同源） |
-| 文档 | 低 | `Snapshot.of()` 多余，可删除 |
+| 文档 | 低 | ~~`Snapshot.of()` 多余，可删除~~ ✅ 已修复 |
 | 文档 | 低 | 文件中 Date 注脚静态过时 |
 | 文档 | 低 | `launchWithLifecycle` 文档"主线程"说法不完全准确 |
 | 架构 | 低 | ~~`sealed interface Mvi` 的 sealed 限制没有实际意义~~ ✅ 已修复：改为 `object Mvi` |
-| 架构 | 低 | `Snapshot.of()` API 表面多余 |
+| 架构 | 低 | ~~`Snapshot.of()` API 表面多余~~ ✅ 已修复 |
 | 测试 | 中 | `debounceLeading`、UI 事件转换函数、`StateCollector`/`EventCollector` 缺少测试 |
