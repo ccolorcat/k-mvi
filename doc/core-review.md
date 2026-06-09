@@ -89,26 +89,15 @@ StrategyReactiveContract    -- 在 Core 基础上增加策略 + 动态注册
 同步在 `Mvi.Intent.Concurrent` 和 `Mvi.Intent.Sequential` 接口的 KDoc 中补充了互斥约束说明，明确告知用户同时实现两者是冲突行为。
 ---
 
-### 2.4 【低】`PartialChange.apply()` 抛异常会终止整个管道
+### ~~2.4 【低】`PartialChange.apply()` 抛异常会终止整个管道~~ ✅ 已修复
 
-这是已知的设计约束，KDoc 中有充分说明，但对用户来说是较重的心智负担：
+**位置**：`ReactiveContractImpl.kt`，`CoreReactiveContract.snapshots` `scan` 块
 
-```kotlin
-.scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
-    try {
-        partialChange.apply(oldSnapshot)
-    } catch (t: Throwable) {
-        logger.e(TAG, t) { "PartialChange.apply threw, pipeline will terminate" }
-        throw t  // 会跳过 retryWhen，直接终止
-    }
-}
-```
-
-`retryWhen` 仅保护 `toPartialChange()`（Intent 处理阶段），不保护 `scan`。用户若在 `apply()` 内部做了意外的操作并抛出异常，整个 `stateFlow`/`eventFlow` 就会停止更新，且没有自动恢复机制。
-
-这个约束没有编译期保障（Kotlin 没有 checked exceptions），文档虽然说了"应当是纯函数/不抛异常"，但无法强制。建议至少加一条 `@Throws` 风格的自定义注解或在 Lint 规则中做提示（未来可考虑）。
-
----
+`scan` 内的 `catch` 不再 rethrow（`CancellationException` 除外）：捕获后以 ERROR 级别记录，
+返回 `oldSnapshot` 保持状态不变，管道继续处理后续 intent。
+同步更新：`PartialChange.apply()` KDoc、`CoreReactiveContract` 类级文档（Error Handling 节）、
+`snapshots` 属性 KDoc（Retry Strategy 节），以及新增回归测试
+`PartialChange apply exception keeps pipeline alive`。
 
 ## 3. 命名
 
@@ -260,7 +249,7 @@ override val value: ReactiveContract<I, S, E>
 | 正确性 | **高** | ~~`doOnClick` 等 KDoc 示例使用 `send()` 无法编译，应为 `trySend()`~~ ✅ 已修复 |
 | 正确性 | **中** | ~~`debounceLeading` 依赖 `SystemClock`，JVM 不可测，无测试覆盖~~ ✅ 已修复 |
 | 正确性 | 低 | ~~`assignGroupTag` else 分支逻辑结构略混乱（逻辑正确，阅读困难）~~ ✅ 已修复 |
-| 正确性 | 低 | `PartialChange.apply()` 异常无法被 retryWhen 捕获（已文档化，但无编译保障） |
+| 正确性 | 低 | ~~`PartialChange.apply()` 异常无法被 retryWhen 捕获（已文档化，但无编译保障）~~ ✅ 已修复 |
 | 命名 | 低 | `KMvi` 名称不直观 |
 | 命名 | 低 | `HybridConfig` 未体现"仅针对 fallback"的语义 |
 | 命名 | 低 | `collectPartial` vs `collectParticular` 不对称 |

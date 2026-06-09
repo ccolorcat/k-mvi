@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -94,7 +95,9 @@ import kotlinx.coroutines.launch
  * ## Error Handling
  *
  * - Uses [retryWhen] with configurable [RetryPolicy]
- * - Allows automatic retry on recoverable errors
+ * - Allows automatic retry on recoverable errors in intent handlers
+ * - Exceptions thrown by [Mvi.PartialChange.apply] are caught inside `scan`: the previous
+ *   snapshot is retained and the pipeline continues (`CancellationException` is re-thrown)
  * - Logs warnings when scope is inactive
  *
  * ## Lifecycle
@@ -210,6 +213,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * replayed — handlers should use try-catch internally for intent-level error recovery.
      * [scan] and all downstream operators are unaffected by the restart.
      *
+     * Exceptions thrown inside [Mvi.PartialChange.apply] are caught within [scan]: the
+     * previous snapshot is retained unchanged and the pipeline continues processing.
+     * `CancellationException` is re-thrown so scope cancellation is unaffected.
+     *
      * ## Operator Fusion
      *
      * Adjacent `flowOn` and `buffer` operators are merged by the framework (`ChannelFlow.fuse()`)
@@ -227,9 +234,11 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
             try {
                 partialChange.apply(oldSnapshot)
+            } catch (e: CancellationException) {
+                throw e
             } catch (t: Throwable) {
-                logger.e(TAG, t) { "PartialChange.apply threw, pipeline will terminate" }
-                throw t
+                logger.e(TAG, t) { "PartialChange.apply threw, snapshot unchanged" }
+                oldSnapshot
             }
         }
         // flowOn(Default) + buffer fuse into single Channel B (64, DROP_OLDEST) via ChannelFlow.fuse().

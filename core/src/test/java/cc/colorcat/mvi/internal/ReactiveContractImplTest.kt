@@ -138,6 +138,38 @@ class ReactiveContractImplTest {
     }
 
     @Test
+    fun `PartialChange apply exception keeps pipeline alive`() = runBlocking {
+        var callCount = 0
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueCapacity = 64,
+            retryPolicy = { _, _ -> false },
+            transformer = IntentTransformer(
+                strategy = HandleStrategy.SEQUENTIAL,
+                config = HybridConfig(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    callCount++
+                    if (callCount == 1) {
+                        Mvi.PartialChange<TestState, TestEvent> {
+                            throw RuntimeException("intentional apply error")
+                        }.asSingleFlow()
+                    } else {
+                        Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
+                            .asSingleFlow()
+                    }
+                },
+            ),
+        )
+
+        contract.dispatch(TestIntent.Increment)  // apply throws → state unchanged
+        contract.dispatch(TestIntent.Increment)  // apply succeeds → count = 1
+        val state = contract.stateFlow.first { it.count == 1 }
+        assertEquals(1, state.count)  // first dispatch had no effect; second did; pipeline alive
+    }
+
+
+    @Test
     fun `initial state is correct`() = runBlocking {
         val contract = CoreReactiveContract(
             scope = testScope,

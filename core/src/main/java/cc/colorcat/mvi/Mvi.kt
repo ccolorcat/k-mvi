@@ -270,9 +270,10 @@ object Mvi {
          * - **Lightweight**: only `copy()` calls and simple branching; all async / heavy work
          *   belongs in [IntentHandler.handle][cc.colorcat.mvi.IntentHandler.handle], which produces
          *   `PartialChange` values through a `Flow`
-         * - **Non-throwing**: `apply` runs downstream of `retryWhen`, so any exception it throws
-         *   will **not** be caught by the retry policy — it will propagate directly and terminate
-         *   the entire state pipeline, causing `stateFlow` and `eventFlow` to stop updating
+         * - **Non-throwing**: exceptions thrown by `apply` are caught by the pipeline, logged at
+         *   ERROR level, and the previous snapshot is retained unchanged — the pipeline continues
+         *   processing subsequent intents. Never rely on throwing to signal state; use the return
+         *   value only.
          *
          * @param old The current snapshot containing the current state and any pending event
          * @return A new snapshot with the updated state and/or event
