@@ -170,14 +170,11 @@ fun <A : E> collectTyped(clazz: KClass<A>, state: Lifecycle.State, block: suspen
 collectTyped<ShowToast>(Lifecycle.State.RESUMED) { event -> ... }
 ```
 
-### 4.7 `ReactiveContractLazy` 非线程安全
+### 4.7 `ReactiveContractLazy` 非线程安全 ✅ 已修复
 
-```kotlin
-override val value: ReactiveContract<I, S, E>
-    get() = cached ?: create().also { cached = it }
-```
-
-文档已说明非线程安全，ViewModel 通常仅在主线程访问，但 `cached` 未加 `@Volatile`，在多线程场景下存在可见性问题（尽管 ViewModel 不应在多线程使用）。可考虑加 `@Volatile` 作为防御性措施，代价极低。
+已为 `cached` 字段添加 `@Volatile`，确保多线程场景下写入的引用对其他线程可见。
+KDoc 同步更新：说明 ViewModel 主线程假设（不做线程安全的根本原因），同时注明
+`@Volatile` 仅保障可见性、check-then-act 仍非原子，使用方不应从多线程访问。
 
 ---
 
@@ -253,7 +250,7 @@ override val value: ReactiveContract<I, S, E>
 | 命名 | 低 | ~~`collectPartial` vs `collectParticular` 不对称~~ ✅ 已修复：`collectParticular` → `collectTyped` |
 | Kotlin 写法 | 低 | ~~`collectTyped(clazz, block)` 重载冗余，KClass 场景几乎必需显式 state~~ ✅ 已修复：已删除 |
 | Kotlin 写法 | 低 | `Snapshot` 方法内多余的 `this.`，`doOnClick` 中多余的 `this.block()` |
-| Kotlin 写法 | 低 | `ReactiveContractLazy.cached` 缺少 `@Volatile` |
+| Kotlin 写法 | 低 | ~~`ReactiveContractLazy.cached` 缺少 `@Volatile`~~ ✅ 已修复 |
 | 文档 | **高** | ~~`doOnClick` 等 KDoc 示例错误（与正确性问题同源）~~ ✅ 已修复 |
 | 文档 | 低 | ~~`Snapshot.of()` 多余，可删除~~ ✅ 已修复 |
 | 文档 | 低 | 文件中 Date 注脚静态过时 |
