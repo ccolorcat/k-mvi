@@ -49,7 +49,7 @@ import kotlinx.coroutines.flow.onEach
  *
  * **Type-Safe Event Handling:**
  * - Use [collectEvent] to handle events with lifecycle awareness
- * - Use `collectParticular` to handle specific event types with type safety
+ * - Use `collectTyped` to handle specific event types with type safety
  * - Events are consumed only once and automatically managed
  *
  * **Benefits of This Approach:**
@@ -165,13 +165,13 @@ class CounterFragment : Fragment() {
 
         // **Pattern 2: Type-Safe Event Handling**
         // collectEvent: Lifecycle-aware event collection (events consumed only once)
-        // collectParticular: Handle specific event types with type safety (compile-time checking)
+        // collectTyped: Handle specific event types with type safety (compile-time checking)
         // Benefits:
         // - Type-safe: Only Event.ShowToast events are handled here
         // - Exhaustive: Compiler helps ensure all event types are handled somewhere
         // - Lifecycle-aware: Automatically stops collecting when Fragment is destroyed
         viewModel.eventFlow.collectEvent(this) {
-            collectParticular<Event.ShowToast> { event ->
+            collectTyped<Event.ShowToast> { event ->
                 context?.showToast(event.message)
             }
         }

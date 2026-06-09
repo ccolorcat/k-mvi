@@ -158,11 +158,11 @@ class MainActivity : AppCompatActivity() {
 
         // Collect one-time events
         viewModel.eventFlow.collectEvent(this) {
-            collectParticular<IMain.Event.ShowToast> { event ->
+            collectTyped<IMain.Event.ShowToast> { event ->
                 Toast.makeText(this@MainActivity, event.message, Toast.LENGTH_SHORT).show()
             }
 
-            collectParticular<IMain.Event.NavigateToDetail> { event ->
+            collectTyped<IMain.Event.NavigateToDetail> { event ->
                 // Navigate to detail screen
             }
         }
@@ -684,7 +684,7 @@ viewModel.stateFlow.collectState(this) {
 
 ```kotlin
 viewModel.eventFlow.collectEvent(this) {
-    collectWhole { event ->
+    collectAll { event ->
         when (event) {
             is MyEvent.ShowToast -> showToast(event.message)
             is MyEvent.Navigate -> navigate(event.destination)
@@ -697,11 +697,11 @@ viewModel.eventFlow.collectEvent(this) {
 
 ```kotlin
 viewModel.eventFlow.collectEvent(this) {
-    collectParticular<MyEvent.ShowToast> { event ->
+    collectTyped<MyEvent.ShowToast> { event ->
         Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
     }
 
-    collectParticular<MyEvent.Navigate> { event ->
+    collectTyped<MyEvent.Navigate> { event ->
         findNavController().navigate(event.destination)
     }
 }

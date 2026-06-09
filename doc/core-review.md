@@ -105,7 +105,7 @@ StrategyReactiveContract    -- 在 Core 基础上增加策略 + 动态注册
 |------|---------|------|------|
 | `KMvi` | 全局配置单例 | `K` 前缀作为"Kotlin"的缩写，在此语境中不直观；`KMvi` 读起来像某个第三方工具的品牌名 | `MviConfig` 或 `Mvi.Config` 更清晰 |
 | `HybridConfig` | HYBRID 策略配置 | 名称没有传达出"仅影响 fallback Intent"的含义，让人误以为是所有策略的配置 | `FallbackGroupConfig`、`HybridGroupConfig` 或 `FallbackConfig` |
-| `collectPartial` vs `collectParticular` | StateCollector / EventCollector | 命名不对称：`collectPartial` = 收集状态的部分字段；`collectParticular` = 收集特定类型的事件，两者含义不同，但不一致性增加记忆成本 | 可统一为 `collectField` + `collectType`，或接受不一致性并在文档中说明 |
+| ~~`collectParticular`~~ | EventCollector | ~~名称不惯用，未传达类型过滤语义~~ | ✅ 已修复：`collectParticular` → `collectTyped`；`collectPartial` / `collectWhole` 保持不变（whole/partial 构成有效反义对） |
 | `contract()` 扩展函数 | `ViewModel.contract(...)` | 函数名 `contract` 与接口名 `Contract` 同词不同形，在同一代码上下文中出现 `val contract: Contract by contract(...)` 时语义有些重叠 | 可考虑 `mviContract()`（加前缀区分） |
 | `IntentHandlerDelegate` | 内部类 | `Delegate` 后缀是实现细节，不够描述性 | 已是 `internal`，可接受；若重命名可考虑 `IntentHandlerDispatcher` |
 | `ReadOnlyContract` | 私有包装类 | 清晰 | 无需修改 |
@@ -148,25 +148,25 @@ fun updateState(transform: S.() -> S): Snapshot<S, E> {
 
 ### 4.4 内联函数的 `crossinline` / `noinline` 使用正确
 
-`launchWithLifecycle`、`collectParticularEvent` 中的 `crossinline block` 使用正确（block 被传入非内联 lambda 中）。`register` 扩展函数中的 `noinline handler` 使用正确（handler 需要存储）。
+`launchWithLifecycle`、`collectTypedEvent` 中的 `crossinline block` 使用正确（block 被传入非内联 lambda 中）。`register` 扩展函数中的 `noinline handler` 使用正确（handler 需要存储）。
 
 ### 4.5 `@PublishedApi` 使用正确
 
-`EventCollector.state` 被标记为 `@PublishedApi internal`，供 `inline fun collectParticular` 访问，符合 Kotlin 规范。
+`EventCollector.state` 被标记为 `@PublishedApi internal`，供 `inline fun collectTyped` 访问，符合 Kotlin 规范。
 
-### 4.6 `EventCollector.collectParticular` 的过载设计
+### 4.6 `EventCollector.collectTyped` 的过载设计
 
 ```kotlin
-inline fun <reified A : E> collectParticular(block: suspend (A) -> Unit): Job
-inline fun <reified A : E> collectParticular(state: Lifecycle.State, block: suspend (A) -> Unit): Job
-fun <A : E> collectParticular(clazz: KClass<A>, block: suspend (A) -> Unit): Job
-fun <A : E> collectParticular(clazz: KClass<A>, state: Lifecycle.State, block: suspend (A) -> Unit): Job
+inline fun <reified A : E> collectTyped(block: suspend (A) -> Unit): Job
+inline fun <reified A : E> collectTyped(state: Lifecycle.State, block: suspend (A) -> Unit): Job
+fun <A : E> collectTyped(clazz: KClass<A>, block: suspend (A) -> Unit): Job
+fun <A : E> collectTyped(clazz: KClass<A>, state: Lifecycle.State, block: suspend (A) -> Unit): Job
 ```
 
 四个重载全部提供是合理的（涵盖 reified 版本和 KClass 版本），但参数顺序略有问题：inline 版本是 `(block)` / `(state, block)`，KClass 版本是 `(clazz, block)` / `(clazz, state, block)`。`state` 参数在中间位置（非最后），对于 Kotlin 的尾随 lambda 语法来说，带 state 的重载略显尴尬：
 
 ```kotlin
-collectParticular<ShowToast>(Lifecycle.State.RESUMED) { event -> ... }
+collectTyped<ShowToast>(Lifecycle.State.RESUMED) { event -> ... }
 // 还好，因为 block 是最后一个参数
 ```
 
@@ -252,7 +252,7 @@ override val value: ReactiveContract<I, S, E>
 | 正确性 | 低 | ~~`PartialChange.apply()` 异常无法被 retryWhen 捕获（已文档化，但无编译保障）~~ ✅ 已修复 |
 | 命名 | 低 | `KMvi` 名称不直观 |
 | 命名 | 低 | `HybridConfig` 未体现"仅针对 fallback"的语义 |
-| 命名 | 低 | `collectPartial` vs `collectParticular` 不对称 |
+| 命名 | 低 | ~~`collectPartial` vs `collectParticular` 不对称~~ ✅ 已修复：`collectParticular` → `collectTyped` |
 | Kotlin 写法 | 低 | `Snapshot` 方法内多余的 `this.`，`doOnClick` 中多余的 `this.block()` |
 | Kotlin 写法 | 低 | `ReactiveContractLazy.cached` 缺少 `@Volatile` |
 | 文档 | **高** | ~~`doOnClick` 等 KDoc 示例错误（与正确性问题同源）~~ ✅ 已修复 |

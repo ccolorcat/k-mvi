@@ -107,7 +107,7 @@ viewModel.stateFlow.collectState(this) {
     collectWhole { state -> /* triggered on any state change */ }
 }
 viewModel.eventFlow.collectEvent(this) {
-    collectParticular<Event.ShowToast> { /* type-safe event handling */ }
+    collectTyped<Event.ShowToast> { /* type-safe event handling */ }
 }
 ```
 

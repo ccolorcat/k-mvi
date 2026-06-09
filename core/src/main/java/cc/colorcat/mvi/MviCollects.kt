@@ -266,11 +266,11 @@ fun <S : Mvi.State, A> Flow<S>.collectPartialState(
  *
  *     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
  *         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
- *             collectParticular<ShowToast> { event ->
+*             collectTyped<ShowToast> { event ->
  *                 Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
  *             }
  *
- *             collectParticular<Navigate> { event ->
+*             collectTyped<Navigate> { event ->
  *                 findNavController().navigate(event.destination)
  *             }
  *
@@ -289,7 +289,7 @@ fun <S : Mvi.State, A> Flow<S>.collectPartialState(
  * @param collector A lambda with receiver to configure event collectors
  * @return A Job that manages all collectors. Cancelling this job will cancel all collectors at once.
  * @see EventCollector
- * @see EventCollector.collectParticular
+ * @see EventCollector.collectTyped
  * @see EventCollector.collectAll
  */
 fun <E : Mvi.Event> Flow<E>.collectEvent(
@@ -307,7 +307,7 @@ fun <E : Mvi.Event> Flow<E>.collectEvent(
  * ## Key Features
  *
  * - **Lifecycle aware**: Automatically starts/stops based on lifecycle
- * - **Type-safe filtering**: Collect specific event types with [collectParticular]
+ * - **Type-safe filtering**: Collect specific event types with [collectTyped]
  * - **Collect all**: Collect all event types with [collectAll]
  * - **Supervised**: One collector's failure doesn't affect others
  *
@@ -315,11 +315,11 @@ fun <E : Mvi.Event> Flow<E>.collectEvent(
  *
  * ```kotlin
  * eventFlow.collectEvent(viewLifecycleOwner) {
- *     collectParticular<ShowError> { error ->
+ *     collectTyped<ShowError> { error ->
  *         showErrorDialog(error.message)
  *     }
  *
- *     collectParticular<ShowToast>(Lifecycle.State.RESUMED) { toast ->
+ *     collectTyped<ShowToast>(Lifecycle.State.RESUMED) { toast ->
  *         // Only show toasts when RESUMED
  *         showToast(toast.message)
  *     }
@@ -328,7 +328,7 @@ fun <E : Mvi.Event> Flow<E>.collectEvent(
  *
  * @param E The event type
  * @see collectEvent
- * @see EventCollector.collectParticular
+ * @see EventCollector.collectTyped
  * @see EventCollector.collectAll
  */
 class EventCollector<E : Mvi.Event> internal constructor(
@@ -342,7 +342,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
      *
      * This job is a child of [owner]'s lifecycleScope, ensuring automatic cleanup
      * when the lifecycle is destroyed. Cancelling this job will cancel all collectors
-     * created by [collectParticular] and [collectAll].
+     * created by [collectTyped] and [collectAll].
      * This job is returned by [collectEvent] and can be used to cancel all collectors at once.
      */
     internal val job: Job = SupervisorJob(owner.lifecycleScope.coroutineContext[Job])
@@ -356,7 +356,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
      *
      * ```kotlin
      * eventFlow.collectEvent(viewLifecycleOwner) {
-     *     collectParticular<ShowToast> { event ->
+ *     collectTyped<ShowToast> { event ->
      *         showToast(event.message)
      *     }
      * }
@@ -366,9 +366,9 @@ class EventCollector<E : Mvi.Event> internal constructor(
      * @param block The suspend function to call with each event of type A
      * @return A Job for this specific collector
      */
-    inline fun <reified A : E> collectParticular(
+    inline fun <reified A : E> collectTyped(
         noinline block: suspend (A) -> Unit,
-    ): Job = collectParticular(state, block)
+    ): Job = collectTyped(state, block)
 
     /**
      * Collects events of a specific type with a specific lifecycle state.
@@ -378,10 +378,10 @@ class EventCollector<E : Mvi.Event> internal constructor(
      * @param block The suspend function to call with each event of type A
      * @return A Job for this specific collector
      */
-    inline fun <reified A : E> collectParticular(
+    inline fun <reified A : E> collectTyped(
         state: Lifecycle.State,
         noinline block: suspend (A) -> Unit,
-    ): Job = collectParticular(A::class, state, block)
+    ): Job = collectTyped(A::class, state, block)
 
     /**
      * Collects events of a specific type using KClass.
@@ -393,10 +393,10 @@ class EventCollector<E : Mvi.Event> internal constructor(
      * @param block The suspend function to call with each event of type A
      * @return A Job for this specific collector
      */
-    fun <A : E> collectParticular(
+    fun <A : E> collectTyped(
         clazz: KClass<A>,
         block: suspend (A) -> Unit,
-    ): Job = collectParticular(clazz, state, block)
+    ): Job = collectTyped(clazz, state, block)
 
     /**
      * Collects events of a specific type using KClass with a specific lifecycle state.
@@ -407,7 +407,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
      * @param block The suspend function to call with each event of type A
      * @return A Job for this specific collector
      */
-    fun <A : E> collectParticular(
+    fun <A : E> collectTyped(
         clazz: KClass<A>,
         state: Lifecycle.State,
         block: suspend (A) -> Unit,
@@ -449,7 +449,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
  * ## Usage Example
  *
  * ```kotlin
- * eventFlow.collectParticularEvent<ShowToast>(
+ * eventFlow.collectTypedEvent<ShowToast>(
  *     owner = viewLifecycleOwner
  * ) { event ->
  *     showToast(event.message)
@@ -463,7 +463,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
  * @param block The suspend function to call with each event of type E
  * @return A Job that can be cancelled
  */
-inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectParticularEvent(
+inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTypedEvent(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     context: CoroutineContext = EmptyCoroutineContext,

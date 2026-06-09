@@ -216,7 +216,7 @@ class DashboardFragment : Fragment() {
         }
 
         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
-            collectParticular<DashboardContract.Event.ShowToast> { event ->
+            collectTyped<DashboardContract.Event.ShowToast> { event ->
                 context?.showToast(event.message)
             }
         }

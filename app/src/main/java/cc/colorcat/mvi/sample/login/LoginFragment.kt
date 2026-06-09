@@ -81,7 +81,7 @@ class LoginFragment : Fragment() {
         }
 
         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
-            collectParticular<LoginContract.ShowToast> { event ->
+            collectTyped<LoginContract.ShowToast> { event ->
                 requireContext().showToast(event.message)
             }
         }
