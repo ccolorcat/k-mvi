@@ -107,7 +107,7 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  * ```kotlin
  * // Prevent accidental double-clicks on buttons
  * // User's first click is processed immediately, subsequent rapid clicks are ignored
- * button.doOnClick { send(SubmitIntent) }
+ * button.doOnClick { trySend(SubmitIntent) }
  *     .debounceLeading(500L)  // 500ms sliding window
  *     .launchCollect(viewLifecycleOwner) { viewModel.dispatch(it) }
  *
@@ -157,14 +157,15 @@ fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = flow {
  * ## Usage Example
  *
  * ```kotlin
- * button.doOnClick { send(LoginIntent.ClickLoginButton) }
+ * button.doOnClick { trySend(LoginIntent.ClickLoginButton) }
  *     .launchCollect(viewLifecycleOwner) { intent ->
  *         viewModel.dispatch(intent)
  *     }
  * ```
  *
  * @param I The Intent type that extends [Mvi.Intent]
- * @param block A lambda that produces an Intent when the View is clicked
+ * @param block A non-suspend lambda with [ProducerScope] receiver. Use [ProducerScope.trySend] (not
+ *   `send`) to emit intents — `send` is a suspend function and cannot be called from this context.
  * @return A Flow that emits Intents on each click
  */
 fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I> = callbackFlow {
@@ -184,7 +185,7 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  *
  * ```kotlin
  * button.doOnLongClick {
- *     send(EditIntent.ShowContextMenu)
+ *     trySend(EditIntent.ShowContextMenu)
  *     true  // Consume the event
  * }.launchCollect(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
@@ -192,7 +193,8 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  * ```
  *
  * @param I The Intent type that extends [Mvi.Intent]
- * @param block A lambda that produces an Intent and returns whether the event is consumed
+ * @param block A non-suspend lambda with [ProducerScope] receiver that returns `true` to consume the
+ *   event. Use [ProducerScope.trySend] (not `send`) to emit intents.
  * @return A Flow that emits Intents on each long click
  */
 fun <I : Mvi.Intent> View.doOnLongClick(
@@ -214,14 +216,15 @@ fun <I : Mvi.Intent> View.doOnLongClick(
  *
  * ```kotlin
  * switchButton.doOnCheckedChange { isChecked ->
- *     send(SettingsIntent.ToggleNotification(isChecked))
+ *     trySend(SettingsIntent.ToggleNotification(isChecked))
  * }.launchCollect(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
  * ```
  *
  * @param I The Intent type that extends [Mvi.Intent]
- * @param block A lambda that receives the checked state and produces an Intent
+ * @param block A non-suspend lambda with [ProducerScope] receiver. Use [ProducerScope.trySend] (not
+ *   `send`) to emit intents — `send` is a suspend function and cannot be called from this context.
  * @return A Flow that emits Intents on each checked state change
  */
 fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
@@ -245,7 +248,7 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  *
  * ```kotlin
  * searchEditText.doOnAfterTextChanged(debounceMillis = 500L) { editable ->
- *     send(SearchIntent.QueryChanged(editable?.toString().orEmpty()))
+ *     trySend(SearchIntent.QueryChanged(editable?.toString().orEmpty()))
  * }.launchCollect(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
@@ -253,7 +256,8 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  *
  * @param I The Intent type that extends [Mvi.Intent]
  * @param debounceMillis Debounce time in milliseconds. Set to 0 to disable debouncing. Default is 500ms.
- * @param block A lambda that receives the Editable and produces an Intent
+ * @param block A non-suspend lambda with [ProducerScope] receiver. Use [ProducerScope.trySend] (not
+ *   `send`) to emit intents — `send` is a suspend function and cannot be called from this context.
  * @return A Flow that emits Intents after text changes (with optional debouncing)
  */
 fun <I : Mvi.Intent> TextView.doOnAfterTextChanged(

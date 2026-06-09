@@ -58,40 +58,12 @@ StrategyReactiveContract    -- 在 Core 基础上增加策略 + 动态注册
 
 ## 2. 代码正确性 / Bug
 
-### 2.1 【高】`doOnClick` 等函数的 KDoc 示例无法编译
+### ~~2.1 【高】`doOnClick` 等函数的 KDoc 示例无法编译~~ ✅ 已修复
 
 **位置**：`MviExtensions.kt` — `doOnClick`、`doOnLongClick`、`doOnCheckedChange`、`doOnAfterTextChanged`
 
-**问题**：以下四个函数的 `block` 参数均为**非 suspend** lambda：
-
-```kotlin
-fun <I : Mvi.Intent> View.doOnClick(
-    block: ProducerScope<I>.() -> Unit  // 非 suspend！
-): Flow<I> = callbackFlow {
-    setOnClickListener { this.block() }  // 从非 suspend 上下文调用
-    awaitClose { setOnClickListener(null) }
-}
-```
-
-KDoc 示例写的是：
-
-```kotlin
-button.doOnClick { send(LoginIntent.ClickLoginButton) }
-```
-
-但 `ProducerScope.send()` 是 **suspend** 函数，在非 suspend 的 lambda 内调用会产生**编译错误**。
-
-**实际可用的写法**是 `trySend()`（非 suspend），样例应用 `LoginFragment.kt` 中也确实使用了 `trySend()`：
-
-```kotlin
-binding.loginButton.doOnClick {
-    trySend(Intent.Login(username, password))  // 正确
-}
-```
-
-**影响**：KDoc 示例给用户传达了错误信息，若按示例编写代码，编译失败且报错信息不够直观。
-
-**建议**：将所有 `doOn*` 函数的 KDoc 示例中的 `send()` 改为 `trySend()`，并在注释中说明 block 是非 suspend 上下文，只能调用 `trySend()`。
+已将所有四个函数 KDoc 示例中的 `send()` 改为 `trySend()`，并在每个函数的 `@param block` 中明确说明：block 是非 suspend lambda，只能调用 `trySend()`，`send()` 是 suspend 函数无法在此上下文调用。
+同步修复了 `debounceLeading` 示例代码中嵌套引用的 `doOnClick` 示例（同一文件第 110 行）。
 
 ---
 
@@ -261,17 +233,9 @@ override val value: ReactiveContract<I, S, E>
 - `KMvi.defaultRetryPolicy` 中对"广泛捕获 Exception 的风险"有明确的生产环境警告。
 - `ReactiveContract.dispatch()` 对队列满、scope 失活等边界情况的描述完整。
 
-### 5.2 文档错误
+### ~~5.2 文档错误~~ ✅ 已修复
 
-**`doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 的示例错误**（同 §2.1）
-
-```kotlin
-// KDoc 中的示例（错误）：
-button.doOnClick { send(LoginIntent.ClickLoginButton) }
-
-// 应为：
-button.doOnClick { trySend(LoginIntent.ClickLoginButton) }
-```
+`doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 的示例已全部改为 `trySend()`，`@param block` 补充了非 suspend 上下文说明。`debounceLeading` 内嵌示例同步修复。
 
 ### 5.3 ~~文档冗余~~ ✅ 已修复
 
@@ -320,7 +284,7 @@ button.doOnClick { trySend(LoginIntent.ClickLoginButton) }
 
 | 类别 | 严重程度 | 问题 |
 |------|---------|------|
-| 正确性 | **高** | `doOnClick` 等 KDoc 示例使用 `send()` 无法编译，应为 `trySend()` |
+| 正确性 | **高** | ~~`doOnClick` 等 KDoc 示例使用 `send()` 无法编译，应为 `trySend()`~~ ✅ 已修复 |
 | 正确性 | **中** | `debounceLeading` 依赖 `SystemClock`，JVM 不可测，无测试覆盖 |
 | 正确性 | 低 | `assignGroupTag` else 分支逻辑结构略混乱（逻辑正确，阅读困难） |
 | 正确性 | 低 | `PartialChange.apply()` 异常无法被 retryWhen 捕获（已文档化，但无编译保障） |
@@ -329,7 +293,7 @@ button.doOnClick { trySend(LoginIntent.ClickLoginButton) }
 | 命名 | 低 | `collectPartial` vs `collectParticular` 不对称 |
 | Kotlin 写法 | 低 | `Snapshot` 方法内多余的 `this.`，`doOnClick` 中多余的 `this.block()` |
 | Kotlin 写法 | 低 | `ReactiveContractLazy.cached` 缺少 `@Volatile` |
-| 文档 | **高** | `doOnClick` 等 KDoc 示例错误（与正确性问题同源） |
+| 文档 | **高** | ~~`doOnClick` 等 KDoc 示例错误（与正确性问题同源）~~ ✅ 已修复 |
 | 文档 | 低 | ~~`Snapshot.of()` 多余，可删除~~ ✅ 已修复 |
 | 文档 | 低 | 文件中 Date 注脚静态过时 |
 | 文档 | 低 | `launchWithLifecycle` 文档"主线程"说法不完全准确 |
