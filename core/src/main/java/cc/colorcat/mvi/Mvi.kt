@@ -54,7 +54,7 @@ package cc.colorcat.mvi
  * Date: 2025-11-08
  * GitHub: https://github.com/ccolorcat
  */
-sealed interface Mvi {
+object Mvi {
     /**
      * Represents a user action or system event that triggers state changes.
      *

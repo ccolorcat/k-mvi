@@ -46,14 +46,9 @@ StrategyReactiveContract    -- 在 Core 基础上增加策略 + 动态注册
 
 ### 1.3 设计疑问
 
-**`sealed interface Mvi` 的用法**
+**~~`sealed interface Mvi` 的用法~~** ✅ 已修复
 
-`Mvi` 作为命名空间用 `sealed interface` 而非普通 `interface` 或 `object`。`sealed` 在此处的实际作用是阻止外部直接实现 `Mvi`，但没有人会这么做，该限制没有实际意义。
-
-- 用 `object Mvi` 也能作命名空间，且更语义直观（`Mvi` 不是一个类型，是个容器）。
-- 内部的 `Intent`、`State`、`Event`、`PartialChange`、`Snapshot` 均为普通接口/类，不受 `sealed` 影响，用户可自由实现。
-
-这不影响功能，但对阅读者来说是个认知负担——需要额外理解"为什么用 sealed"。
+已将 `sealed interface Mvi` 改为 `object Mvi`。`Mvi` 作为命名空间容器语义更直观，内部嵌套类型（`Intent`、`State`、`Event`、`PartialChange`、`Snapshot`）通过 `Mvi.Xxx` 访问方式不变，对用户完全透明。
 
 **`Snapshot.of()` 工厂方法**
 
@@ -218,9 +213,9 @@ fun updateState(transform: S.() -> S): Snapshot<S, E> {
 
 `Logger`、`IntentHandler`、`IntentTransformer`、`PartialChange` 均正确使用 `fun interface`，支持 lambda 传入，符合 Kotlin 惯用法。
 
-### 4.3 `sealed interface` 使用正确
+### 4.3 ~~`sealed interface` 使用正确~~
 
-`Mvi`、`HandleStrategy`（`enum class`）设计合理，`Mvi.Intent`、`Mvi.State`、`Mvi.Event` 作为开放接口允许用户实现。
+`Mvi` 已改为 `object`（见 §1.3 修复）。`HandleStrategy`（`enum class`）设计合理，`Mvi.Intent`、`Mvi.State`、`Mvi.Event` 作为开放接口允许用户实现。
 
 ### 4.4 内联函数的 `crossinline` / `noinline` 使用正确
 
@@ -354,6 +349,6 @@ fun <S : State, E : Event> of(state: S, event: E? = null): Snapshot<S, E> =
 | 文档 | 低 | `Snapshot.of()` 多余，可删除 |
 | 文档 | 低 | 文件中 Date 注脚静态过时 |
 | 文档 | 低 | `launchWithLifecycle` 文档"主线程"说法不完全准确 |
-| 架构 | 低 | `sealed interface Mvi` 的 sealed 限制没有实际意义 |
+| 架构 | 低 | ~~`sealed interface Mvi` 的 sealed 限制没有实际意义~~ ✅ 已修复：改为 `object Mvi` |
 | 架构 | 低 | `Snapshot.of()` API 表面多余 |
 | 测试 | 中 | `debounceLeading`、UI 事件转换函数、`StateCollector`/`EventCollector` 缺少测试 |
