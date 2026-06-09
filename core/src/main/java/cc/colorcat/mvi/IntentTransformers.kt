@@ -311,17 +311,16 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *   - Tag: [TAG_SEQUENTIAL]
      *   - Processing: Sequential in a single global queue
      *
-     * - **Fallback Intent** (neither Concurrent nor Sequential):
+     * - **Fallback Intent** (implements neither [Mvi.Intent.Concurrent] nor [Mvi.Intent.Sequential]):
      *   - Tag: [TAG_PREFIX_FALLBACK] + result of [HybridConfig.groupTagSelector]
      *   - Processing: Sequential within the same tag group, parallel with other groups
+     *   - This is a valid, intentional pattern — use it for fine-grained grouping control
+     *     when neither fixed concurrency mode fits.
      *
-     * ## Example Tags
-     * ```
-     * ClickButton (Concurrent)         → "CONCURRENT"
-     * LoadUser (Sequential)            → "SEQUENTIAL"
-     * LoadData("posts") (Fallback)     → "FALLBACK_posts"
-     * LoadData("users") (Fallback)     → "FALLBACK_users"
-     * ```
+     * - **Conflict** (implements both [Mvi.Intent.Concurrent] and [Mvi.Intent.Sequential]):
+     *   - The two markers are mutually exclusive; implementing both is incorrect.
+     *   - A warning is logged identifying the intent class.
+     *   - The intent falls through to fallback grouping (same as the case above).
      *
      * @param intent The intent to classify
      * @return The group tag for this intent

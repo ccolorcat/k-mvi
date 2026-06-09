@@ -97,6 +97,10 @@ object Mvi {
          * - Don't have ordering requirements
          *
          * Example: Multiple data refresh requests, analytics events, etc.
+         *
+         * **Do not implement both [Concurrent] and [Sequential] on the same intent.**
+         * The two markers are mutually exclusive. Doing so is treated as a conflict:
+         * a warning is logged and the intent is routed to the fallback group instead.
          */
         interface Concurrent : Intent
 
@@ -112,6 +116,10 @@ object Mvi {
          * - Have dependencies on previous operations
          *
          * Example: Form submissions, data mutations, navigation requests, etc.
+         *
+         * **Do not implement both [Sequential] and [Concurrent] on the same intent.**
+         * The two markers are mutually exclusive. Doing so is treated as a conflict:
+         * a warning is logged and the intent is routed to the fallback group instead.
          */
         interface Sequential : Intent
     }

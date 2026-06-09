@@ -77,29 +77,16 @@ StrategyReactiveContract    -- 在 Core 基础上增加策略 + 动态注册
 
 ---
 
-### 2.3 【低】`assignGroupTag` 中的 `else` 分支逻辑结构略混乱
+### ~~2.3 【低】`assignGroupTag` 中的 `else` 分支逻辑结构略混乱~~ ✅ 已修复
 
 **位置**：`IntentTransformers.kt`，`StrategyIntentTransformer.assignGroupTag`
 
-```kotlin
-private fun assignGroupTag(intent: I): String {
-    return when {
-        intent.isConcurrent -> TAG_CONCURRENT
-        intent.isSequential -> TAG_SEQUENTIAL
-        else -> {
-            if (intent is Mvi.Intent.Concurrent && intent is Mvi.Intent.Sequential) {
-                logger.w(TAG) { "... implements both Concurrent and Sequential ..." }
-            }
-            TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)
-        }
-    }
-}
-```
+在 `assignGroupTag` KDoc 中明确拆分 `else` 分支的两种情形：
 
-`isConcurrent` 定义为 `Concurrent && !Sequential`，`isSequential` 定义为 `Sequential && !Concurrent`。当 Intent 同时实现两者时，两者均为 `false`，进入 `else` 分支并触发警告。逻辑**正确**。
+- **两者都未实现**（neither）：合法的 fallback 分组模式，用于更精细的分组控制，无需任何警告。
+- **两者都实现**（both）：标记接口互斥，属于错误用法，运行时记录警告，并回退到 fallback 分组处理。
 
-但从代码结构上看，进入 `else` 的原因有两种（实现两个接口、实现零个接口），而警告只对前者有意义，这让代码第一眼看起来有点绕。可以在注释中明确说明 `else` 的两种情形，或把 `when` 的分支调整得更明确。
-
+同步在 `Mvi.Intent.Concurrent` 和 `Mvi.Intent.Sequential` 接口的 KDoc 中补充了互斥约束说明，明确告知用户同时实现两者是冲突行为。
 ---
 
 ### 2.4 【低】`PartialChange.apply()` 抛异常会终止整个管道
@@ -272,7 +259,7 @@ override val value: ReactiveContract<I, S, E>
 |------|---------|------|
 | 正确性 | **高** | ~~`doOnClick` 等 KDoc 示例使用 `send()` 无法编译，应为 `trySend()`~~ ✅ 已修复 |
 | 正确性 | **中** | ~~`debounceLeading` 依赖 `SystemClock`，JVM 不可测，无测试覆盖~~ ✅ 已修复 |
-| 正确性 | 低 | `assignGroupTag` else 分支逻辑结构略混乱（逻辑正确，阅读困难） |
+| 正确性 | 低 | ~~`assignGroupTag` else 分支逻辑结构略混乱（逻辑正确，阅读困难）~~ ✅ 已修复 |
 | 正确性 | 低 | `PartialChange.apply()` 异常无法被 retryWhen 捕获（已文档化，但无编译保障） |
 | 命名 | 低 | `KMvi` 名称不直观 |
 | 命名 | 低 | `HybridConfig` 未体现"仅针对 fallback"的语义 |
