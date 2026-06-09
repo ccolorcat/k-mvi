@@ -1,6 +1,5 @@
 package cc.colorcat.mvi
 
-import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -129,18 +128,17 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  * - Use **debounceLeading** when you want immediate response to the first action (e.g., button clicks)
  * - Use **debounce** when you want to wait for user to finish (e.g., search input, form validation)
  *
- * @param timeMillis The minimum time gap in milliseconds between emitted events. Must be >= 0.
- *                   Use 0 to disable debouncing (all events pass through).
+ * @param timeMillis The minimum time gap in milliseconds between emitted events. Must be positive (> 0).
  * @return A flow that emits the first event immediately, then only emits subsequent events
  *         if at least [timeMillis] has passed since the **last event** (not last emission)
  * @see kotlinx.coroutines.flow.debounce
  */
 fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = flow {
-    require(timeMillis >= 0L) { "timeMillis must be greater than or equal to 0" }
-    var time = SystemClock.elapsedRealtime() - timeMillis
+    require(timeMillis > 0L) { "timeMillis must be positive" }
+    var time = -timeMillis
     collect { value ->
         val prev = time
-        time = SystemClock.elapsedRealtime()
+        time = System.currentTimeMillis()
         if (time - prev >= timeMillis) {
             emit(value)
         }

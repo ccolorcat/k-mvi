@@ -1,6 +1,8 @@
 package cc.colorcat.mvi
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -65,5 +67,64 @@ class MviExtensionsTest {
         val results = mutableListOf<Int>()
         99.asSingleFlow().collect { results.add(it) }
         assertEquals(listOf(99), results)
+    }
+}
+
+class DebounceLeadingTest {
+
+    @Rule @JvmField val testLog: TestRule = TestLogger()
+
+    // Threshold small enough to complete quickly; synchronous emissions always fall well below it.
+    private val windowMs = 50L
+
+    @Test
+    fun `debounceLeading emits first value immediately`() = runBlocking {
+        val results = flow { emit(1) }.debounceLeading(windowMs).toList()
+        assertEquals(listOf(1), results)
+    }
+
+    @Test
+    fun `debounceLeading suppresses rapid successive events`() = runBlocking {
+        // Synchronous emissions have sub-millisecond gaps — all below windowMs.
+        val results = flow {
+            emit(1)
+            emit(2)
+            emit(3)
+        }.debounceLeading(windowMs).toList()
+        assertEquals(listOf(1), results)
+    }
+
+    @Test
+    fun `debounceLeading emits after sufficient gap`() = runBlocking {
+        val results = mutableListOf<Int>()
+        flow {
+            emit(1)
+            delay(windowMs * 2)   // 2× window → guaranteed to pass
+            emit(2)
+        }.debounceLeading(windowMs).collect { results.add(it) }
+        assertEquals(listOf(1, 2), results)
+    }
+
+    @Test
+    fun `debounceLeading sliding window suppresses mid-burst event after gap`() = runBlocking {
+        // Even after a near-miss gap, another rapid event resets the window.
+        val results = mutableListOf<Int>()
+        flow {
+            emit(1)            // emitted
+            delay(windowMs * 2)
+            emit(2)            // emitted — gap was large
+            emit(3)            // suppressed — immediately follows 2
+        }.debounceLeading(windowMs).collect { results.add(it) }
+        assertEquals(listOf(1, 2), results)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `debounceLeading with zero millis throws`() = runBlocking<Unit> {
+        flow { emit(1) }.debounceLeading(0L).collect {}
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `debounceLeading with negative millis throws`() = runBlocking<Unit> {
+        flow { emit(1) }.debounceLeading(-1L).collect {}
     }
 }

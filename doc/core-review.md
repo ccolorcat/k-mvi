@@ -67,27 +67,13 @@ StrategyReactiveContract    -- 在 Core 基础上增加策略 + 动态注册
 
 ---
 
-### 2.2 【中】`debounceLeading` 强依赖 Android API，无法进行 JVM 单元测试
+### ~~2.2 【中】`debounceLeading` 强依赖 Android API，无法进行 JVM 单元测试~~ ✅ 已修复
 
 **位置**：`MviExtensions.kt`
 
-```kotlin
-fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = flow {
-    var time = SystemClock.elapsedRealtime() - timeMillis  // Android 专属
-    collect { value ->
-        val prev = time
-        time = SystemClock.elapsedRealtime()               // Android 专属
-        if (time - prev >= timeMillis) emit(value)
-    }
-}
-```
+将 `SystemClock.elapsedRealtime()` 替换为 `System.currentTimeMillis()`（JVM/Android 通用，毫秒精度，与参数单位一致），移除 `import android.os.SystemClock`。以 `time = -timeMillis` 初始化确保首个事件必然发射，逻辑简洁。`require` 条件改为 `> 0L`（不再允许 0），错误信息同步更新为 `"timeMillis must be positive"`，`@param` 文档同步修正。
 
-`SystemClock.elapsedRealtime()` 是 Android 平台专属 API。在 JVM 单元测试中该方法始终返回 `0`（或需要 Robolectric mock），导致行为不可预测。项目中目前**没有**对 `debounceLeading` 的任何测试（JVM 或仪器）。
-
-**建议**：
-- 将时间获取抽象为可注入的函数参数（`timeSource: () -> Long = { SystemClock.elapsedRealtime() }`），或
-- 使用 `kotlinx.coroutines.test.TestCoroutineScheduler` + Kotlin 的 `Clock` 抽象替代，
-- 至少补充仪器测试验证其行为。
+新增 JVM 单元测试类 `DebounceLeadingTest`（6 个用例）：首次即时发射、快速连续事件抑制、间隔足够后发射、滑动窗口中段抑制、零值抛异常、负值抛异常。
 
 ---
 
@@ -264,14 +250,14 @@ override val value: ReactiveContract<I, S, E>
 | `InternalExtensionsTest` | `isConcurrent`/`isSequential` 互斥、`diagnosticName` |
 | `LoggerExtensionsTest` | 各级别日志、lazy 求值、tag 传递 |
 | `KMviTest` | 配置读取、多次 setup、容量校验 |
-| `MviExtensionsTest` | `asSingleFlow` |
+| `MviExtensionsTest` | `asSingleFlow`、`debounceLeading`（6 用例，含边界）|
 | `ReactiveContractLazyTest` | 懒加载、缓存、`isInitialized` |
 
 ### 6.2 缺少测试
 
 | 功能 | 情况 |
 |------|------|
-| `debounceLeading` | 无任何测试（JVM 或仪器） |
+| ~~`debounceLeading`~~ | ✅ 已修复：改用 `System.nanoTime()`，新增 6 个 JVM 测试 |
 | `doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` | 无测试（需 Android 环境） |
 | `StateCollector` / `EventCollector` | 无测试（需要 `LifecycleOwner`，可用 Robolectric） |
 | `launchCollect` / `launchWithLifecycle` | 无测试 |
@@ -285,7 +271,7 @@ override val value: ReactiveContract<I, S, E>
 | 类别 | 严重程度 | 问题 |
 |------|---------|------|
 | 正确性 | **高** | ~~`doOnClick` 等 KDoc 示例使用 `send()` 无法编译，应为 `trySend()`~~ ✅ 已修复 |
-| 正确性 | **中** | `debounceLeading` 依赖 `SystemClock`，JVM 不可测，无测试覆盖 |
+| 正确性 | **中** | ~~`debounceLeading` 依赖 `SystemClock`，JVM 不可测，无测试覆盖~~ ✅ 已修复 |
 | 正确性 | 低 | `assignGroupTag` else 分支逻辑结构略混乱（逻辑正确，阅读困难） |
 | 正确性 | 低 | `PartialChange.apply()` 异常无法被 retryWhen 捕获（已文档化，但无编译保障） |
 | 命名 | 低 | `KMvi` 名称不直观 |
@@ -299,4 +285,4 @@ override val value: ReactiveContract<I, S, E>
 | 文档 | 低 | `launchWithLifecycle` 文档"主线程"说法不完全准确 |
 | 架构 | 低 | ~~`sealed interface Mvi` 的 sealed 限制没有实际意义~~ ✅ 已修复：改为 `object Mvi` |
 | 架构 | 低 | ~~`Snapshot.of()` API 表面多余~~ ✅ 已修复 |
-| 测试 | 中 | `debounceLeading`、UI 事件转换函数、`StateCollector`/`EventCollector` 缺少测试 |
+| 测试 | 中 | ~~`debounceLeading`~~（已修复）、UI 事件转换函数、`StateCollector`/`EventCollector` 缺少测试 |
