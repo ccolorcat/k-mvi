@@ -1,5 +1,11 @@
 # Repository Guidelines
 
+## Response Language
+
+- Reply language follows the primary language of the user's current message.
+- When the user mixes Chinese and English, default to Simplified Chinese.
+- Code, comments, commands, config keys, API names, and error messages are kept verbatim.
+
 ## Project Overview
 
 K-MVI is a lightweight, type-safe Android MVI (Model-View-Intent) library built on Kotlin Coroutines and Flow. The core artifact is `cc.colorcat.mvi:core` (current: `1.2.6-SNAPSHOT`), published to GitHub Packages. The repo has two modules: `core` (the library) and `app` (XML/ViewBinding sample app).
