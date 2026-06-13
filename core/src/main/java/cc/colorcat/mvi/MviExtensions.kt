@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import java.util.concurrent.TimeUnit
 
 /**
  * MVI Extension functions for converting Android View events to Flow<Intent>.
@@ -52,6 +53,7 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  * **Key behavior:** Each event (whether emitted or ignored) updates the internal timestamp.
  * This creates a sliding timeout window where rapid continuous events will only trigger once,
  * no matter how long they continue, as long as the gap between consecutive events is less than [timeMillis].
+ * The timeout is measured with [System.nanoTime], a monotonic clock that is unaffected by wall-clock changes.
  *
  * ## Behavior Comparison
  *
@@ -133,13 +135,16 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  *         if at least [timeMillis] has passed since the **last event** (not last emission)
  * @see kotlinx.coroutines.flow.debounce
  */
-fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = flow {
+fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = debounceLeading(timeMillis, System::nanoTime)
+
+internal fun <T> Flow<T>.debounceLeading(timeMillis: Long, nanoTimeSource: () -> Long): Flow<T> = flow {
     require(timeMillis > 0L) { "timeMillis must be positive" }
-    var time = -timeMillis
+    val windowNanos = TimeUnit.MILLISECONDS.toNanos(timeMillis)
+    var time = -windowNanos
     collect { value ->
         val prev = time
-        time = System.currentTimeMillis()
-        if (time - prev >= timeMillis) {
+        time = nanoTimeSource()
+        if (time - prev >= windowNanos) {
             emit(value)
         }
     }

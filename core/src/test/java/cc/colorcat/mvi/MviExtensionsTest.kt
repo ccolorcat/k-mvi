@@ -11,6 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestRule
+import java.util.concurrent.TimeUnit
 
 class MviExtensionsTest {
 
@@ -116,6 +117,23 @@ class DebounceLeadingTest {
             emit(3)            // suppressed — immediately follows 2
         }.debounceLeading(windowMs).collect { results.add(it) }
         assertEquals(listOf(1, 2), results)
+    }
+
+    @Test
+    fun `debounceLeading uses monotonic nanosecond clock`() = runBlocking {
+        val timestamps = listOf(
+            0L,
+            TimeUnit.MILLISECONDS.toNanos(10L),
+            TimeUnit.MILLISECONDS.toNanos(70L),
+        ).iterator()
+
+        val results = flow {
+            emit(1)
+            emit(2)
+            emit(3)
+        }.debounceLeading(windowMs) { timestamps.next() }.toList()
+
+        assertEquals(listOf(1, 3), results)
     }
 
     @Test(expected = IllegalArgumentException::class)
