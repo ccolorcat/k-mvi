@@ -767,7 +767,7 @@ class MyApplication : Application() {
 
                 // Retry policy for failed intent processing
                 retryPolicy = { attempt, cause ->
-                    attempt < 3 && cause !is CancellationException // attempt is 0-based
+                    attempt < 3 && cause is IOException // attempt is 0-based
                 },
 
                 // Hybrid strategy configuration
@@ -809,12 +809,13 @@ Default policy:
 
 ```kotlin
 { attempt, cause ->
-    attempt < 3 && cause is Exception // Retries on attempt 0..2 (up to 3 retries)
+    attempt < 3 && cause is IOException // Retries transient I/O failures on attempt 0..2
 }
 ```
 
-> ⚠️ **Production warning**: `Exception` is broad and includes non-transient errors like
-> `IllegalStateException`. Override this in production with a more targeted policy.
+> The default policy does not retry programming errors such as `IllegalStateException`,
+> `IllegalArgumentException`, or `NullPointerException`. Override it if your app has
+> additional domain-specific transient failures.
 
 #### HybridConfig
 

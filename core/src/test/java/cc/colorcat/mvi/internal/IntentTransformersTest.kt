@@ -10,11 +10,13 @@ import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.toPartialChange
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import java.util.Collections
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -377,5 +379,69 @@ class IntentTransformersTest {
 
         assertTrue("A started", orderTracker.contains("start-A"))
         assertTrue("B started", orderTracker.contains("start-B"))
+    }
+
+    @Test
+    fun `HYBRID runs concurrent sequential and fallback groups together`() = runBlocking {
+        val orderTracker = Collections.synchronizedList(mutableListOf<String>())
+        val handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
+            flow {
+                val name = when (intent) {
+                    ConcurrentIntent.ConcurrentA -> "concurrent-A"
+                    ConcurrentIntent.ConcurrentB -> "concurrent-B"
+                    SequentialIntent.SequentialA -> "sequential-A"
+                    SequentialIntent.SequentialB -> "sequential-B"
+                    TestIntent.IntentA -> "fallback-A"
+                    TestIntent.IntentB -> "fallback-B"
+                    else -> "?"
+                }
+                orderTracker.add("start-$name")
+                if (name.endsWith("-A")) {
+                    delay(50)
+                }
+                orderTracker.add("end-$name")
+                emit(Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } })
+            }
+        }
+
+        val transformer = IntentTransformer(
+            strategy = HandleStrategy.HYBRID,
+            config = HybridConfig<TestIntent>(
+                groupTagSelector = { "fallback" },
+            ),
+            handler = handler,
+        )
+
+        val results = flow {
+            emit(SequentialIntent.SequentialA)
+            emit(ConcurrentIntent.ConcurrentA)
+            emit(TestIntent.IntentA)
+            emit(SequentialIntent.SequentialB)
+            emit(ConcurrentIntent.ConcurrentB)
+            emit(TestIntent.IntentB)
+        }.toPartialChange(transformer).toList()
+
+        val order = orderTracker.toList()
+        assertEquals(6, results.size)
+        assertTrue(
+            "concurrent group should start before sequential-A completes: $order",
+            order.indexOf("start-concurrent-A") in 0 until order.indexOf("end-sequential-A"),
+        )
+        assertTrue(
+            "fallback group should start before sequential-A completes: $order",
+            order.indexOf("start-fallback-A") in 0 until order.indexOf("end-sequential-A"),
+        )
+        assertTrue(
+            "sequential group should preserve order: $order",
+            order.indexOf("end-sequential-A") < order.indexOf("start-sequential-B"),
+        )
+        assertTrue(
+            "fallback group should preserve order within its configured tag: $order",
+            order.indexOf("end-fallback-A") < order.indexOf("start-fallback-B"),
+        )
+        assertTrue(
+            "concurrent group should process members in parallel: $order",
+            order.indexOf("start-concurrent-B") in 0 until order.indexOf("end-concurrent-A"),
+        )
     }
 }

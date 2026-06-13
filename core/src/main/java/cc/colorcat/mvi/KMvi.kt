@@ -5,6 +5,7 @@ import cc.colorcat.mvi.internal.d
 import cc.colorcat.mvi.internal.e
 import cc.colorcat.mvi.internal.requireSupportedCapacity
 import cc.colorcat.mvi.internal.w
+import java.io.IOException
 
 /**
  * Global configuration and entry point for the K-MVI framework.
@@ -152,7 +153,9 @@ object KMvi {
      *         KMvi.setup {
      *             copy(
      *                 handleStrategy = HandleStrategy.CONCURRENT,
-     *                 retryPolicy = { attempt, _ -> attempt < 3 }, // 0-based attempt from retryWhen
+     *                 retryPolicy = { attempt, cause ->
+     *                     attempt < 3 && cause is IOException // 0-based attempt from retryWhen
+     *                 },
      *                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
      *             )
      *         }
@@ -177,24 +180,21 @@ object KMvi {
      * The default retry policy implementation.
      *
      * This policy:
-     * - Retries all [Exception]s (runtime errors that may be transient)
+     * - Retries [IOException]s, which commonly represent transient I/O or network failures
+     * - Does NOT retry programming errors such as [IllegalStateException] or [IllegalArgumentException]
      * - Does NOT retry [Error]s (serious problems that should not be retried)
      * - Limits retries to a maximum of 3 retries (`attempt` = 0..2)
      * - Logs each retry attempt with the exception details
      *
-     * ## ⚠️ Production Warning
+     * ## Production Guidance
      *
-     * `Exception` is a broad category that includes non-transient errors
-     * (e.g., [IllegalStateException], [IllegalArgumentException]). Retrying
-     * these unconditionally can mask bugs or cause unexpected side effects.
-     *
-     * **Recommendation**: Override this in production with a more targeted policy:
+     * Override this when your app has additional domain-specific transient failures:
      *
      * ```kotlin
      * KMvi.setup {
      *     copy(
      *         retryPolicy = { attempt, cause ->
-     *             attempt < 3 && (cause is IOException || cause is HttpException)
+     *             attempt < 3 && (cause is IOException || cause is MyTransientException)
      *         }
      *     )
      * }
@@ -202,10 +202,10 @@ object KMvi {
      *
      * @param attempt The retry attempt index from `retryWhen` (0 for first retry, 1 for second, etc.)
      * @param cause The throwable that caused the failure
-     * @return `true` if should retry (attempt < 3 and cause is Exception), `false` otherwise
+     * @return `true` if should retry (attempt < 3 and cause is [IOException]), `false` otherwise
      */
     private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
-        if (attempt < 3 && cause is Exception) {
+        if (attempt < 3 && cause is IOException) {
             logger.w(TAG, cause) { "retry count: $attempt" }
             return true
         }
@@ -245,7 +245,7 @@ object KMvi {
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
      * @property hybridConfig The hybrid grouping configuration. Default: class-name based grouping
      * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
-     *                       Default: retry on Exception when `attempt < 3` (up to 3 retries)
+     *                       Default: retry on [IOException] when `attempt < 3` (up to 3 retries)
      * @property logger The logger instance. Default: Logger with WARN level
      *
      * @see HandleStrategy

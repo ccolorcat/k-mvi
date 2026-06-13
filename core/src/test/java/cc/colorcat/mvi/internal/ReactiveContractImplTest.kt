@@ -12,14 +12,20 @@ import cc.colorcat.mvi.asSingleFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import org.junit.After
@@ -272,6 +278,60 @@ class ReactiveContractImplTest {
         }
     }
 
+    @Test
+    fun `eventFlow drops oldest events when snapshot buffer is congested`() = runBlocking {
+        val totalEvents = 500
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueCapacity = 64,
+            retryPolicy = { _, _ -> false },
+            transformer = IntentTransformer(
+                strategy = HandleStrategy.CONCURRENT,
+                config = HybridConfig(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    flow {
+                        repeat(totalEvents) { index ->
+                            emit(
+                                Mvi.PartialChange<TestState, TestEvent> {
+                                    it.updateWith(TestEvent.Message("$index")) {
+                                        copy(count = count + 1)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                },
+            ),
+        )
+        val received = mutableListOf<Int>()
+
+        val collector = launch {
+            contract.eventFlow.collect { event ->
+                received += (event as TestEvent.Message).text.toInt()
+                delay(2)
+            }
+        }
+
+        try {
+            delay(50)
+            contract.dispatch(TestIntent.Increment)
+            withTimeout(5_000) {
+                contract.stateFlow.first { it.count == totalEvents }
+            }
+            delay(totalEvents * 2L + 500L)
+
+            assertTrue("collector should receive at least one event", received.isNotEmpty())
+            assertTrue(
+                "slow event collector should miss some events when snapshot buffer drops oldest; " +
+                    "received ${received.size} of $totalEvents",
+                received.size < totalEvents,
+            )
+        } finally {
+            collector.cancel()
+        }
+    }
+
     // --- StrategyReactiveContract ---
 
     @Test
@@ -363,6 +423,75 @@ class ReactiveContractImplTest {
 
         testScope.cancel()
         contract.dispatch(TestIntent.Increment)
+        assertEquals(0, contract.stateFlow.value.count)
+    }
+
+    @Test
+    fun `dispatch logs warning when dispatch queue is full`() = runBlocking {
+        val messages = Collections.synchronizedList(mutableListOf<String>())
+        KMvi.setup {
+            copy(
+                intentQueueCapacity = 0,
+                logger = Logger { _, _, _, message -> messages += message() },
+            )
+        }
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueCapacity = 0,
+            retryPolicy = { _, _ -> false },
+            transformer = IntentTransformer(
+                strategy = HandleStrategy.SEQUENTIAL,
+                config = HybridConfig(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    flow { awaitCancellation() }
+                },
+            ),
+        )
+
+        repeat(200) {
+            contract.dispatch(TestIntent.Increment)
+        }
+
+        assertTrue(
+            "expected at least one dispatchQueue full warning, got $messages",
+            messages.any { it.startsWith("Intent queue full") },
+        )
+    }
+
+    @Test
+    fun `scope cancel while dispatch queue has buffered intents does not process pending intents`() = runBlocking {
+        val started = Collections.synchronizedList(mutableListOf<TestIntent>())
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueCapacity = kotlinx.coroutines.channels.Channel.UNLIMITED,
+            retryPolicy = { _, _ -> false },
+            transformer = IntentTransformer(
+                strategy = HandleStrategy.SEQUENTIAL,
+                config = HybridConfig(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
+                    flow {
+                        started += intent
+                        awaitCancellation()
+                    }
+                },
+            ),
+        )
+
+        repeat(200) {
+            contract.dispatch(TestIntent.SetData("$it"))
+        }
+        withTimeout(5_000) {
+            while (started.isEmpty()) {
+                delay(1)
+            }
+        }
+
+        testScope.cancel()
+        contract.dispatch(TestIntent.Increment)
+
+        assertEquals("only the blocking first intent should start before cancellation", 1, started.size)
         assertEquals(0, contract.stateFlow.value.count)
     }
 }

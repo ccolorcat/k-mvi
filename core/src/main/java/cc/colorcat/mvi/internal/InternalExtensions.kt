@@ -70,7 +70,8 @@ internal val Mvi.Intent.diagnosticName: String
  * intents with the same tag are sent to the existing channel.
  *
  * **Execution Model**: The `collect` lambda runs sequentially in a single coroutine,
- * so a plain [HashMap] is used for channel management — no concurrent access occurs.
+ * so no concurrent access occurs. Channel management preserves insertion order so
+ * cleanup closes groups deterministically.
  *
  * ## ⚠️ Bottleneck: All Groups Share One Sender Coroutine
  *
@@ -128,7 +129,7 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     tagSelector: (I) -> String,
     handler: Flow<I>.(tag: String) -> Flow<R>,
 ): Flow<Flow<R>> = flow {
-    val activeChannels = hashMapOf<String, Channel<I>>()
+    val activeChannels = linkedMapOf<String, Channel<I>>()
     var cause: Throwable? = null
 
     // Local function: creates a fresh Channel for [tag], registers it in [activeChannels]

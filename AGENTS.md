@@ -191,7 +191,7 @@ KMvi.setup {
 
 ### Error handling / retry
 
-`RetryPolicy` is `typealias (Throwable, Int) -> Flow<*>` — defaults to no retry. Set via `KMvi.Configuration.retryPolicy` or per-contract.
+`RetryPolicy` is `typealias (attempt: Long, cause: Throwable) -> Boolean` — defaults to retrying `IOException` on attempts `0..2`. Set via `KMvi.Configuration.retryPolicy` or per-contract.
 
 ### No DI framework
 

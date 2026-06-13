@@ -266,11 +266,11 @@ fun <S : Mvi.State, A> Flow<S>.collectPartialState(
  *
  *     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
  *         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
-*             collectTyped<ShowToast> { event ->
+ *             collectTyped<ShowToast> { event ->
  *                 Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
  *             }
  *
-*             collectTyped<Navigate> { event ->
+ *             collectTyped<Navigate> { event ->
  *                 findNavController().navigate(event.destination)
  *             }
  *
@@ -356,7 +356,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
      *
      * ```kotlin
      * eventFlow.collectEvent(viewLifecycleOwner) {
- *     collectTyped<ShowToast> { event ->
+     *     collectTyped<ShowToast> { event ->
      *         showToast(event.message)
      *     }
      * }
@@ -402,8 +402,9 @@ class EventCollector<E : Mvi.Event> internal constructor(
         state: Lifecycle.State,
         block: suspend (A) -> Unit,
     ): Job {
-        @Suppress("UNCHECKED_CAST")
-        return (flow.filter { clazz.isInstance(it) } as Flow<A>)
+        return flow
+            .filter { clazz.isInstance(it) }
+            .map { requireNotNull(clazz.java.cast(it)) }
             .launchWithLifecycle(owner, state, job, block)
     }
 
