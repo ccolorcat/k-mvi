@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * ```kotlin
  * class MyFragment : Fragment() {
- *     private val contract: Contract<MyIntent, MyState, MyEvent> by viewModels()
+ *     private val contract: Contract<MyState, MyEvent> by viewModels()
  *
  *     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
  *         // Observe state changes
@@ -54,7 +54,6 @@ import kotlinx.coroutines.flow.StateFlow
  * [Contract] is the read-only interface of [ReactiveContract]. If you need to dispatch
  * intents, use [ReactiveContract] instead.
  *
- * @param I The intent type
  * @param S The state type
  * @param E The event type
  * @see ReactiveContract
@@ -65,7 +64,7 @@ import kotlinx.coroutines.flow.StateFlow
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
-interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
+interface Contract<S : Mvi.State, E : Mvi.Event> {
     /**
      * A hot flow that emits the current state and all subsequent state changes.
      *
@@ -170,7 +169,7 @@ interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *
  * Use [asContract] extension to expose only the read-only interface:
  * ```kotlin
- * val readOnlyContract: Contract<I, S, E> = reactiveContract.asContract()
+ * val readOnlyContract: Contract<S, E> = reactiveContract.asContract()
  * ```
  *
  * @param I The intent type
@@ -180,7 +179,7 @@ interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @see dispatch
  * @see asContract
  */
-interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contract<I, S, E> {
+interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contract<S, E> {
     /**
      * Dispatches an intent to be processed.
      *
@@ -244,7 +243,7 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
  *     private val reactiveContract: ReactiveContract<MyIntent, MyState, MyEvent> = ...
  *
  *     // Expose read-only contract to UI
- *     val contract: Contract<MyIntent, MyState, MyEvent> = reactiveContract.asContract()
+ *     val contract: Contract<MyState, MyEvent> = reactiveContract.asContract()
  *
  *     // ViewModel can dispatch, UI cannot
  *     fun onUserAction() {
@@ -274,7 +273,7 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
  * @see Contract
  * @see ReactiveContract
  */
-fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asContract(): Contract<I, S, E> {
+fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asContract(): Contract<S, E> {
     return ReadOnlyContract(this)
 }
 
@@ -284,14 +283,13 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asC
  * This internal class ensures that the [ReactiveContract.dispatch] method cannot be accessed even through
  * type casting, providing true encapsulation for read-only access.
  *
- * @param I The intent type
  * @param S The state type
  * @param E The event type
- * @param source The underlying [ReactiveContract] to wrap
+ * @param source The underlying [Contract] view to wrap
  */
-private class ReadOnlyContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val source: ReactiveContract<I, S, E>,
-) : Contract<I, S, E> {
+private class ReadOnlyContract<S : Mvi.State, E : Mvi.Event>(
+    private val source: Contract<S, E>,
+) : Contract<S, E> {
     override val stateFlow: StateFlow<S>
         get() = source.stateFlow
 
