@@ -2,10 +2,11 @@ package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentHandlerDelegate
+import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
-import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.Mvi
+import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.toList
@@ -25,7 +26,7 @@ class IntentHandlersTest {
     fun setUp() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = 64,
+                intentQueueConfig = IntentQueueConfig(capacity = 64),
                 logger = Logger { _, _, _, _ -> },
             )
         }

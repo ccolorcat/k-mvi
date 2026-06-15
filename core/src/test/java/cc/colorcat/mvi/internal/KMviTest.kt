@@ -2,12 +2,15 @@ package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridConfig
+import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.TestLogger
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import java.io.IOException
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
@@ -25,7 +28,6 @@ class KMviTest {
         // Reset to a valid config with a no-op logger to avoid Android Log dependency
         KMvi.setup {
             copy(
-                intentQueueCapacity = 256,
                 logger = Logger { _, _, _, _ -> },
             )
         }
@@ -33,12 +35,10 @@ class KMviTest {
 
     @Test
     fun `default configuration is accessible`() {
-        KMvi.setup {
-            copy(
-                intentQueueCapacity = 256,
-                logger = Logger { _, _, _, _ -> },
-            )
-        }
+        val config = KMvi.Configuration(logger = Logger { _, _, _, _ -> })
+
+        assertEquals(IntentQueueConfig.DEFAULT_CAPACITY, config.intentQueueConfig.capacity)
+        assertEquals(BufferOverflow.SUSPEND, config.intentQueueConfig.onBufferOverflow)
     }
 
     @Test
@@ -49,37 +49,36 @@ class KMviTest {
             copy(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 logger = customLogger,
-                intentQueueCapacity = 256,
             )
         }
     }
 
     @Test
-    fun `setup allows zero intentQueueCapacity`() {
+    fun `setup allows zero intentQueueConfig capacity`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = 0,
+                intentQueueConfig = IntentQueueConfig(capacity = 0),
                 logger = Logger { _, _, _, _ -> },
             )
         }
     }
 
     @Test
-    fun `setup allows CONFLATED intentQueueCapacity`() {
+    fun `setup allows CONFLATED intentQueueConfig capacity`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = Channel.CONFLATED,
+                intentQueueConfig = IntentQueueConfig(capacity = Channel.CONFLATED),
                 logger = Logger { _, _, _, _ -> },
             )
         }
     }
 
     @Test
-    fun `setup rejects invalid negative intentQueueCapacity`() {
+    fun `setup rejects invalid negative intentQueueConfig capacity`() {
         assertThrows(IllegalArgumentException::class.java) {
             KMvi.setup {
                 copy(
-                    intentQueueCapacity = -3,
+                    intentQueueConfig = IntentQueueConfig(capacity = -3),
                     logger = Logger { _, _, _, _ -> },
                 )
             }
@@ -87,22 +86,37 @@ class KMviTest {
     }
 
     @Test
-    fun `setup allows UNLIMITED intentQueueCapacity`() {
+    fun `setup allows UNLIMITED intentQueueConfig capacity`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = Channel.UNLIMITED,
+                intentQueueConfig = IntentQueueConfig(capacity = Channel.UNLIMITED),
                 logger = Logger { _, _, _, _ -> },
             )
         }
     }
 
     @Test
-    fun `setup allows positive intentQueueCapacity`() {
+    fun `setup allows positive intentQueueConfig capacity`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = 128,
+                intentQueueConfig = IntentQueueConfig(capacity = 128),
                 logger = Logger { _, _, _, _ -> },
             )
+        }
+    }
+
+    @Test
+    fun `setup rejects CONFLATED intentQueueConfig with drop overflow`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            KMvi.setup {
+                copy(
+                    intentQueueConfig = IntentQueueConfig(
+                        capacity = Channel.CONFLATED,
+                        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+                    ),
+                    logger = Logger { _, _, _, _ -> },
+                )
+            }
         }
     }
 
@@ -110,7 +124,6 @@ class KMviTest {
     fun `setup allows Channel_BUFFERED groupChannelCapacity`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = 256,
                 logger = Logger { _, _, _, _ -> },
                 hybridConfig = HybridConfig<Mvi.Intent>(groupChannelCapacity = Channel.BUFFERED),
             )
@@ -121,7 +134,6 @@ class KMviTest {
     fun `setup allows positive groupChannelCapacity`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = 256,
                 logger = Logger { _, _, _, _ -> },
                 hybridConfig = HybridConfig<Mvi.Intent>(groupChannelCapacity = 32),
             )
@@ -132,7 +144,6 @@ class KMviTest {
     fun `setup allows CONFLATED groupChannelCapacity`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = 256,
                 logger = Logger { _, _, _, _ -> },
                 hybridConfig = HybridConfig<Mvi.Intent>(groupChannelCapacity = Channel.CONFLATED),
             )
@@ -143,14 +154,12 @@ class KMviTest {
     fun `setup can be called multiple times`() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = 256,
                 handleStrategy = HandleStrategy.CONCURRENT,
                 logger = Logger { _, _, _, _ -> },
             )
         }
         KMvi.setup {
             copy(
-                intentQueueCapacity = 256,
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 logger = Logger { _, _, _, _ -> },
             )

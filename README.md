@@ -800,17 +800,33 @@ class MyApplication : Application() {
 - `SEQUENTIAL`: All intents process one-by-one
 - `HYBRID`: Mix of concurrent and sequential based on intent markers and grouping
 
-#### Intent Queue Capacity
+#### IntentQueueConfig
 
-`intentQueueCapacity` configures the dispatch entry queue for each contract (default: `256`).
-`dispatch(intent)` is non-blocking; when this entry queue is full, the intent is discarded and a warning is logged.
+`intentQueueConfig` configures the dispatch entry queue for each contract. The default is
+`IntentQueueConfig(capacity = 256, onBufferOverflow = BufferOverflow.SUSPEND)`.
+`dispatch(intent)` is non-blocking and returns a `DispatchResult`.
 
-Allowed values are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any positive `Int`
-(including `Channel.UNLIMITED`). Special `Channel` constants keep their native semantics:
+Allowed capacities are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any
+positive `Int` (including `Channel.UNLIMITED`). The default `BufferOverflow.SUSPEND` is recommended
+for most business intents because it gives the clearest result semantics:
 
-- `Channel.RENDEZVOUS`: no entry buffer
-- `Channel.CONFLATED`: only the latest pending intent is retained
-- `Channel.UNLIMITED`: unbounded entry queue; use with care
+- Bounded capacity or `Channel.BUFFERED` + `SUSPEND`: `Submitted` means the intent entered the queue
+  or was received by the pipeline; if the queue is full, dispatch returns `Full`.
+- `Channel.RENDEZVOUS` + `SUSPEND`: `Submitted` means a receiver was ready and took the intent;
+  otherwise dispatch returns `Full`.
+- `Channel.UNLIMITED` + `SUSPEND`: `Submitted` usually means the intent entered an unbounded queue;
+  it normally does not return `Full`, but can grow memory if producers outrun consumers.
+- `Channel.CONFLATED`: `Submitted` means the latest intent was submitted to the conflated queue.
+  Older pending intents may be replaced, and this submitted intent may also be replaced by a later
+  dispatch before it is processed.
+- `DROP_OLDEST`: `Submitted` means the queue policy accepted this dispatch. If the queue was full,
+  the oldest pending intent was dropped and will not be processed.
+- `DROP_LATEST`: `Submitted` means the queue policy handled this dispatch. If the queue was full,
+  this latest intent may have been dropped and may never be processed.
+
+In every mode, `DispatchResult.Submitted` only describes queue submission. It does not mean the
+handler has started, completed, changed state, or emitted an event. Use conflated/drop policies only
+for replaceable or discardable high-frequency UI intents.
 
 #### RetryPolicy
 

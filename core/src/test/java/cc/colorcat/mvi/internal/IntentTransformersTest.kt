@@ -4,6 +4,7 @@ import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentTransformer
+import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
@@ -62,7 +63,7 @@ class IntentTransformersTest {
     fun setUp() {
         KMvi.setup {
             copy(
-                intentQueueCapacity = 64,
+                intentQueueConfig = IntentQueueConfig(capacity = 64),
                 logger = Logger { _, _, _, _ -> },
             )
         }

@@ -1,5 +1,6 @@
 package cc.colorcat.mvi.internal
 
+import cc.colorcat.mvi.DispatchResult
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.ReactiveContractLazy
@@ -28,7 +29,7 @@ class ReactiveContractLazyTest {
         return object : ReactiveContract<Mvi.Intent, TestState, TestEvent> {
             override val stateFlow: StateFlow<TestState> = MutableStateFlow(TestState(value))
             override val eventFlow: Flow<TestEvent> = emptyFlow()
-            override fun dispatch(intent: Mvi.Intent) {}
+            override fun dispatch(intent: Mvi.Intent): DispatchResult = DispatchResult.Submitted
         }
     }
 

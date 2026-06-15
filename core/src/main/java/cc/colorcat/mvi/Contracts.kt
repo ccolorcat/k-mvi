@@ -191,8 +191,12 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
      * ## Processing Behavior
      *
      * - Intent is enqueued into the dispatch entry queue (capacity configurable, default: 256)
-     * - If the queue is full, the intent is discarded with a warning log
-     * - If the coroutine scope is inactive, the intent is discarded with a warning log
+     * - With the default [IntentQueueConfig] overflow policy, if the queue is full, the intent is
+     *   discarded with a warning log and [DispatchResult.Full] is returned
+     * - With conflated or dropping queue policies, [DispatchResult.Submitted] does not guarantee
+     *   every individual intent will be processed; see [DispatchResult.Submitted]
+     * - If the coroutine scope is inactive, the intent is discarded with a warning log and
+     *   [DispatchResult.Inactive] is returned
      *
      * ## Thread Safety
      *
@@ -215,11 +219,13 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
      * ```
      *
      * @param intent The intent to dispatch
+     * @return The enqueue result. It does not indicate whether intent handling has completed.
+     * @see DispatchResult
      * @see Mvi.Intent
      * @see HandleStrategy
      * @see KMvi.Configuration
      */
-    fun dispatch(intent: I)
+    fun dispatch(intent: I): DispatchResult
 }
 
 /**

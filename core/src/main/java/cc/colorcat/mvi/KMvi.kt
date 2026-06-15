@@ -1,9 +1,10 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.KMvi.handleStrategy
+import cc.colorcat.mvi.KMvi.setup
 import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.d
 import cc.colorcat.mvi.internal.e
-import cc.colorcat.mvi.internal.requireSupportedCapacity
 import cc.colorcat.mvi.internal.w
 import java.io.IOException
 
@@ -128,14 +129,15 @@ object KMvi {
         get() = config.retryPolicy
 
     /**
-     * The global dispatch queue capacity.
+     * The global dispatch queue configuration.
      *
-     * Controls the size of the dispatch queue buffer for each contract.
-     * When the buffer is full, [ReactiveContract.dispatch] discards the intent
-     * and logs a warning.
+     * Controls the dispatch queue buffer for each contract.
+     * With the default [IntentQueueConfig] overflow policy, a full buffer makes
+     * [ReactiveContract.dispatch] return [DispatchResult.Full] after logging a warning.
+     * Dropping and conflated policies follow [DispatchResult.Submitted] semantics.
      */
-    internal val intentQueueCapacity: Int
-        get() = config.intentQueueCapacity
+    internal val intentQueueConfig: IntentQueueConfig
+        get() = config.intentQueueConfig
 
     /**
      * Configures the global K-MVI framework settings.
@@ -239,11 +241,9 @@ object KMvi {
      * }
      * ```
      *
-     * @property intentQueueCapacity The dispatch entry queue capacity per contract. Allowed values:
-     *                               [Channel.BUFFERED], [Channel.CONFLATED], [Channel.RENDEZVOUS], or any positive Int
-     *                               (including [Channel.UNLIMITED]). Special [Channel] constants keep their native
-     *                               semantics at the dispatch entry point.
-     *                               Default: 256
+     * @property intentQueueConfig The dispatch entry queue configuration per contract.
+     *                             Default: [IntentQueueConfig] with capacity 256 and
+     *                             [kotlinx.coroutines.channels.BufferOverflow.SUSPEND].
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
      * @property hybridConfig The hybrid grouping configuration. Default: class-name based grouping
      * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
@@ -256,14 +256,10 @@ object KMvi {
      * @see Logger
      */
     data class Configuration(
-        val intentQueueCapacity: Int = 256,
+        val intentQueueConfig: IntentQueueConfig = IntentQueueConfig(),
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
         val hybridConfig: HybridConfig<Mvi.Intent> = HybridConfig(),
         val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
         val logger: Logger = Logger(),
-    ) {
-        init {
-            requireSupportedCapacity("intentQueueCapacity", intentQueueCapacity)
-        }
-    }
+    )
 }

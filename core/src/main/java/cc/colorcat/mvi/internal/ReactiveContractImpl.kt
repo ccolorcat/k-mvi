@@ -1,10 +1,12 @@
 package cc.colorcat.mvi.internal
 
+import cc.colorcat.mvi.DispatchResult
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentHandlerDelegate
 import cc.colorcat.mvi.IntentHandlerRegistry
+import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.ReactiveContract
@@ -57,7 +59,7 @@ import kotlinx.coroutines.isActive
  * The pipeline contains three channel boundaries, each with a distinct role:
  *
  * ```
- * intentsChannel        (explicit  : intentQueueCapacity) — dispatch entry queue
+ * intentsChannel        (explicit  : intentQueueConfig) — dispatch entry queue
  *     ↓ [IO coroutine]  toPartialChange + retryWhen
  * Channel A             (implicit  : 64, SUSPEND)     — created by flowOn(IO); back-pressures IO
  *     ↓ [Default coroutine] scan
@@ -66,9 +68,9 @@ import kotlinx.coroutines.isActive
  * shareIn (Eagerly, replay = 0)
  * ```
  *
- * **intentsChannel** is the public dispatch mailbox. Its capacity is exactly
- * [intentQueueCapacity], preserving the native [Channel] semantics for special constants such
- * as [Channel.RENDEZVOUS], [Channel.CONFLATED], [Channel.BUFFERED], and [Channel.UNLIMITED].
+ * **intentsChannel** is the public dispatch mailbox. It is created from [intentQueueConfig],
+ * preserving the native [Channel] semantics for special constants such as [Channel.RENDEZVOUS],
+ * [Channel.CONFLATED], [Channel.BUFFERED], and [Channel.UNLIMITED].
  *
  * **Channel A** is created implicitly by `flowOn(Dispatchers.IO)` with the framework default
  * capacity (64, SUSPEND). It is not configured explicitly because PartialChanges must never
@@ -90,8 +92,10 @@ import kotlinx.coroutines.isActive
  * ## Intent Dispatching
  *
  * Intents arrive through [intentsChannel]. [dispatch] uses [Channel.trySend], so the call remains
- * non-blocking. When the entry queue is full, [dispatch] discards the intent with a warning — a
- * deliberate trade-off to prevent unbounded memory growth.
+ * non-blocking. With [BufferOverflow.SUSPEND], a full entry queue makes [dispatch] return
+ * [DispatchResult.Full] and log a warning. With conflated or dropping policies,
+ * [DispatchResult.Submitted] means the queue policy handled the submission, not that this exact
+ * intent is guaranteed to be processed.
  *
  * ## Error Handling
  *
@@ -112,7 +116,7 @@ import kotlinx.coroutines.isActive
  * @param E The event type
  * @param scope The coroutine scope for flow collection
  * @param initState The initial state
- * @param intentQueueCapacity The dispatch entry queue capacity
+ * @param intentQueueConfig The dispatch entry queue configuration
  * @param retryPolicy Policy for retrying on errors
  * @param transformer Transforms intents to partial changes
  * @see ReactiveContract
@@ -128,14 +132,10 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
 internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val scope: CoroutineScope,
     initState: S,
-    intentQueueCapacity: Int,
+    intentQueueConfig: IntentQueueConfig,
     retryPolicy: RetryPolicy,
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
-    init {
-        requireSupportedCapacity("intentQueueCapacity", intentQueueCapacity)
-    }
-
     /**
      * Channel for buffering dispatched intents before they enter the processing pipeline.
      *
@@ -144,8 +144,8 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * optimised for single-producer → single-consumer scenarios, with lower overhead than the
      * broadcast machinery of a SharedFlow.
      *
-     * The capacity is exactly [intentQueueCapacity]. Special [Channel] constants retain their
-     * native semantics:
+     * The channel is configured by [intentQueueConfig]. Special [Channel] constants retain their
+     * native semantics through [IntentQueueConfig.capacity]:
      * - [Channel.RENDEZVOUS]: no entry buffer; [dispatch] only succeeds when the pipeline is ready
      * - [Channel.CONFLATED]: only the latest pending intent is retained
      * - [Channel.BUFFERED]: framework default buffered capacity
@@ -155,7 +155,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * [retryWhen] re-collects, allowing buffered intents to survive a retry. The channel is closed
      * when [scope] completes so late [dispatch] calls fail deterministically.
      */
-    private val intentsChannel = Channel<I>(capacity = intentQueueCapacity).also { channel ->
+    private val intentsChannel = Channel<I>(
+        capacity = intentQueueConfig.capacity,
+        onBufferOverflow = intentQueueConfig.onBufferOverflow,
+    ).also { channel ->
         scope.coroutineContext[Job]?.invokeOnCompletion {
             channel.close()
         }
@@ -273,28 +276,31 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * The call is non-blocking: the intent is enqueued into [intentsChannel], which guarantees
      * FIFO ordering for non-conflated capacities.
      *
-     * **Buffer overflow**: [intentsChannel] uses [intentQueueCapacity] (default 256). For bounded
-     * capacities, when the queue is full, the intent is discarded and a warning is logged. This is
-     * a deliberate trade-off to keep [dispatch] non-blocking and prevent unbounded memory growth.
-     * Increase [intentQueueCapacity] in [KMvi.setup] or per-contract if your app dispatches intents
+     * **Buffer overflow**: [intentsChannel] uses [intentQueueConfig]. For bounded queues using
+     * [BufferOverflow.SUSPEND], when the queue is full, the intent is discarded, a warning is
+     * logged, and [DispatchResult.Full] is returned. With conflated or dropping policies,
+     * [DispatchResult.Submitted] only means the configured queue policy handled the submission.
+     * Update [intentQueueConfig] in [KMvi.setup] or per-contract if your app dispatches intents
      * faster than they can be consumed (e.g. rapid scroll events in a low-latency list).
      *
      * @param intent The user intent to process.
      */
-    override fun dispatch(intent: I) {
+    override fun dispatch(intent: I): DispatchResult {
         if (!scope.isActive) {
             logger.w(TAG) { "Scope inactive, intent discarded: ${intent.diagnosticName}" }
-            return
+            return DispatchResult.Inactive
         }
 
         val result = intentsChannel.trySend(intent)
-        if (result.isFailure) {
-            val reason = if (result.exceptionOrNull() != null) {
-                "Intent queue closed"
-            } else {
-                "Intent queue full"
-            }
-            logger.w(TAG) { "$reason, intent discarded: ${intent.diagnosticName}" }
+        if (result.isSuccess) {
+            return DispatchResult.Submitted
+        }
+        return if (result.exceptionOrNull() != null) {
+            logger.w(TAG) { "Intent queue closed, intent discarded: ${intent.diagnosticName}" }
+            DispatchResult.Closed
+        } else {
+            logger.w(TAG) { "Intent queue full, intent discarded: ${intent.diagnosticName}" }
+            DispatchResult.Full
         }
     }
 }
@@ -355,7 +361,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
 internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> private constructor(
     scope: CoroutineScope,
     initState: S,
-    intentQueueCapacity: Int,
+    intentQueueConfig: IntentQueueConfig,
     retryPolicy: RetryPolicy,
     strategy: HandleStrategy,
     config: HybridConfig<I>,
@@ -363,7 +369,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
 ) : CoreReactiveContract<I, S, E>(
     scope = scope,
     initState = initState,
-    intentQueueCapacity = intentQueueCapacity,
+    intentQueueConfig = intentQueueConfig,
     retryPolicy = retryPolicy,
     transformer = IntentTransformer(strategy, config, delegate),
 ) {
@@ -372,7 +378,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
      *
      * @param scope The coroutine scope for flow collection
      * @param initState The initial state
-     * @param intentQueueCapacity The dispatch queue buffer size
+     * @param intentQueueConfig The dispatch entry queue configuration
      * @param retryPolicy Policy for retrying on errors
      * @param strategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
      * @param config Configuration for HYBRID strategy
@@ -381,7 +387,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     constructor(
         scope: CoroutineScope,
         initState: S,
-        intentQueueCapacity: Int,
+        intentQueueConfig: IntentQueueConfig,
         retryPolicy: RetryPolicy,
         strategy: HandleStrategy,
         config: HybridConfig<I>,
@@ -389,7 +395,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     ) : this(
         scope = scope,
         initState = initState,
-        intentQueueCapacity = intentQueueCapacity,
+        intentQueueConfig = intentQueueConfig,
         retryPolicy = retryPolicy,
         strategy = strategy,
         config = config,

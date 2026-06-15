@@ -78,11 +78,8 @@ import kotlinx.coroutines.flow.emptyFlow
  * @param S The State type that extends [Mvi.State]
  * @param E The Event type that extends [Mvi.Event]
  * @param initState The initial state of the contract
- * @param intentQueueCapacity The dispatch entry queue capacity. Allowed values:
- *                            [kotlinx.coroutines.channels.Channel.BUFFERED], [kotlinx.coroutines.channels.Channel.CONFLATED],
- *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int
- *                            (including [kotlinx.coroutines.channels.Channel.UNLIMITED]).
- *                            Defaults to global config [KMvi.intentQueueCapacity]
+ * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
+ *                          [KMvi.intentQueueConfig]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
  * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
@@ -92,7 +89,7 @@ import kotlinx.coroutines.flow.emptyFlow
  */
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
-    intentQueueCapacity: Int = KMvi.intentQueueCapacity,
+    intentQueueConfig: IntentQueueConfig = KMvi.intentQueueConfig,
     retryPolicy: RetryPolicy = KMvi.retryPolicy,
     transformer: IntentTransformer<I, S, E>,
 ): Lazy<ReactiveContract<I, S, E>> {
@@ -100,7 +97,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
         CoreReactiveContract(
             scope = viewModelScope,
             initState = initState,
-            intentQueueCapacity = intentQueueCapacity,
+            intentQueueConfig = intentQueueConfig,
             retryPolicy = retryPolicy,
             transformer = transformer,
         )
@@ -166,11 +163,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param S The State type that extends [Mvi.State]
  * @param E The Event type that extends [Mvi.Event]
  * @param initState The initial state of the contract
- * @param intentQueueCapacity The dispatch entry queue capacity. Allowed values:
- *                            [kotlinx.coroutines.channels.Channel.BUFFERED], [kotlinx.coroutines.channels.Channel.CONFLATED],
- *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int
- *                            (including [kotlinx.coroutines.channels.Channel.UNLIMITED]).
- *                            Defaults to global config [KMvi.intentQueueCapacity]
+ * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
+ *                          [KMvi.intentQueueConfig]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
  * @param strategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
  * @param config The hybrid configuration when using HYBRID strategy. Defaults to global config [KMvi.hybridConfig]
@@ -184,7 +178,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  */
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
-    intentQueueCapacity: Int = KMvi.intentQueueCapacity,
+    intentQueueConfig: IntentQueueConfig = KMvi.intentQueueConfig,
     retryPolicy: RetryPolicy = KMvi.retryPolicy,
     strategy: HandleStrategy = KMvi.handleStrategy,
     config: HybridConfig<I> = KMvi.hybridConfig,
@@ -195,7 +189,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
         StrategyReactiveContract(
             scope = viewModelScope,
             initState = initState,
-            intentQueueCapacity = intentQueueCapacity,
+            intentQueueConfig = intentQueueConfig,
             retryPolicy = retryPolicy,
             strategy = strategy,
             config = config,

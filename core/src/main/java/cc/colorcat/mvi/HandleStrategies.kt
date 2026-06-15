@@ -1,6 +1,6 @@
 package cc.colorcat.mvi
 
-import cc.colorcat.mvi.internal.requireSupportedCapacity
+import cc.colorcat.mvi.internal.requireSupportedChannelConfig
 import kotlinx.coroutines.channels.Channel
 
 /**
@@ -379,7 +379,7 @@ class HybridConfig<in I : Mvi.Intent>(
     internal val groupTagSelector: (I) -> String = { it.javaClass.name },
 ) {
     init {
-        requireSupportedCapacity("groupChannelCapacity", groupChannelCapacity)
+        requireSupportedChannelConfig("groupChannelCapacity", groupChannelCapacity)
     }
 
     override fun toString(): String {
