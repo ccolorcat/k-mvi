@@ -6,6 +6,7 @@ import cc.colorcat.mvi.internal.i
 import cc.colorcat.mvi.internal.logger
 import cc.colorcat.mvi.internal.w
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -175,7 +176,10 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *
  * - Uses [java.util.concurrent.ConcurrentHashMap] for thread-safe handler storage
  * - Provides fallback mechanism via [defaultHandler]
- * - Logs warnings when falling back to default handler
+ * - Logs a warning only when no handler is registered for an intent **and** no
+ *   [defaultHandler] is supplied (the framework treats this as a likely misconfiguration).
+ *   When a non-null [defaultHandler] is supplied (the centralized-handler pattern),
+ *   fallback dispatch is silent — see `LoginViewModel` in the sample app.
  * - Logs all intent handling (INFO level) to help users track processing state
  *
  * ## Why Log Every Intent?
@@ -223,13 +227,16 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @param I The base intent type
  * @param S The state type
  * @param E The event type
- * @param defaultHandler The fallback handler used when no specific handler is registered
+ * @param defaultHandler The fallback handler used when no specific handler is registered for an
+ *   intent's exact class. Pass `null` to indicate "no fallback": unhandled intents are then
+ *   logged at WARN and produce no state change. Pass a non-null handler for the centralized
+ *   dispatch pattern — unhandled intents are silently routed to it.
  * @see HandleStrategy
  * @see Mvi.Intent.Concurrent
  * @see Mvi.Intent.Sequential
  */
 internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val defaultHandler: IntentHandler<I, S, E>,
+    private val defaultHandler: IntentHandler<I, S, E>?,
 ) : IntentHandlerRegistry<I, S, E>, IntentHandler<I, S, E> {
     private val handlers = ConcurrentHashMap<Class<*>, IntentHandler<*, S, E>>()
 
@@ -244,14 +251,23 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
     override suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
         @Suppress("UNCHECKED_CAST")
         // Exact class match only — see IntentHandlerRegistry.register KDoc.
-        val handler = handlers[intent.javaClass] as IntentHandler<I, S, E>? ?: run {
-            logger.w(TAG) {
-                "No handler registered for ${intent.diagnosticName}, fallback to defaultHandler"
+        val registered = handlers[intent.javaClass] as IntentHandler<I, S, E>?
+        val handler = registered ?: defaultHandler
+        if (handler != null) {
+            logger.i(TAG) {
+                if (registered != null) {
+                    "Handling intent with registered handler: ${intent.diagnosticName}"
+                } else {
+                    "Handling intent with default handler: ${intent.diagnosticName}"
+                }
             }
-            defaultHandler
+            return handler.handle(intent)
         }
-        logger.i(TAG) { "Handling intent: ${intent.diagnosticName}" }
-        return handler.handle(intent)
+
+        logger.w(TAG) {
+            "Ignoring unhandled intent: ${intent.diagnosticName} (no matching registered handler, no default handler)"
+        }
+        return emptyFlow()
     }
 }
 

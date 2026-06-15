@@ -87,6 +87,44 @@ class IntentHandlersTest {
     }
 
     @Test
+    fun `null defaultHandler produces empty flow and logs WARN for unregistered intent`() = runBlocking {
+        val warns = mutableListOf<String>()
+        KMvi.setup {
+            copy(logger = Logger { priority, _, _, message ->
+                if (priority == Logger.WARN) warns.add(message())
+            })
+        }
+
+        val delegate = IntentHandlerDelegate<TestIntent, TestState, TestEvent>(defaultHandler = null)
+
+        val changes = delegate.handle(TestIntent.Increment).toList()
+        assertTrue("emptyFlow expected when no handler and no default", changes.isEmpty())
+        assertEquals(1, warns.size)
+        assertTrue("warn must mention diagnostic name", warns.single().contains("Increment"))
+        assertTrue("warn must mention missing default handler", warns.single().contains("default handler"))
+    }
+
+    @Test
+    fun `null defaultHandler is silent for intents with registered handler`() = runBlocking {
+        val warns = mutableListOf<String>()
+        KMvi.setup {
+            copy(logger = Logger { priority, _, _, message ->
+                if (priority == Logger.WARN) warns.add(message())
+            })
+        }
+
+        val delegate = IntentHandlerDelegate<TestIntent, TestState, TestEvent>(defaultHandler = null)
+        delegate.register(TestIntent.Increment::class.java, IntentHandler {
+            Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(value = "handled") } }
+                .asSingleFlow()
+        })
+
+        val changes = delegate.handle(TestIntent.Increment).toList()
+        assertEquals("handled", changes.single().apply(Mvi.Snapshot(TestState())).state.value)
+        assertTrue("no WARN expected for handled intent", warns.isEmpty())
+    }
+
+    @Test
     fun `register replaces existing handler`() = runBlocking {
         val defaultHandler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() }
         val delegate = IntentHandlerDelegate(defaultHandler)

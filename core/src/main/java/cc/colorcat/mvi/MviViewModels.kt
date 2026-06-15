@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cc.colorcat.mvi.internal.CoreReactiveContract
 import cc.colorcat.mvi.internal.StrategyReactiveContract
-import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * ViewModel extensions for creating ReactiveContract instances.
@@ -168,7 +167,11 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
  * @param strategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
  * @param config The hybrid configuration when using HYBRID strategy. Defaults to global config [KMvi.hybridConfig]
- * @param defaultHandler The fallback handler for Intents without registered handlers. Defaults to empty flow.
+ * @param defaultHandler The fallback handler for Intents without a registered handler.
+ *                       Defaults to `null`, in which case unhandled Intents are logged at WARN
+ *                       and produce no state change. Supply a non-null handler to opt into the
+ *                       centralized-dispatch pattern (unhandled Intents are silently routed to
+ *                       it).
  * @param setup A lambda with receiver to register Intent handlers using [IntentHandlerRegistry]
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
  * @see ReactiveContract
@@ -182,7 +185,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     retryPolicy: RetryPolicy = KMvi.retryPolicy,
     strategy: HandleStrategy = KMvi.handleStrategy,
     config: HybridConfig<I> = KMvi.hybridConfig,
-    defaultHandler: IntentHandler<I, S, E> = IntentHandler { emptyFlow() },
+    defaultHandler: IntentHandler<I, S, E>? = null,
     setup: IntentHandlerRegistry<I, S, E>.() -> Unit = {},
 ): Lazy<ReactiveContract<I, S, E>> {
     return ReactiveContractLazy {
@@ -222,7 +225,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
 internal class ReactiveContractLazy<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val create: () -> ReactiveContract<I, S, E>,
 ) : Lazy<ReactiveContract<I, S, E>> {
-    @Volatile private var cached: ReactiveContract<I, S, E>? = null
+    @Volatile
+    private var cached: ReactiveContract<I, S, E>? = null
 
     override val value: ReactiveContract<I, S, E>
         get() = cached ?: create().also { cached = it }

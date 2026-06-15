@@ -382,7 +382,8 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
      * @param retryPolicy Policy for retrying on errors
      * @param strategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
      * @param config Configuration for HYBRID strategy
-     * @param defaultHandler The fallback handler for unregistered intent types
+     * @param defaultHandler The fallback handler for unregistered intent types, or `null` for
+     *                       no fallback. See [contract] for the resulting log behavior.
      */
     constructor(
         scope: CoroutineScope,
@@ -391,7 +392,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         retryPolicy: RetryPolicy,
         strategy: HandleStrategy,
         config: HybridConfig<I>,
-        defaultHandler: IntentHandler<I, S, E>,
+        defaultHandler: IntentHandler<I, S, E>?,
     ) : this(
         scope = scope,
         initState = initState,
