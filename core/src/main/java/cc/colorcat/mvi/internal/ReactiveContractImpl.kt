@@ -10,11 +10,10 @@ import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.RetryPolicy
 import cc.colorcat.mvi.toPartialChange
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -31,7 +30,6 @@ import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 
 /**
  * Core implementation of [ReactiveContract] that handles the MVI flow processing.
@@ -56,10 +54,10 @@ import kotlinx.coroutines.launch
  *
  * ## Buffer and Backpressure
  *
- * The pipeline contains four channel boundaries, each with a distinct role:
+ * The pipeline contains three channel boundaries, each with a distinct role:
  *
  * ```
- * intentsChannel        (explicit  : 64, SUSPEND)     — preserves every intent
+ * intentsChannel        (explicit  : intentQueueCapacity) — dispatch entry queue
  *     ↓ [IO coroutine]  toPartialChange + retryWhen
  * Channel A             (implicit  : 64, SUSPEND)     — created by flowOn(IO); back-pressures IO
  *     ↓ [Default coroutine] scan
@@ -67,6 +65,10 @@ import kotlinx.coroutines.launch
  *     ↓
  * shareIn (Eagerly, replay = 0)
  * ```
+ *
+ * **intentsChannel** is the public dispatch mailbox. Its capacity is exactly
+ * [intentQueueCapacity], preserving the native [Channel] semantics for special constants such
+ * as [Channel.RENDEZVOUS], [Channel.CONFLATED], [Channel.BUFFERED], and [Channel.UNLIMITED].
  *
  * **Channel A** is created implicitly by `flowOn(Dispatchers.IO)` with the framework default
  * capacity (64, SUSPEND). It is not configured explicitly because PartialChanges must never
@@ -87,10 +89,9 @@ import kotlinx.coroutines.launch
  *
  * ## Intent Dispatching
  *
- * Intents arrive via a dedicated [Channel] + coroutine (`dispatchQueue`) that forwards them to
- * `intentsChannel`. This keeps `dispatch()` non-blocking while guaranteeing FIFO ordering even
- * when multiple callers trigger it concurrently. When the buffer is full, [dispatch] discards
- * the intent with a warning — a deliberate trade-off to prevent unbounded memory growth.
+ * Intents arrive through [intentsChannel]. [dispatch] uses [Channel.trySend], so the call remains
+ * non-blocking. When the entry queue is full, [dispatch] discards the intent with a warning — a
+ * deliberate trade-off to prevent unbounded memory growth.
  *
  * ## Error Handling
  *
@@ -111,7 +112,7 @@ import kotlinx.coroutines.launch
  * @param E The event type
  * @param scope The coroutine scope for flow collection
  * @param initState The initial state
- * @param intentQueueCapacity The dispatch queue buffer size
+ * @param intentQueueCapacity The dispatch entry queue capacity
  * @param retryPolicy Policy for retrying on errors
  * @param transformer Transforms intents to partial changes
  * @see ReactiveContract
@@ -122,7 +123,6 @@ import kotlinx.coroutines.launch
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
-private const val INTENT_BUFFER_CAPACITY = 64
 private const val SNAPSHOT_BUFFER_CAPACITY = 64
 
 internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
@@ -144,52 +144,20 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * optimised for single-producer → single-consumer scenarios, with lower overhead than the
      * broadcast machinery of a SharedFlow.
      *
-     * Configured with:
-     * - Capacity: [INTENT_BUFFER_CAPACITY] items
-     * - Overflow strategy: [BufferOverflow.SUSPEND] — suspends the producer when full,
-     *   guaranteeing no intent is silently dropped
+     * The capacity is exactly [intentQueueCapacity]. Special [Channel] constants retain their
+     * native semantics:
+     * - [Channel.RENDEZVOUS]: no entry buffer; [dispatch] only succeeds when the pipeline is ready
+     * - [Channel.CONFLATED]: only the latest pending intent is retained
+     * - [Channel.BUFFERED]: framework default buffered capacity
+     * - [Channel.UNLIMITED]: unbounded entry queue; use with care
      *
-     * **Note**: the pipeline uses [receiveAsFlow] (not `consumeAsFlow`) so the channel is NOT
-     * closed when [retryWhen] re-collects, allowing buffered intents to survive a retry.
+     * The pipeline uses [receiveAsFlow] (not `consumeAsFlow`) so the channel is NOT closed when
+     * [retryWhen] re-collects, allowing buffered intents to survive a retry. The channel is closed
+     * when [scope] completes so late [dispatch] calls fail deterministically.
      */
-    private val intentsChannel = Channel<I>(
-        capacity = INTENT_BUFFER_CAPACITY,
-        onBufferOverflow = BufferOverflow.SUSPEND,
-    )
-
-    /**
-     * Dedicated queue that serialises intent submission into [intentsChannel].
-     *
-     * This [Channel] + [launch] pattern replaces the obsolete `actor` API while preserving
-     * identical semantics: `dispatch()` remains non-blocking, FIFO order is guaranteed, and
-     * the forwarding coroutine is a child of [scope] so it is automatically cancelled when the
-     * scope ends.
-     *
-     * **Capacity**: [intentQueueCapacity]. For bounded capacities, when the buffer is full,
-     * [dispatch] discards the intent and logs a warning — a deliberate trade-off to keep
-     * `dispatch()` non-blocking while preventing unbounded memory growth.
-     *
-     * **Lifecycle**: the forwarding loop exits when the coroutine is cancelled (scope ends).
-     * The `finally` block then closes this queue so that subsequent `dispatch()` calls see
-     * a `trySend` failure rather than silently succeeding. [intentsChannel] is never explicitly
-     * closed — it is simply collected by the downstream pipeline until the scope ends, at which
-     * point both the pipeline and this sender stop naturally.
-     *
-     * **Start mode**: [CoroutineStart.UNDISPATCHED] ensures the coroutine runs in the current
-     * call-frame until its first suspension (the empty-queue receive), so it is ready to
-     * forward before the constructor returns.
-     */
-    private val dispatchQueue = Channel<I>(intentQueueCapacity).also { queue ->
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            try {
-                for (intent in queue) {
-                    intentsChannel.send(intent)
-                }
-            } finally {
-                // Forwarding stopped (cancelled or break); close the dispatch queue
-                // so subsequent dispatch() calls see trySend failures.
-                queue.close()
-            }
+    private val intentsChannel = Channel<I>(capacity = intentQueueCapacity).also { channel ->
+        scope.coroutineContext[Job]?.invokeOnCompletion {
+            channel.close()
         }
     }
 
@@ -302,14 +270,14 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     /**
      * Dispatches an [intent] for processing.
      *
-     * The call is non-blocking: the intent is enqueued into [dispatchQueue], which guarantees
-     * FIFO ordering and forwards the work to [intentsChannel] on a dedicated coroutine.
+     * The call is non-blocking: the intent is enqueued into [intentsChannel], which guarantees
+     * FIFO ordering for non-conflated capacities.
      *
-     * **Buffer overflow**: [dispatchQueue] uses [intentQueueCapacity] (default 256). For bounded
-     * capacities, when the queue is full, the intent is silently discarded and a warning is logged.
-     * This is a deliberate trade-off to keep [dispatch] non-blocking and prevent unbounded memory growth.
-     * Increase [intentQueueCapacity] in [KMvi.setup] or per-contract if your app dispatches
-     * intents faster than they can be consumed (e.g. rapid scroll events in a low-latency list).
+     * **Buffer overflow**: [intentsChannel] uses [intentQueueCapacity] (default 256). For bounded
+     * capacities, when the queue is full, the intent is discarded and a warning is logged. This is
+     * a deliberate trade-off to keep [dispatch] non-blocking and prevent unbounded memory growth.
+     * Increase [intentQueueCapacity] in [KMvi.setup] or per-contract if your app dispatches intents
+     * faster than they can be consumed (e.g. rapid scroll events in a low-latency list).
      *
      * @param intent The user intent to process.
      */
@@ -319,13 +287,14 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
             return
         }
 
-        if (dispatchQueue.trySend(intent).isFailure) {
-            @OptIn(ExperimentalCoroutinesApi::class)
-            if (dispatchQueue.isClosedForSend) {
-                logger.w(TAG) { "Intent queue closed, intent discarded: ${intent.diagnosticName}" }
+        val result = intentsChannel.trySend(intent)
+        if (result.isFailure) {
+            val reason = if (result.exceptionOrNull() != null) {
+                "Intent queue closed"
             } else {
-                logger.w(TAG) { "Intent queue full, intent discarded: ${intent.diagnosticName}" }
+                "Intent queue full"
             }
+            logger.w(TAG) { "$reason, intent discarded: ${intent.diagnosticName}" }
         }
     }
 }

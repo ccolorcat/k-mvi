@@ -239,8 +239,10 @@ object KMvi {
      * }
      * ```
      *
-     * @property intentQueueCapacity The dispatch queue buffer size per contract. Allowed values:
-     *                               [Channel.BUFFERED], [Channel.CONFLATED], [Channel.RENDEZVOUS], or any positive Int.
+     * @property intentQueueCapacity The dispatch entry queue capacity per contract. Allowed values:
+     *                               [Channel.BUFFERED], [Channel.CONFLATED], [Channel.RENDEZVOUS], or any positive Int
+     *                               (including [Channel.UNLIMITED]). Special [Channel] constants keep their native
+     *                               semantics at the dispatch entry point.
      *                               Default: 256
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
      * @property hybridConfig The hybrid grouping configuration. Default: class-name based grouping

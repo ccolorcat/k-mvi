@@ -800,6 +800,18 @@ class MyApplication : Application() {
 - `SEQUENTIAL`: All intents process one-by-one
 - `HYBRID`: Mix of concurrent and sequential based on intent markers and grouping
 
+#### Intent Queue Capacity
+
+`intentQueueCapacity` configures the dispatch entry queue for each contract (default: `256`).
+`dispatch(intent)` is non-blocking; when this entry queue is full, the intent is discarded and a warning is logged.
+
+Allowed values are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any positive `Int`
+(including `Channel.UNLIMITED`). Special `Channel` constants keep their native semantics:
+
+- `Channel.RENDEZVOUS`: no entry buffer
+- `Channel.CONFLATED`: only the latest pending intent is retained
+- `Channel.UNLIMITED`: unbounded entry queue; use with care
+
 #### RetryPolicy
 
 A function `(attempt: Long, cause: Throwable) -> Boolean` that determines whether to retry after a failure.

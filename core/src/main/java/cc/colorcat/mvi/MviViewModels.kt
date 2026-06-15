@@ -78,9 +78,10 @@ import kotlinx.coroutines.flow.emptyFlow
  * @param S The State type that extends [Mvi.State]
  * @param E The Event type that extends [Mvi.Event]
  * @param initState The initial state of the contract
- * @param intentQueueCapacity The dispatch queue buffer size. Allowed values:
+ * @param intentQueueCapacity The dispatch entry queue capacity. Allowed values:
  *                            [kotlinx.coroutines.channels.Channel.BUFFERED], [kotlinx.coroutines.channels.Channel.CONFLATED],
- *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int.
+ *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int
+ *                            (including [kotlinx.coroutines.channels.Channel.UNLIMITED]).
  *                            Defaults to global config [KMvi.intentQueueCapacity]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
  * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges
@@ -165,9 +166,10 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param S The State type that extends [Mvi.State]
  * @param E The Event type that extends [Mvi.Event]
  * @param initState The initial state of the contract
- * @param intentQueueCapacity The dispatch queue buffer size. Allowed values:
+ * @param intentQueueCapacity The dispatch entry queue capacity. Allowed values:
  *                            [kotlinx.coroutines.channels.Channel.BUFFERED], [kotlinx.coroutines.channels.Channel.CONFLATED],
- *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int.
+ *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int
+ *                            (including [kotlinx.coroutines.channels.Channel.UNLIMITED]).
  *                            Defaults to global config [KMvi.intentQueueCapacity]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
  * @param strategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]

@@ -9,6 +9,7 @@ import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -16,6 +17,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.emptyFlow
@@ -427,7 +429,7 @@ class ReactiveContractImplTest {
     }
 
     @Test
-    fun `dispatch logs warning when dispatch queue is full`() = runBlocking {
+    fun `dispatch logs warning when intent queue is full`() = runBlocking {
         val messages = Collections.synchronizedList(mutableListOf<String>())
         KMvi.setup {
             copy(
@@ -454,18 +456,120 @@ class ReactiveContractImplTest {
         }
 
         assertTrue(
-            "expected at least one dispatchQueue full warning, got $messages",
+            "expected at least one intent queue full warning, got $messages",
             messages.any { it.startsWith("Intent queue full") },
         )
     }
 
     @Test
-    fun `scope cancel while dispatch queue has buffered intents does not process pending intents`() = runBlocking {
+    fun `RENDEZVOUS intentQueueCapacity does not buffer pending intents`() = runBlocking {
+        val messages = Collections.synchronizedList(mutableListOf<String>())
+        KMvi.setup {
+            copy(
+                intentQueueCapacity = Channel.RENDEZVOUS,
+                logger = Logger { _, _, _, message -> messages += message() },
+            )
+        }
+        val started = Collections.synchronizedList(mutableListOf<TestIntent>())
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueCapacity = Channel.RENDEZVOUS,
+            retryPolicy = { _, _ -> false },
+            transformer = IntentTransformer(
+                strategy = HandleStrategy.SEQUENTIAL,
+                config = HybridConfig(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
+                    flow {
+                        started += intent
+                        if (intent == TestIntent.SetData("0")) {
+                            firstStarted.complete(Unit)
+                            releaseFirst.await()
+                        }
+                        emit(Mvi.PartialChange<TestState, TestEvent> { snapshot ->
+                            snapshot.updateState { copy(data = (intent as TestIntent.SetData).value) }
+                        })
+                    }
+                },
+            ),
+        )
+
+        withTimeout(5_000) {
+            while (!firstStarted.isCompleted) {
+                contract.dispatch(TestIntent.SetData("0"))
+                delay(1)
+            }
+        }
+
+        messages.clear()
+        contract.dispatch(TestIntent.SetData("1"))
+        contract.dispatch(TestIntent.SetData("2"))
+        contract.dispatch(TestIntent.SetData("3"))
+
+        releaseFirst.complete(Unit)
+        contract.stateFlow.first { it.data == "0" }
+        delay(100)
+
+        assertEquals(listOf(TestIntent.SetData("0")), started.toList())
+        assertTrue(
+            "expected full warnings for unbuffered rendezvous queue, got $messages",
+            messages.any { it.startsWith("Intent queue full") },
+        )
+    }
+
+    @Test
+    fun `CONFLATED intentQueueCapacity keeps latest pending intent`() = runBlocking {
+        val started = Collections.synchronizedList(mutableListOf<TestIntent>())
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueCapacity = Channel.CONFLATED,
+            retryPolicy = { _, _ -> false },
+            transformer = IntentTransformer(
+                strategy = HandleStrategy.SEQUENTIAL,
+                config = HybridConfig(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
+                    flow {
+                        started += intent
+                        if (intent == TestIntent.SetData("0")) {
+                            firstStarted.complete(Unit)
+                            releaseFirst.await()
+                        }
+                        emit(Mvi.PartialChange<TestState, TestEvent> { snapshot ->
+                            snapshot.updateState { copy(data = (intent as TestIntent.SetData).value) }
+                        })
+                    }
+                },
+            ),
+        )
+
+        contract.dispatch(TestIntent.SetData("0"))
+        withTimeout(5_000) {
+            firstStarted.await()
+        }
+
+        contract.dispatch(TestIntent.SetData("1"))
+        contract.dispatch(TestIntent.SetData("2"))
+        contract.dispatch(TestIntent.SetData("3"))
+
+        releaseFirst.complete(Unit)
+
+        val state = contract.stateFlow.first { it.data == "3" }
+        assertEquals("3", state.data)
+        assertEquals(listOf(TestIntent.SetData("0"), TestIntent.SetData("3")), started.toList())
+    }
+
+    @Test
+    fun `scope cancel while intent queue has buffered intents does not process pending intents`() = runBlocking {
         val started = Collections.synchronizedList(mutableListOf<TestIntent>())
         val contract = CoreReactiveContract(
             scope = testScope,
             initState = TestState(),
-            intentQueueCapacity = kotlinx.coroutines.channels.Channel.UNLIMITED,
+            intentQueueCapacity = Channel.UNLIMITED,
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
                 strategy = HandleStrategy.SEQUENTIAL,
