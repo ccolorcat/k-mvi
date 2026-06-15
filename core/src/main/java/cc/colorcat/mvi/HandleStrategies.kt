@@ -173,7 +173,7 @@ enum class HandleStrategy {
      *
      * Customize grouping for fallback intents:
      * ```kotlin
-     * val config = HybridConfig<MyIntent> { intent ->
+     * val config = KMvi.hybridConfig<MyIntent> { intent ->
      *     when (intent) {
      *         is LoadData -> intent.type  // Group by data type
      *         else -> intent.javaClass.name
@@ -238,7 +238,7 @@ enum class HandleStrategy {
  *     data class UpdateUser(val userId: String, val data: UserData) : MyIntent
  * }
  *
- * val config = HybridConfig<MyIntent> { intent ->
+ * val config = KMvi.hybridConfig<MyIntent> { intent ->
  *     when (intent) {
  *         is LoadUser, is UpdateUser -> "user-operations"  // Same group
  *         is LoadPost -> "post-operations"
@@ -252,7 +252,7 @@ enum class HandleStrategy {
  * ```kotlin
  * data class LoadData(val type: String, val id: String) : Mvi.Intent
  *
- * val config = HybridConfig<MyIntent> { intent ->
+ * val config = KMvi.hybridConfig<MyIntent> { intent ->
  *     when (intent) {
  *         is LoadData -> "${intent.type}-${intent.id}"  // Group by type and id
  *         else -> intent.javaClass.name
@@ -264,7 +264,7 @@ enum class HandleStrategy {
  *
  * ### Example 3: Global Sequential for Specific Types
  * ```kotlin
- * val config = HybridConfig<MyIntent> { intent ->
+ * val config = KMvi.hybridConfig<MyIntent> { intent ->
  *     when (intent) {
  *         is CriticalOperation -> "critical"  // All critical ops in one queue
  *         is RegularOperation -> intent.javaClass.name  // Each type separate
@@ -286,10 +286,14 @@ enum class HandleStrategy {
  * - **Use [Channel.RENDEZVOUS]** (0) for strict backpressure
  *
  * ```kotlin
- * HybridConfig(
- *     groupChannelCapacity = 128,  // Double the default buffer
- *     groupTagSelector = { it.javaClass.name }
- * )
+ * // Inherit KMvi.Configuration.groupChannelCapacity and use class-name grouping.
+ * KMvi.hybridConfig<MyIntent>()
+ *
+ * // Override the capacity for one contract while keeping the class-name selector.
+ * KMvi.hybridConfig<MyIntent>(groupChannelCapacity = 128)
+ *
+ * // Override both capacity and selector.
+ * KMvi.hybridConfig<MyIntent>(groupChannelCapacity = 128) { it.javaClass.name }
  * ```
  *
  * ## Best Practices
@@ -349,7 +353,7 @@ enum class HandleStrategy {
  *
  *                         ```kotlin
  *                         // ✅ Explicit, obfuscation-safe selector
- *                         HybridConfig<MyIntent> { intent ->
+ *                         KMvi.hybridConfig<MyIntent> { intent ->
  *                             when (intent) {
  *                                 is LoadUser   -> "user"
  *                                 is LoadPost   -> "post"
@@ -368,7 +372,7 @@ enum class HandleStrategy {
  * [groupChannelCapacity] and [groupTagSelector] are declared `internal` so they cannot
  * be accessed from outside the `cc.colorcat.mvi` library module. They are configurable
  * **only** via the primary constructor or `copy()` when inside the module. End-users
- * interact with them solely through the constructor or [KMvi.setup].
+ * interact with them through the constructor or [KMvi.hybridConfig].
  *
  * @see HandleStrategy.HYBRID
  * @see Mvi.Intent.Concurrent

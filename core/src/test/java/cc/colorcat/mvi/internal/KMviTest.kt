@@ -1,7 +1,6 @@
 package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.HandleStrategy
-import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
@@ -20,17 +19,20 @@ import org.junit.Test
 import org.junit.rules.TestRule
 
 class KMviTest {
+    private sealed interface TestIntent : Mvi.Intent {
+        data object LoadUser : TestIntent
+        data object LoadPost : TestIntent
+    }
+
 
     @Rule @JvmField val testLog: TestRule = TestLogger()
 
     @Before
     fun setUp() {
-        // Reset to a valid config with a no-op logger to avoid Android Log dependency
-        KMvi.setup {
-            copy(
-                logger = Logger { _, _, _, _ -> },
-            )
-        }
+        // Full reset to defaults each test; logger replaced with a no-op to avoid Android Log.
+        // Ignoring the receiver (the previous Configuration) is intentional — we want a clean slate
+        // so capacity / strategy / retry changes from earlier tests cannot leak into later ones.
+        KMvi.setup { KMvi.Configuration(logger = Logger { _, _, _, _ -> }) }
     }
 
     @Test
@@ -125,7 +127,7 @@ class KMviTest {
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = HybridConfig<Mvi.Intent>(groupChannelCapacity = Channel.BUFFERED),
+                groupChannelCapacity = Channel.BUFFERED,
             )
         }
     }
@@ -135,7 +137,7 @@ class KMviTest {
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = HybridConfig<Mvi.Intent>(groupChannelCapacity = 32),
+                groupChannelCapacity = 32,
             )
         }
     }
@@ -145,9 +147,62 @@ class KMviTest {
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = HybridConfig<Mvi.Intent>(groupChannelCapacity = Channel.CONFLATED),
+                groupChannelCapacity = Channel.CONFLATED,
             )
         }
+    }
+
+    @Test
+    fun `setup rejects invalid negative groupChannelCapacity`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            KMvi.setup {
+                copy(
+                    logger = Logger { _, _, _, _ -> },
+                    groupChannelCapacity = -3,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `hybridConfig factory uses global groupChannelCapacity`() {
+        KMvi.setup {
+            copy(
+                logger = Logger { _, _, _, _ -> },
+                groupChannelCapacity = 32,
+            )
+        }
+
+        val config = KMvi.hybridConfig<TestIntent>()
+
+        assertEquals(32, config.groupChannelCapacity)
+    }
+
+    @Test
+    fun `hybridConfig factory accepts groupChannelCapacity override`() {
+        KMvi.setup {
+            copy(
+                logger = Logger { _, _, _, _ -> },
+                groupChannelCapacity = 32,
+            )
+        }
+
+        val config = KMvi.hybridConfig<TestIntent>(groupChannelCapacity = 64)
+
+        assertEquals(64, config.groupChannelCapacity)
+    }
+
+    @Test
+    fun `hybridConfig factory creates typed groupTagSelector`() {
+        val config = KMvi.hybridConfig<TestIntent> { intent ->
+            when (intent) {
+                TestIntent.LoadUser -> "user"
+                TestIntent.LoadPost -> "post"
+            }
+        }
+
+        assertEquals("user", config.groupTagSelector(TestIntent.LoadUser))
+        assertEquals("post", config.groupTagSelector(TestIntent.LoadPost))
     }
 
     @Test

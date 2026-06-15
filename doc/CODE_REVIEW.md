@@ -11,7 +11,7 @@
 - ✅ **Design 1（已修复）**. `Contract<I, S, E>` 的 `I` 类型参数没有被消费——`stateFlow`、`eventFlow` 都只依赖 `S` 和 `E`，只有 `ReactiveContract.dispatch(intent: I)` 需要 `I`。结果是所有暴露给 UI 的只读 API 都被迫多带一个无用的泛型，调用方写 `Contract<MyIntent, MyState, MyEvent>` 没有任何收益。建议拆为 `Contract<S, E>`，让 `ReactiveContract<I, S, E> : Contract<S, E>` 单独引入 `I`。
 - ✅ **Design 2（已修复）**. `IntentHandlerDelegate.handle`（`IntentHandlers.kt:247`）只要找不到针对 `intent.javaClass` 的精确 handler，就以 WARN 级别打 `"No handler registered for ..., fallback to defaultHandler"`。但 `LoginViewModel` 这种"集中式 `defaultHandler`"是被官方样例明确推荐的写法（见样例文档"centralized handling"），按现在的实现，登录这条业务路径上每一个 Intent 都会刷一条 WARN。fallback 在"defaultHandler 是空流"时该 WARN，但在"defaultHandler 是用户显式提供"时应该是 INFO/DEBUG 甚至静默。
 - ✅ **Design 3（已修复）**. `StrategyIntentTransformer.assignGroupTag`（`IntentTransformers.kt:328`）对"同时实现 `Concurrent` 和 `Sequential`"的冲突 Intent 按 class 去重记录 WARN，并继续路由到 fallback group。冲突是 *类型级* 的，不是 *实例级* 的，重复分发同一冲突类型不会继续污染日志。
-- Design 4. `KMvi.Configuration.hybridConfig: HybridConfig<Mvi.Intent>` 的根类型是 `Mvi.Intent`。`HybridConfig` 自身是 `<in I>`，能逆变地用到任何子类型，但用户没法把"按业务语义分组"的全局策略写在 `KMvi.setup` 里——只能在每个 `contract(...)` 里单独传 `config: HybridConfig<MyIntent>`。这一点和其他配置项"`KMvi.setup` 提供默认值即可"的设计不一致。
+- ✅ **Design 4（已修复）**. `KMvi.Configuration.hybridConfig: HybridConfig<Mvi.Intent>` 已移除。全局配置只保留与业务类型无关的 `groupChannelCapacity`，业务强类型分组通过 public `KMvi.hybridConfig<MyIntent> { ... }` 工厂构造，既继承全局容量默认值，也避免 erased `Mvi.Intent` selector。
 - Design 5. `groupHandle`（`InternalExtensions.kt:127`）用 `linkedMapOf<String, Channel<I>>()` 缓存每个 group tag 的 channel，*直到 upstream 完成才关闭*。若 `groupTagSelector` 返回的 tag 跟 Intent 数据相关（资源 id、用户 id、查询串……），map 就会随 Intent 种类数无界增长，单个 ViewModel 生命期内可能积累大量未关闭 Channel。`HybridConfig` 的 KDoc 只口头提醒"不要建太多 group"，没有说出"每个 group 都常驻"。
 - Design 6. 管线连续 `flowOn(Dispatchers.IO)` → `scan` → `flowOn(Dispatchers.Default)`（`ReactiveContractImpl.kt:199-219`）。对真正做 I/O 的 Intent 是合理的，但对"按钮点击 → 仅做 `copy()`"这类纯 CPU Intent，等于每个 Intent 强制两次线程切换。在 Android 上，UI Intent 远多于 I/O Intent，默认就背了这份开销。更朴素的选择：默认整条管线在 `Default`，让真正阻塞的 handler 自行 `withContext(IO)`。
 - Design 7. `Mvi` 用一个 `object` 把 `Intent` / `State` / `Event` / `PartialChange` / `Snapshot` 全部嵌套进去。带来的副作用是用户代码到处写 `Mvi.PartialChange<S, E>` / `Mvi.Snapshot<S, E>`，import 一次也省不掉嵌套类的全名。这是包名职责，不是对象职责——把它们放成 `cc.colorcat.mvi` 包顶级类更顺手，命名空间靠 package 即可。
@@ -90,7 +90,7 @@
 - Doc 3. `Contract.stateFlow` KDoc 说 "Conflated: Only the latest state is kept, intermediate states may be skipped"。`StateFlow` 的 conflation 行为是 *按 `equals` 去重*，"可能跳过中间值"成立但缺了 `equals` 这层关键约束；用户照字面读会误以为是按时间 conflate。
 - Doc 4. `ReactiveContractImpl.kt` 36-129 行的长 KDoc 实际挂在 `SNAPSHOT_BUFFER_CAPACITY` 上（见 Bug 1）。Dokka 渲染时 `CoreReactiveContract` 是空文档。
 - Doc 5. `Mvi.Snapshot.updateState` KDoc 提到"会清空 event，需要保留请用 `updateWith`"，但示例里没有出现"先 event 再 updateState 导致 event 丢失"的反面案例。这种 API 的"反例样板"对避免 Bug 5 更有效。
-- Doc 6. `KMvi.Configuration.hybridConfig` 的 KDoc 写"Default: class-name based grouping"，但 `HybridConfig.groupTagSelector` 的 KDoc 大篇幅警告 "R8 obfuscation 会把不同类塌成同一 tag"。两段文档应当互相 `@see`，否则用户从 `KMvi.Configuration` 入口看不到这条关键警告。
+- ✅ **Doc 6（已修复）**. `KMvi.Configuration.hybridConfig` 已移除；业务分组入口改为 `KMvi.hybridConfig<MyIntent> { ... }` / `HybridConfig<MyIntent>(...)`，相关 KDoc 直接保留 R8 obfuscation 警告。
 - Doc 7. `MviExtensions.doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 的 KDoc 完全没说"必须在主线程 collect"。`setOnClickListener` 和 `TextWatcher` 都是 View 操作，需要 Main。配合 Bug 3，这条文档遗漏是必须补的。
 - Doc 8. `Contract.eventFlow` KDoc 第 262 行示例：
   ```kotlin

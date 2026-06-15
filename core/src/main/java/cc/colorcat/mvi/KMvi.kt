@@ -1,11 +1,11 @@
 package cc.colorcat.mvi
 
-import cc.colorcat.mvi.KMvi.handleStrategy
-import cc.colorcat.mvi.KMvi.setup
 import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.d
 import cc.colorcat.mvi.internal.e
+import cc.colorcat.mvi.internal.requireSupportedChannelConfig
 import cc.colorcat.mvi.internal.w
+import kotlinx.coroutines.channels.Channel
 import java.io.IOException
 
 /**
@@ -113,14 +113,6 @@ object KMvi {
         get() = config.handleStrategy
 
     /**
-     * The global hybrid configuration for Intent grouping.
-     *
-     * Used when [handleStrategy] is HYBRID to determine how to group Intents.
-     */
-    internal val hybridConfig: HybridConfig<Mvi.Intent>
-        get() = config.hybridConfig
-
-    /**
      * The global retry policy for unhandled exceptions during intent processing.
      *
      * Determines whether to restart the pipeline subscription after a failure.
@@ -138,6 +130,44 @@ object KMvi {
      */
     internal val intentQueueConfig: IntentQueueConfig
         get() = config.intentQueueConfig
+
+    /**
+     * Creates a [HybridConfig] for the given Intent type.
+     *
+     * The returned config uses [Configuration.groupChannelCapacity] as its default
+     * group channel capacity, while keeping [groupTagSelector] strongly typed to
+     * the contract's Intent root type.
+     *
+     * ## Usage Example
+     *
+     * ```kotlin
+     * val config = KMvi.hybridConfig<MyIntent> { intent ->
+     *     when (intent) {
+     *         is MyIntent.LoadUser -> "user"
+     *         is MyIntent.LoadPost -> "post"
+     *         else -> intent.javaClass.name
+     *     }
+     * }
+     * ```
+     *
+     * @param groupChannelCapacity The capacity of internal channels used by HYBRID fallback groups.
+     *                              Defaults to [Configuration.groupChannelCapacity].
+     * @param groupTagSelector A function that assigns a group tag to each fallback Intent.
+     *                         Defaults to `{ it.javaClass.name }`; see
+     *                         [HybridConfig.groupTagSelector] for the R8/ProGuard caveats this
+     *                         default carries.
+     * @return A typed [HybridConfig] instance.
+     * @see HybridConfig.groupTagSelector
+     */
+    fun <I : Mvi.Intent> hybridConfig(
+        groupChannelCapacity: Int = config.groupChannelCapacity,
+        groupTagSelector: (I) -> String = { it.javaClass.name },
+    ): HybridConfig<I> {
+        return HybridConfig(
+            groupChannelCapacity = groupChannelCapacity,
+            groupTagSelector = groupTagSelector,
+        )
+    }
 
     /**
      * Configures the global K-MVI framework settings.
@@ -224,7 +254,7 @@ object KMvi {
      * ## Properties
      *
      * - **handleStrategy**: How Intents are processed (CONCURRENT, SEQUENTIAL, or HYBRID)
-     * - **hybridConfig**: Configuration for Intent grouping when using HYBRID strategy
+     * - **groupChannelCapacity**: Buffer capacity for HYBRID fallback intent groups
      * - **retryPolicy**: Determines whether to retry failed Intent processing
      * - **logger**: The logger instance used throughout the framework
      *
@@ -245,7 +275,10 @@ object KMvi {
      *                             Default: [IntentQueueConfig] with capacity 256 and
      *                             [kotlinx.coroutines.channels.BufferOverflow.SUSPEND].
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
-     * @property hybridConfig The hybrid grouping configuration. Default: class-name based grouping
+     * @property groupChannelCapacity The default capacity of internal channels used by
+     *                                [HandleStrategy.HYBRID] fallback groups.
+     *                                This does not affect the dispatch entry queue; use
+     *                                [intentQueueConfig] for that.
      * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
      *                       Default: retry on [IOException] when `attempt < 3` (up to 3 retries)
      * @property logger The logger instance. Default: Logger with WARN level
@@ -258,8 +291,12 @@ object KMvi {
     data class Configuration(
         val intentQueueConfig: IntentQueueConfig = IntentQueueConfig(),
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
-        val hybridConfig: HybridConfig<Mvi.Intent> = HybridConfig(),
+        val groupChannelCapacity: Int = Channel.BUFFERED,
         val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
         val logger: Logger = Logger(),
-    )
+    ) {
+        init {
+            requireSupportedChannelConfig("groupChannelCapacity", groupChannelCapacity)
+        }
+    }
 }
