@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.flattenMerge
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Transforms a flow of intents into a flow of partial state changes.
@@ -244,6 +245,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     private val config: HybridConfig<I>,
     private val handler: IntentHandler<I, S, E>,
 ) : IntentTransformer<I, S, E> {
+    private val conflictIntentTypes = ConcurrentHashMap.newKeySet<Class<*>>()
 
     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
         logger.i(TAG) {
@@ -319,7 +321,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * - **Conflict** (implements both [Mvi.Intent.Concurrent] and [Mvi.Intent.Sequential]):
      *   - The two markers are mutually exclusive; implementing both is incorrect.
-     *   - A warning is logged identifying the intent class.
+     *   - A warning is logged once per intent class for this transformer instance.
      *   - The intent falls through to fallback grouping (same as the case above).
      *
      * @param intent The intent to classify
@@ -331,9 +333,11 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
             intent.isSequential -> TAG_SEQUENTIAL
             else -> {
                 if (intent is Mvi.Intent.Concurrent && intent is Mvi.Intent.Sequential) {
-                    logger.w(TAG) {
-                        "${intent.diagnosticName} implements both Concurrent and Sequential, " +
-                            "which may lead to unpredictable behavior."
+                    if (conflictIntentTypes.add(intent.javaClass)) {
+                        logger.w(TAG) {
+                            "${intent.diagnosticName} implements both Concurrent and Sequential; " +
+                                "falling back to hybrid group selection."
+                        }
                     }
                 }
                 TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)

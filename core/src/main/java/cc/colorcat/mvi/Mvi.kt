@@ -100,7 +100,8 @@ object Mvi {
          *
          * **Do not implement both [Concurrent] and [Sequential] on the same intent.**
          * The two markers are mutually exclusive. Doing so is treated as a conflict:
-         * a warning is logged and the intent is routed to the fallback group instead.
+         * a warning is logged once per intent class and the intent is routed to the
+         * fallback group instead.
          */
         interface Concurrent : Intent
 
@@ -119,7 +120,8 @@ object Mvi {
          *
          * **Do not implement both [Sequential] and [Concurrent] on the same intent.**
          * The two markers are mutually exclusive. Doing so is treated as a conflict:
-         * a warning is logged and the intent is routed to the fallback group instead.
+         * a warning is logged once per intent class and the intent is routed to the
+         * fallback group instead.
          */
         interface Sequential : Intent
     }

@@ -55,6 +55,7 @@ class IntentTransformersTest {
     // Intent that implements BOTH Concurrent and Sequential — edge case for assignGroupTag
     private sealed interface BothIntent : TestIntent, Mvi.Intent.Concurrent, Mvi.Intent.Sequential {
         data object Ambiguous : BothIntent
+        data object Other : BothIntent
     }
 
     @Rule @JvmField val testLog: TestRule = TestLogger()
@@ -224,6 +225,41 @@ class IntentTransformersTest {
         // meaning it falls through to FALLBACK + groupTagSelector result
         assertFalse("should not be CONCURRENT or SEQUENTIAL tag", handledTag.contains("CONCURRENT"))
         assertFalse("should not be CONCURRENT or SEQUENTIAL tag", handledTag.contains("SEQUENTIAL"))
+    }
+
+    @Test
+    fun `conflict intent emits WARN once per class`() = runBlocking {
+        val warns = mutableListOf<String>()
+        KMvi.setup {
+            copy(logger = Logger { priority, _, _, message ->
+                if (priority == Logger.WARN) warns.add(message())
+            })
+        }
+
+        val transformer = IntentTransformer(
+            strategy = HandleStrategy.HYBRID,
+            config = HybridConfig<BothIntent>(groupTagSelector = { it::class.java.name }),
+            handler = IntentHandler<BothIntent, TestState, TestEvent> {
+                Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
+                    .asSingleFlow()
+            },
+        )
+
+        val intents = flow {
+            emit(BothIntent.Ambiguous)
+            emit(BothIntent.Ambiguous)
+            emit(BothIntent.Other)
+            emit(BothIntent.Other)
+            emit(BothIntent.Ambiguous)
+        }
+        val results = intents.toPartialChange(transformer).toList()
+
+        assertEquals(5, results.size)
+        assertEquals("WARN must fire once per conflicting class", 2, warns.size)
+        assertTrue(warns.any { it.contains("Ambiguous") })
+        assertTrue(warns.any { it.contains("Other") })
+        assertTrue(warns.all { it.contains("both Concurrent and Sequential") })
+        assertTrue(warns.all { it.contains("falling back to hybrid group selection") })
     }
 
     @Test
