@@ -404,7 +404,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
     ): Job {
         return flow
             .filter { clazz.isInstance(it) }
-            .map { requireNotNull(clazz.java.cast(it)) }
+            .map { clazz.java.cast(it) as A }
             .launchWithLifecycle(owner, state, job, block)
     }
 

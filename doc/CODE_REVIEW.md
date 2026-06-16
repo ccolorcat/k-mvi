@@ -23,12 +23,7 @@
 ## Bug（实现正确性）
 
 - ✅ **Bug 1（已修复）**. `ReactiveContractImpl.kt` 中 `SNAPSHOT_BUFFER_CAPACITY` 已移到 `CoreReactiveContract` 长 KDoc 之前，类 KDoc 现在正确挂在 `CoreReactiveContract` 上，不再误挂到常量声明。
-- Bug 2. `EventCollector.collectTyped(KClass, ...)`（`MviCollects.kt:400`）写成：
-  ```kotlin
-  flow.filter { clazz.isInstance(it) }
-      .map { requireNotNull(clazz.java.cast(it)) }
-  ```
-  `Class.cast` 在传入非 null 时永远不会返回 null（不匹配会抛 `ClassCastException`），上游 `flow: Flow<E>` 又是非 null，`requireNotNull` 永不触发，纯属误导后续维护者以为这里能出 null。直接 `flow.filterIsInstance(clazz.java)` 或 `flow.mapNotNull { clazz.safeCast(it) }` 一行就够。
+- ✅ **Bug 2（已修复）**. `EventCollector.collectTyped(KClass, ...)` 已去掉误导性的 `requireNotNull(clazz.java.cast(it))`。上游 `flow: Flow<E>` 非 null，且前置 `clazz.isInstance(it)` 已完成类型过滤，动态 `KClass` 重载保留 `clazz.isInstance + clazz.java.cast` 即可。
 - Bug 3. `MviExtensions` 里的 `doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 都在 `callbackFlow { ... }` 内调 `setOnClickListener(...)`，在 `awaitClose { ... }` 内反向移除。这些 View / TextWatcher 操作必须在主线程；当前实现没有 `.flowOn(Dispatchers.Main.immediate)`、也没有运行时校验。如果调用方在 `viewModelScope`（默认 `Dispatchers.Main.immediate`，恰好就在主线程，所以暂时没炸）以外的 scope 上 collect，就会抛 `CalledFromWrongThreadException`。要么加 `.flowOn(Dispatchers.Main.immediate)`，要么在 KDoc 里明确声明"必须 main 线程 collect"。
 - Bug 4. `CoreReactiveContract` 里 `scope.coroutineContext[Job]?.invokeOnCompletion { channel.close() }`（`ReactiveContractImpl.kt:162`）使用 `?.`：如果 scope 的 context 里没有 `Job`，channel 永远不会关闭，`dispatch` 也就永远不会返回 `Closed`，scope 已经"等价于失活"但 `trySend` 仍然成功。对 `viewModelScope` 这是无关紧要的边角，但用户拿任意 `CoroutineScope` 构造时（库公开支持，因为 `CoreReactiveContract` 接受 `scope` 参数）有真实风险。建议改为 `requireNotNull(scope.coroutineContext[Job]) { ... }`。
 - Bug 5. `Mvi.Snapshot.updateState { ... }`（`Mvi.kt:336`）会无条件清掉 `event`：
