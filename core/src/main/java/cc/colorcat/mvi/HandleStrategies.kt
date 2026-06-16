@@ -182,7 +182,7 @@ enum class HandleStrategy {
      *
      * mviViewModel(
      *     // ...
-     *     strategy = HandleStrategy.HYBRID,
+     *     handleStrategy = HandleStrategy.HYBRID,
      *     groupTagSelector = groupTagSelector
      * )
      * ```

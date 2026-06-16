@@ -364,7 +364,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     initState: S,
     intentQueueConfig: IntentQueueConfig,
     retryPolicy: RetryPolicy,
-    strategy: HandleStrategy,
+    handleStrategy: HandleStrategy,
     hybridConfig: HybridConfig,
     groupTagSelector: GroupTagSelector<I>,
     private val delegate: IntentHandlerDelegate<I, S, E>,
@@ -373,7 +373,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     initState = initState,
     intentQueueConfig = intentQueueConfig,
     retryPolicy = retryPolicy,
-    transformer = IntentTransformer(strategy, hybridConfig, groupTagSelector, delegate),
+    transformer = IntentTransformer(handleStrategy, hybridConfig, groupTagSelector, delegate),
 ) {
     /**
      * Public constructor that creates the delegate internally.
@@ -382,7 +382,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
      * @param initState The initial state
      * @param intentQueueConfig The dispatch entry queue configuration
      * @param retryPolicy Policy for retrying on errors
-     * @param strategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
+     * @param handleStrategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
      * @param hybridConfig Runtime configuration for HYBRID strategy
      * @param groupTagSelector Selects fallback group tags for HYBRID strategy
      * @param defaultHandler The fallback handler for unregistered intent types, or `null` for
@@ -393,7 +393,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         initState: S,
         intentQueueConfig: IntentQueueConfig,
         retryPolicy: RetryPolicy,
-        strategy: HandleStrategy,
+        handleStrategy: HandleStrategy,
         hybridConfig: HybridConfig,
         groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
         defaultHandler: IntentHandler<I, S, E>?,
@@ -402,7 +402,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         initState = initState,
         intentQueueConfig = intentQueueConfig,
         retryPolicy = retryPolicy,
-        strategy = strategy,
+        handleStrategy = handleStrategy,
         hybridConfig = hybridConfig,
         groupTagSelector = groupTagSelector,
         delegate = IntentHandlerDelegate(defaultHandler),

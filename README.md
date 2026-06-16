@@ -309,7 +309,7 @@ more flexibility:
 class MyViewModel : ViewModel() {
     private val contract by contract(
         initState = MyState(),
-        strategy = HandleStrategy.HYBRID,
+        handleStrategy = HandleStrategy.HYBRID,
         config = HybridConfig(
             groupTagSelector = { intent ->
                 when (intent) {
@@ -520,7 +520,7 @@ For more complex applications, you can configure the intent handling strategy an
 class UserViewModel : ViewModel() {
     private val contract by contract(
         initState = UserState(),
-        strategy = HandleStrategy.HYBRID,
+        handleStrategy = HandleStrategy.HYBRID,
         config = HybridConfig(
             groupTagSelector = { intent ->
                 when (intent) {
@@ -607,7 +607,7 @@ If you prefer the registration approach:
 class UserViewModel : ViewModel() {
     private val contract by contract(
         initState = UserState(),
-        strategy = HandleStrategy.HYBRID,
+        handleStrategy = HandleStrategy.HYBRID,
         config = HybridConfig(
             groupTagSelector = { intent ->
                 when (intent) {

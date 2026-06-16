@@ -133,7 +133,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *     private val contract by contract(
  *         initState = MyState(),
  *         // Define your own PartialChange subtypes implementing Mvi.PartialChange
- *         strategy = HandleStrategy.HYBRID
+ *         handleStrategy = HandleStrategy.HYBRID
  *     ) {
  *         // Register handlers for different Intent types
  *         register<LoadIntent> { intent ->
@@ -165,7 +165,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
  *                          [KMvi.intentQueueConfig]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
- * @param strategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
+ * @param handleStrategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
  * @param hybridConfig The runtime configuration when using HYBRID strategy.
  *                     Defaults to [KMvi.hybridConfig].
  * @param groupTagSelector Selects fallback group tags when using HYBRID strategy.
@@ -186,7 +186,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
     intentQueueConfig: IntentQueueConfig = KMvi.intentQueueConfig,
     retryPolicy: RetryPolicy = KMvi.retryPolicy,
-    strategy: HandleStrategy = KMvi.handleStrategy,
+    handleStrategy: HandleStrategy = KMvi.handleStrategy,
     hybridConfig: HybridConfig = KMvi.hybridConfig,
     groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
     defaultHandler: IntentHandler<I, S, E>? = null,
@@ -198,7 +198,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
             initState = initState,
             intentQueueConfig = intentQueueConfig,
             retryPolicy = retryPolicy,
-            strategy = strategy,
+            handleStrategy = handleStrategy,
             hybridConfig = hybridConfig,
             groupTagSelector = groupTagSelector,
             defaultHandler = defaultHandler,

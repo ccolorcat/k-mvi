@@ -67,7 +67,7 @@
   override val eventFlow: Flow<E> get() = source.eventFlow
   ```
   既然 `source` 是不可变 `val`，对应 flow 也是不可变属性，去掉 `get()`、直接 `= source.stateFlow` 就行；最短写法是 `class ReadOnlyContract<...>(source: ReactiveContract<...>) : Contract<...> by source` 委托。
-- Style 4. `IntentTransformer.Companion.invoke(...)` 已经是 SAM-fun-interface，可以直接 `IntentTransformer { ... }` 构造；再写一个 `internal operator fun invoke(strategy, config, handler)` 等于把 framework 内部工厂塞进公开 companion，污染对外类型。改成包内 `internal fun strategyTransformer(...)` 函数更合 Kotlin 习惯。
+- Style 4. `IntentTransformer.Companion.invoke(...)` 已经是 SAM-fun-interface，可以直接 `IntentTransformer { ... }` 构造；再写一个 `internal operator fun invoke(handleStrategy, config, handler)` 等于把 framework 内部工厂塞进公开 companion，污染对外类型。改成包内 `internal fun strategyTransformer(...)` 函数更合 Kotlin 习惯。
 - Style 5. `StrategyReactiveContract` 提供两个构造器，只为切换"传 `IntentHandlerDelegate`"还是"传 `IntentHandler` 后内部包一层 delegate"。可以删私构造，用 `init { ... }` 初始化 delegate；或者直接给公共构造，private 那条根本没人需要。
 - Style 6. `MviExtensions.doOnClick` 里 `this.block()`（`MviExtensions.kt:176, 207, 237`）的显式 `this.` 是冗余的，`block()` 即可。
 - Style 7. `Mvi.Snapshot.updateState` 和 `updateWith` 都先存中间局部变量再 `this.copy(...)`。两个 `this.` 都可去；`updateState` 一行：`copy(state = state.transform(), event = null)`。

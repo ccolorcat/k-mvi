@@ -108,7 +108,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.CONCURRENT,
+                handleStrategy = HandleStrategy.CONCURRENT,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -137,7 +137,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.SEQUENTIAL,
+                handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -164,7 +164,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.SEQUENTIAL,
+                handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -196,7 +196,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.CONCURRENT,
+                handleStrategy = HandleStrategy.CONCURRENT,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
@@ -216,7 +216,7 @@ class ReactiveContractImplTest {
                 intentQueueConfig = IntentQueueConfig(capacity = -3),
                 retryPolicy = { _, _ -> false },
                 transformer = IntentTransformer(
-                    strategy = HandleStrategy.CONCURRENT,
+                    handleStrategy = HandleStrategy.CONCURRENT,
                     hybridConfig = HybridConfig(),
                     groupTagSelector = GroupTagSelector.byClass(),
                     handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
@@ -243,7 +243,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.CONCURRENT,
+                handleStrategy = HandleStrategy.CONCURRENT,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -274,7 +274,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.CONCURRENT,
+                handleStrategy = HandleStrategy.CONCURRENT,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -304,7 +304,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.CONCURRENT,
+                handleStrategy = HandleStrategy.CONCURRENT,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -359,7 +359,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            strategy = HandleStrategy.CONCURRENT,
+            handleStrategy = HandleStrategy.CONCURRENT,
             hybridConfig = HybridConfig(),
             defaultHandler = IntentHandler<TestIntent, TestState, TestEvent> {
                 Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
@@ -379,7 +379,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            strategy = HandleStrategy.CONCURRENT,
+            handleStrategy = HandleStrategy.CONCURRENT,
             hybridConfig = HybridConfig(),
             defaultHandler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
         )
@@ -407,7 +407,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            strategy = HandleStrategy.CONCURRENT,
+            handleStrategy = HandleStrategy.CONCURRENT,
             hybridConfig = HybridConfig(),
             defaultHandler = IntentHandler<TestIntent, TestState, TestEvent> {
                 defaultHit = true
@@ -436,7 +436,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.CONCURRENT,
+                handleStrategy = HandleStrategy.CONCURRENT,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
@@ -463,7 +463,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = 0),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.SEQUENTIAL,
+                handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -504,7 +504,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = Channel.RENDEZVOUS),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.SEQUENTIAL,
+                handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
@@ -561,7 +561,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = Channel.CONFLATED),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.SEQUENTIAL,
+                handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
@@ -611,7 +611,7 @@ class ReactiveContractImplTest {
             ),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.SEQUENTIAL,
+                handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
@@ -661,7 +661,7 @@ class ReactiveContractImplTest {
             ),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.SEQUENTIAL,
+                handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
@@ -706,7 +706,7 @@ class ReactiveContractImplTest {
             intentQueueConfig = IntentQueueConfig(capacity = Channel.UNLIMITED),
             retryPolicy = { _, _ -> false },
             transformer = IntentTransformer(
-                strategy = HandleStrategy.SEQUENTIAL,
+                handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridConfig = HybridConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->

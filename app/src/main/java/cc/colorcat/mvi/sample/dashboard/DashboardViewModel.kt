@@ -30,7 +30,7 @@ class DashboardViewModel : ViewModel() {
 
     private val contract by contract(
         initState = State(),
-        strategy = HandleStrategy.HYBRID,
+        handleStrategy = HandleStrategy.HYBRID,
         groupTagSelector = GroupTagSelector { intent: Intent ->
             when (intent) {
                 is Intent.LoadCategory -> "category-${intent.category}"
