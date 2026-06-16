@@ -156,6 +156,10 @@ internal fun <T> Flow<T>.debounceLeading(timeMillis: Long, nanoTimeSource: () ->
  *
  * The Flow will emit an Intent each time the View is clicked.
  * The click listener is automatically removed when the Flow is cancelled.
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The lifecycle helpers in this library
+ * ([launchCollect] and [dispatchWithLifecycle]) collect from
+ * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *
@@ -183,6 +187,10 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  *
  * The Flow will emit an Intent each time the View is long-clicked.
  * The long click listener is automatically removed when the Flow is cancelled.
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The lifecycle helpers in this library
+ * ([launchCollect] and [dispatchWithLifecycle]) collect from
+ * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *
@@ -214,6 +222,10 @@ fun <I : Mvi.Intent> View.doOnLongClick(
  *
  * The Flow will emit an Intent each time the checked state changes.
  * The checked change listener is automatically removed when the Flow is cancelled.
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The lifecycle helpers in this library
+ * ([launchCollect] and [dispatchWithLifecycle]) collect from
+ * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *
@@ -246,6 +258,10 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  * The Flow will emit an Intent after the text changes (after the user finishes editing).
  * Debouncing helps reduce unnecessary emissions during rapid typing.
  * The text watcher is automatically removed when the Flow is cancelled.
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The lifecycle helpers in this library
+ * ([launchCollect] and [dispatchWithLifecycle]) collect from
+ * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *

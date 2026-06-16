@@ -26,6 +26,13 @@ suspend fun randomDelay(min: Long = 1000, max: Long = 3000) =
     delay(Random.nextLong(max - min) + min)
 
 
+/**
+ * Converts text changes into a Flow of intents.
+ *
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The sample collects it through lifecycle-aware
+ * Fragment helpers, which use `LifecycleOwner.lifecycleScope` and satisfy this requirement.
+ */
 fun <I : Mvi.Intent> TextView.doOnTextChanged(
     block: ProducerScope<I>.(text: CharSequence?) -> Unit,
 ): Flow<I> = callbackFlow {
