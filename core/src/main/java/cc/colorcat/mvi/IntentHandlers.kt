@@ -7,6 +7,7 @@ import cc.colorcat.mvi.internal.logger
 import cc.colorcat.mvi.internal.w
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -17,8 +18,9 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * ## Key Characteristics
  *
- * - **Suspend Function**: Can perform async operations (network calls, database queries, etc.)
- * - **Flow Return**: Supports multiple state updates over time for a single intent
+ * - **Flow Boundary**: Async work, cancellation, and emissions happen inside the returned [Flow]
+ * - **Synchronous Construction**: [handle] should only build and return the Flow, not do expensive work first
+ * - **Multiple Emissions**: Supports multiple state updates over time for a single intent
  * - **Type-Safe**: Strongly typed with Intent, State, and Event generics
  *
  * ## Typical Pattern
@@ -48,6 +50,7 @@ import java.util.concurrent.ConcurrentHashMap
  *         emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
  *
  *         try {
+ *             // Suspend work belongs inside the Flow, so strategy operators control its lifecycle.
  *             val data = repository.loadData(intent.id)
  *             // Second: Update with loaded data
  *             emit(Mvi.PartialChange { snapshot ->
@@ -83,14 +86,18 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
      * Handles the given intent and produces a flow of partial state changes.
      *
      * This method is called when an intent needs to be processed. It can:
-     * - Perform async operations (network, database, etc.)
-     * - Emit multiple state changes over time
-     * - Emit events alongside state changes
+     * - Build a Flow that performs async operations (network, database, etc.)
+     * - Build a Flow that emits multiple state changes over time
+     * - Build a Flow that emits events alongside state changes
+     *
+     * Keep this method synchronous and lightweight. Expensive or suspend work must be
+     * placed inside the returned Flow so [HandleStrategy] operators can control the
+     * complete lifecycle of each intent.
      *
      * @param intent The intent to handle
      * @return A flow of partial changes to be applied to the current state
      */
-    suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>>
+    fun handle(intent: I): Flow<Mvi.PartialChange<S, E>>
 }
 
 
@@ -109,7 +116,7 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * // Register a simple handler (single state change) - Kotlin style with extension
  * registry.register<LoadDataIntent> { intent ->
  *     Mvi.PartialChange { snapshot ->
- *         snapshot.updateState { copy(data = loadData(intent.id)) }
+ *         snapshot.updateState { copy(selectedId = intent.id) }
  *     }
  * }
  *
@@ -248,7 +255,7 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
         handlers.remove(intentType)
     }
 
-    override suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
+    override fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
         @Suppress("UNCHECKED_CAST")
         // Exact class match only — see IntentHandlerRegistry.register KDoc.
         val registered = handlers[intent.javaClass] as IntentHandler<I, S, E>?
@@ -284,18 +291,20 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
  * ```kotlin
  * registry.register<LoadDataIntent> { intent ->
  *     Mvi.PartialChange { snapshot ->
- *         snapshot.updateState { copy(data = loadData(intent.id)) }
+ *         snapshot.updateState { copy(selectedId = intent.id) }
  *     }
  * }
  * ```
  *
  * @param I The specific intent type to handle
- * @param handler A suspend function that transforms the intent into a single partial change
+ * @param handler A lightweight function that transforms the intent into a single partial change
  */
 inline fun <reified I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in I, S, E>.register(
-    noinline handler: suspend (intent: I) -> Mvi.PartialChange<S, E>,
-) {
-    register(I::class.java) { handler(it).asSingleFlow() }
+    noinline handler: (intent: I) -> Mvi.PartialChange<S, E>,
+) = register(I::class.java) { intent ->
+    flow {
+        emit(handler(intent))
+    }
 }
 
 /**

@@ -8,6 +8,7 @@ import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
+import cc.colorcat.mvi.register
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -122,6 +123,23 @@ class IntentHandlersTest {
         val changes = delegate.handle(TestIntent.Increment).toList()
         assertEquals("handled", changes.single().apply(Mvi.Snapshot(TestState())).state.value)
         assertTrue("no WARN expected for handled intent", warns.isEmpty())
+    }
+
+    @Test
+    fun `single change register runs handler when returned flow is collected`() = runBlocking {
+        var calls = 0
+        val delegate = IntentHandlerDelegate<TestIntent, TestState, TestEvent>(defaultHandler = null)
+        delegate.register<TestIntent.Increment, TestState, TestEvent> {
+            calls++
+            Mvi.PartialChange { snapshot -> snapshot.updateState { copy(value = "collected") } }
+        }
+
+        val changes = delegate.handle(TestIntent.Increment)
+        assertEquals("handler should not run while only creating the Flow", 0, calls)
+
+        val result = changes.toList()
+        assertEquals(1, calls)
+        assertEquals("collected", result.single().apply(Mvi.Snapshot(TestState())).state.value)
     }
 
     @Test

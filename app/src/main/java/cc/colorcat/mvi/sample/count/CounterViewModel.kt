@@ -138,8 +138,8 @@ class CounterViewModel : ViewModel() {
      *     }
      * }
      *
-     * // ⚠️ Acceptable only when pre-handler logic is required
-     * //    (e.g., early exit with emptyFlow, or suspend pre-validation)
+     * // ⚠️ Acceptable only when pre-flow logic is required
+     * //    (e.g., early exit with emptyFlow, or lightweight pre-validation)
      * if (stateFlow.value.count == COUNT_MIN) return emptyFlow()
      * ```
      *
@@ -200,7 +200,7 @@ class CounterViewModel : ViewModel() {
      * - `flow { emit(...) }`: Build custom Flow for complex scenarios (used here)
      * - `asSingleFlow()`: Convert single PartialChange to Flow
      * - `flowOf(...)`: Create Flow from multiple PartialChanges
-     * - Use suspend functions with `flow { ... }` for async work
+     * - Put suspend work inside `flow { ... }` for async operations
      *
      * **Best for:**
      * - Async operations (API calls, DB queries, file I/O)

@@ -16,7 +16,7 @@
 - ✅ **Design 6（已修复）**. 管线已去掉 `flowOn(Dispatchers.IO)`，默认整条 `toPartialChange` / `retryWhen` / `scan` 处理链路在 `Dispatchers.Default` 上执行，只保留 `Default` 到 `shareIn` 的一个处理边界。真正阻塞的网络、数据库、文件 I/O 由业务 handler 自行 `withContext(Dispatchers.IO)` 或对阻塞源 Flow 使用 `flowOn(Dispatchers.IO)`。
 - ✅ **Design 7（已重新评估，建议保留）**. `Mvi` 用一个 `object` 聚合 `Intent` / `State` / `Event` / `PartialChange` / `Snapshot` 并非单纯多一层命名空间。它给高频核心类型提供了稳定的 IDE 补全入口：用户只要记住 `Mvi.`，就能枚举全部 MVI 域类型；这比分别记 `PartialChange` / `Snapshot` / `State` 等通用词更容易。放到包顶级还会让 `Intent` 在 Android 项目中更容易与 `android.content.Intent` 和业务 `Contract.Intent` 撞名。因此不建议按“全部提升到包顶级”执行；若要降低书写成本，应优先在业务 contract 内封装短名，例如 `fun interface PartialChange : Mvi.PartialChange<State, Event>`，样例已经采用这种模式。
 - ✅ **Design 8（已重新评估，建议保留）**. `ReadOnlyContract`（`Contracts.kt:292`）并不是无效包装。`asContract()` 返回私有 `ReadOnlyContract` 实例，而不是把原始 `ReactiveContract` 直接向上转型为 `Contract`；该包装只实现 `Contract<S, E>`，不实现 `ReactiveContract<I, S, E>`，因此调用方拿到它后无法通过普通 `as? ReactiveContract` 取回 `dispatch`。需要补充说明的是，防穿透成立的前提是 ViewModel 暴露 `reactiveContract.asContract()`；如果只是写 `val contract: Contract<S, E> = reactiveContract`，那仍然只是类型窄化，调用方可以强转回 `ReactiveContract`。
-- Design 9. `IntentHandler.handle` 是 `suspend fun handle(intent): Flow<...>`。同步返回 Flow 本身就支持惰性构造，几乎不需要外面再加一层 suspend。当前用法（`IntentHandlerDelegate.handle` 里直接 `return handler.handle(intent)`）也从不利用这层 suspend。多余的 suspend 让 SAM 调用方多一道思考成本。
+- ✅ **Design 9（已修复）**. `IntentHandler.handle` 已从 `suspend fun handle(intent): Flow<...>` 改为同步返回 `Flow<PartialChange>`。`Flow` 本身就是承载异步、多次 emission、取消和顺序语义的边界；外层 `suspend` 会让用户把耗时工作放在"返回 Flow 之前"，导致这部分工作不属于 `flatMapMerge` / `flatMapConcat` 管理的 inner Flow 生命周期，CONCURRENT / SEQUENTIAL 策略的执行时机更难解释。当前契约是：`handle(intent)` 只同步、轻量地构造 Flow，网络、数据库、delay、复杂业务等都放进返回的 `flow { ... }` 内。配套地，`register { PartialChange }` 便利重载也已从 `suspend (I) -> PartialChange` 改成普通 `(I) -> PartialChange`，并包装为 `IntentHandler { intent -> flow { emit(handler(intent)) } }`，避免 `handler(intent).asSingleFlow()` 在 Flow 创建前先执行 handler。
 
 ---
 
@@ -53,7 +53,7 @@
 - Name 7. `Mvi.PartialChange` 名字里只说"state"——但实现里它既能改 state 又能附带 event，apply 后还可能只动 event。`SnapshotUpdate` 或 `StateMutation` 更贴近实际语义。
 - Name 8. `StateCollector.collectPartial(KProperty1<S, A>, ...)`：这里 "partial" 指的是"一个 property"，但库里 `Mvi.PartialChange` 的 "partial" 含义完全不同（更新 *部分字段*）。同一个词意义混用，读者得在两套语境间切换。`collectProperty` 更直白。
 - Name 9. `DispatchResult.Inactive` 与 `DispatchResult.Closed` 对调用方来说没有可操作区别——都是"我没排进队"。强行二分让 `when` 多写一支。合并为单个 `Rejected(reason)` 或 `NotAccepted` 更轻量。
-- Name 10. `IntentHandler.handle` 的 `suspend` 修饰让方法签名读起来像"会暂停"，实际上 99% 的实现立刻返回 `flow { ... }`。考虑去掉 `suspend`（参见 Design 9）。
+- ✅ **Name 10（已修复）**. `IntentHandler.handle` 已去掉 `suspend`，签名现在更准确地表达契约：handler 同步构造 Flow，异步处理发生在返回的 Flow 内（参见 Design 9）。
 
 ---
 
