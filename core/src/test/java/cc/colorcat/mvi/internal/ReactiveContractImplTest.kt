@@ -42,6 +42,7 @@ import org.junit.rules.TestRule
 import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.coroutines.EmptyCoroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReactiveContractImplTest {
@@ -223,6 +224,28 @@ class ReactiveContractImplTest {
                 ),
             )
         }
+    }
+
+    @Test
+    fun `scope without Job throws`() {
+        val scopeWithoutJob = object : CoroutineScope {
+            override val coroutineContext = EmptyCoroutineContext
+        }
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            CoreReactiveContract(
+                scope = scopeWithoutJob,
+                initState = TestState(),
+                intentQueueConfig = IntentQueueConfig(capacity = 64),
+                retryPolicy = { _, _ -> false },
+                transformer = IntentTransformer(
+                    handleStrategy = HandleStrategy.CONCURRENT,
+                    hybridConfig = HybridConfig(),
+                    groupTagSelector = GroupTagSelector.byClass(),
+                    handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                ),
+            )
+        }
+        assertTrue(error.message.orEmpty().contains("scope must contain a Job"))
     }
 
     // --- eventFlow ---

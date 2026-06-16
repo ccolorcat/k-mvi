@@ -113,7 +113,7 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * @param I The intent type
  * @param S The state type
  * @param E The event type
- * @param scope The coroutine scope for flow collection
+ * @param scope The coroutine scope for flow collection; its context must contain a [Job]
  * @param initState The initial state
  * @param intentQueueConfig The dispatch entry queue configuration
  * @param retryPolicy Policy for retrying on errors
@@ -133,6 +133,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     retryPolicy: RetryPolicy,
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
+    private val scopeJob = requireNotNull(scope.coroutineContext[Job]) {
+        "CoreReactiveContract scope must contain a Job."
+    }
+
     /**
      * Channel for buffering dispatched intents before they enter the processing pipeline.
      *
@@ -156,7 +160,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         capacity = intentQueueConfig.capacity,
         onBufferOverflow = intentQueueConfig.onBufferOverflow,
     ).also { channel ->
-        scope.coroutineContext[Job]?.invokeOnCompletion {
+        scopeJob.invokeOnCompletion {
             channel.close()
         }
     }

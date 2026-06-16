@@ -25,7 +25,7 @@
 - ✅ **Bug 1（已修复）**. `ReactiveContractImpl.kt` 中 `SNAPSHOT_BUFFER_CAPACITY` 已移到 `CoreReactiveContract` 长 KDoc 之前，类 KDoc 现在正确挂在 `CoreReactiveContract` 上，不再误挂到常量声明。
 - ✅ **Bug 2（已修复）**. `EventCollector.collectTyped(KClass, ...)` 已去掉误导性的 `requireNotNull(clazz.java.cast(it))`。上游 `flow: Flow<E>` 非 null，且前置 `clazz.isInstance(it)` 已完成类型过滤，动态 `KClass` 重载保留 `clazz.isInstance + clazz.java.cast` 即可。
 - ✅ **Bug 3（已重新评估，通过文档契约处理）**. `MviExtensions` 里的 `doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 会在 `callbackFlow { ... }` 内注册 / 移除 View listener，理论上要求主线程；但库的常规生命周期 helper（`launchCollect` / `dispatchWithLifecycle`）都通过 `LifecycleOwner.lifecycleScope` 收集，正常 Fragment/View 用法已经满足。默认加 `.flowOn(Dispatchers.Main.immediate)` 会改变上游上下文并可能引入额外 Flow 边界，属于过度防御；当前选择是在 KDoc 明确这些 View Flow 必须在主线程收集，并推荐通过库提供的 lifecycle helper 使用。
-- Bug 4. `CoreReactiveContract` 里 `scope.coroutineContext[Job]?.invokeOnCompletion { channel.close() }`（`ReactiveContractImpl.kt:162`）使用 `?.`：如果 scope 的 context 里没有 `Job`，channel 永远不会关闭，`dispatch` 也就永远不会返回 `Closed`，scope 已经"等价于失活"但 `trySend` 仍然成功。对 `viewModelScope` 这是无关紧要的边角，但用户拿任意 `CoroutineScope` 构造时（库公开支持，因为 `CoreReactiveContract` 接受 `scope` 参数）有真实风险。建议改为 `requireNotNull(scope.coroutineContext[Job]) { ... }`。
+- ✅ **Bug 4（已修复）**. `CoreReactiveContract` 已把 scope 必须包含 [Job] 变成显式不变量：构造时通过 `requireNotNull(scope.coroutineContext[Job])` 获取 `scopeJob`，并用它注册 `invokeOnCompletion { channel.close() }`。这让 channel 关闭和 `dispatch` 的活跃性判断共享同一个生命周期前提；无 Job scope 会在构造阶段失败，而不是留下永远不会随 scope 完成而关闭的 intent channel。公开 `ViewModel.contract(...)` 传入的 `viewModelScope` 本身满足该条件。
 - Bug 5. `Mvi.Snapshot.updateState { ... }`（`Mvi.kt:336`）会无条件清掉 `event`：
   ```kotlin
   fun updateState(transform: S.() -> S): Snapshot<S, E> =
@@ -118,4 +118,4 @@
 2. **真正不变的契约写到 KDoc，可变 / 易踩的契约配示例反面教材**——`Snapshot.updateState` 会清 event、`groupHandle` 会常驻 Channel、`do*` 系列要求主线程，这些都该有"踩坑→怎么避免"的样例段。
 3. **保留 `Mvi.` 作为核心类型补全入口，同时推广业务侧短名封装**——`Mvi.` 对新用户更容易记忆和补全，也能避免顶级 `Intent` 与 Android / 业务类型撞名；日常签名的简化应交给 feature contract 内部的 `Intent` / `State` / `Event` / `PartialChange` 短名。
 
-Bug 级别的问题数量不多，且大多数是文档型（示例错、KDoc 挂错位置）。Bug 3 已重新评估为 View Flow 的主线程收集契约问题，并通过 KDoc 处理；当前真正的运行时风险主要剩 Bug 4（`Job` 缺失时 channel 不关），只有当 `CoreReactiveContract` 被自定义 scope 调用时才暴露。值得修，但不阻塞当前 release。
+Bug 级别的问题数量不多，且大多数是文档型（示例错、KDoc 挂错位置）。Bug 3 已重新评估为 View Flow 的主线程收集契约问题，并通过 KDoc 处理；Bug 4 已通过显式要求 scope 包含 `Job` 修复。当前剩余问题大多是 API 语义、文档准确性和样例指导层面的改进，不阻塞当前 release。
