@@ -51,20 +51,20 @@ import kotlinx.coroutines.isActive
  *
  * ## Thread Dispatching Strategy
  *
- * The pipeline uses two dispatchers for optimal performance:
- * - **[Dispatchers.IO]**: For intent processing (may involve network/database operations)
- * - **[Dispatchers.Default]**: For state updates (CPU-bound operations)
+ * Intent transformation, handler flow collection, and state accumulation run on
+ * [Dispatchers.Default]. This keeps the pipeline off the main thread without assuming every
+ * intent handler is doing blocking I/O. Handlers that perform blocking network, database, or
+ * file operations should isolate that work explicitly with `withContext(Dispatchers.IO)` or by
+ * applying `flowOn(Dispatchers.IO)` to the blocking source flow.
  *
  * ## Buffer and Backpressure
  *
- * The pipeline contains three channel boundaries, each with a distinct role:
+ * The pipeline contains two channel boundaries, each with a distinct role:
  *
  * ```
  * intentsChannel        (explicit  : intentQueueConfig) — dispatch entry queue
- *     ↓ [IO coroutine]  toPartialChange + retryWhen
- * Channel A             (implicit  : 64, SUSPEND)     — created by flowOn(IO); back-pressures IO
- *     ↓ [Default coroutine] scan
- * Channel B             (fused     : 64, DROP_OLDEST) — flowOn(Default) + buffer fused into one
+ *     ↓ [Default coroutine] toPartialChange + retryWhen + scan
+ * snapshot buffer       (fused     : 64, DROP_OLDEST) — flowOn(Default) + buffer fused into one
  *     ↓
  * shareIn (Eagerly, replay = 0)
  * ```
@@ -73,11 +73,7 @@ import kotlinx.coroutines.isActive
  * preserving the native [Channel] semantics for special constants such as [Channel.RENDEZVOUS],
  * [Channel.CONFLATED], [Channel.BUFFERED], and [Channel.UNLIMITED].
  *
- * **Channel A** is created implicitly by `flowOn(Dispatchers.IO)` with the framework default
- * capacity (64, SUSPEND). It is not configured explicitly because PartialChanges must never
- * be silently dropped: if `scan` is momentarily busy, IO coroutines suspend rather than lose work.
- *
- * **Channel B** is the result of operator fusion: adjacent `flowOn` and `buffer` operators
+ * **snapshot buffer** is the result of operator fusion: adjacent `flowOn` and `buffer` operators
  * are merged by the framework (`ChannelFlow.fuse()`) into a single channel regardless of
  * their relative order. The current order (`flowOn` then `buffer`) is chosen for readability —
  * it mirrors the data flow direction and makes the intent clear, not because order is required
@@ -170,12 +166,11 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * Processing pipeline:
      * 1. Receive intents from [intentsChannel] and transform to partial changes (with retry on failure)
-     * 2. Execute transformation on IO dispatcher (for network/database operations)
-     * 3. Accumulate changes into snapshots via [scan]
-     * 4. Execute state accumulation on Default dispatcher (CPU-bound operations)
-     * 5. Buffer snapshots between Default computation and [shareIn] ([SNAPSHOT_BUFFER_CAPACITY]
+     * 2. Execute transformation and handler flow collection on [Dispatchers.Default]
+     * 3. Accumulate changes into snapshots via [scan] on [Dispatchers.Default]
+     * 4. Buffer snapshots between Default computation and [shareIn] ([SNAPSHOT_BUFFER_CAPACITY]
      *    capacity, drop oldest on overflow — see class KDoc for rationale)
-     * 6. Share among collectors (started eagerly, no replay)
+     * 5. Share among collectors (started eagerly, no replay)
      *
      * ## Retry Strategy
      *
@@ -192,17 +187,14 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * ## Operator Fusion
      *
      * Adjacent `flowOn` and `buffer` operators are merged by the framework (`ChannelFlow.fuse()`)
-     * into a **single** Channel B regardless of their relative order (see class KDoc). The current
+     * into a single snapshot buffer regardless of their relative order (see class KDoc). The current
      * order — `flowOn(Default)` then `buffer` — is chosen for readability (mirrors data-flow
      * direction), not because order affects correctness. No redundant intermediate channel is
      * created; DROP_OLDEST applies precisely at the boundary between Default coroutine and [shareIn].
      */
     private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intentsChannel.receiveAsFlow()
         .toPartialChange(transformer)
-        // retryWhen immediately follows toPartialChange: retries are scoped to Intent handling
-        // only. Channel A (64, SUSPEND) is created implicitly by flowOn(IO).
         .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
-        .flowOn(Dispatchers.IO)
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
             try {
                 partialChange.apply(oldSnapshot)
@@ -213,8 +205,6 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
                 oldSnapshot
             }
         }
-        // flowOn(Default) + buffer fuse into single Channel B (64, DROP_OLDEST) via ChannelFlow.fuse().
-        // Order (flowOn before buffer) is a readability choice; both orderings produce the same result.
         .flowOn(Dispatchers.Default)
         .buffer(capacity = SNAPSHOT_BUFFER_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         .shareIn(scope, SharingStarted.Eagerly, 0)

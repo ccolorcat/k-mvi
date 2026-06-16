@@ -199,8 +199,9 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
      *
      * ## Thread Safety
      *
-     * This method is thread-safe and can be called from any thread. The actual
-     * processing happens on configured dispatchers (typically IO and Default).
+     * This method is thread-safe and can be called from any thread. Intent processing and
+     * state accumulation run off the caller thread on the framework processing dispatcher
+     * ([kotlinx.coroutines.Dispatchers.Default] by default).
      *
      * ## Example
      *

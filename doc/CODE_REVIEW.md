@@ -2,7 +2,7 @@
 
 评审范围：`core/src/main/java/cc/colorcat/mvi/**`（含 `internal/`），并参照 `app/` 样例验证运行场景。
 
-评审基准：库面向 Android `ViewModel` + `LifecycleOwner` 使用，`dispatch` 由主线程调用，`PartialChange.apply` 在 `Dispatchers.Default` 上执行，`IntentHandler.handle` 在 `Dispatchers.IO` 上执行。所以"线程安全"只在跨主线程边界的位置才计入问题，纯主线程路径不在意争用。
+评审基准：库面向 Android `ViewModel` + `LifecycleOwner` 使用，`dispatch` 由主线程调用，`IntentHandler.handle` 与 `PartialChange.apply` 默认在 `Dispatchers.Default` 上执行，真正阻塞的 I/O 由业务 handler 显式切到 `Dispatchers.IO`。所以"线程安全"只在跨主线程边界的位置才计入问题，纯主线程路径不在意争用。
 
 ---
 
@@ -13,7 +13,7 @@
 - ✅ **Design 3（已修复）**. `StrategyIntentTransformer.assignGroupTag`（`IntentTransformers.kt:328`）对"同时实现 `Concurrent` 和 `Sequential`"的冲突 Intent 按 class 去重记录 WARN，并继续路由到 fallback group。冲突是 *类型级* 的，不是 *实例级* 的，重复分发同一冲突类型不会继续污染日志。
 - ✅ **Design 4（已修复）**. `HybridConfig` 已去泛型，只保留业务无关的 HYBRID 运行参数；业务分组逻辑拆到 `GroupTagSelector<I>`，默认实现为 `GroupTagSelector.byClass()`。全局配置直接持有 `hybridConfig: HybridConfig`，不再混入 erased `Mvi.Intent` selector。
 - ✅ **Design 5（已通过文档和诊断日志处理）**. `groupHandle`（`InternalExtensions.kt:127`）会缓存每个 group tag 的 channel，直到 upstream 完成或 channel 被检测为 stale/closed 后替换。主动 LRU 驱逐会破坏"同 tag 顺序处理"语义，因此不引入 `maxActiveGroups`。`GroupTagSelector` 与 `groupHandle` KDoc 已明确：高基数 data-tied tag（资源 id、用户 id、查询串等）会让 active group 常驻增长；除非确实需要 per-value ordering，否则应使用 bucketed tag（如 `"user"` 而不是 `"user-${userId}"`）。同时新增 `groupCountWarningThreshold` 稀疏告警：active group channel 数量达到阈值时输出 WARN，随后阈值翻倍，避免频繁刷日志。
-- Design 6. 管线连续 `flowOn(Dispatchers.IO)` → `scan` → `flowOn(Dispatchers.Default)`（`ReactiveContractImpl.kt:199-219`）。对真正做 I/O 的 Intent 是合理的，但对"按钮点击 → 仅做 `copy()`"这类纯 CPU Intent，等于每个 Intent 强制两次线程切换。在 Android 上，UI Intent 远多于 I/O Intent，默认就背了这份开销。更朴素的选择：默认整条管线在 `Default`，让真正阻塞的 handler 自行 `withContext(IO)`。
+- ✅ **Design 6（已修复）**. 管线已去掉 `flowOn(Dispatchers.IO)`，默认整条 `toPartialChange` / `retryWhen` / `scan` 处理链路在 `Dispatchers.Default` 上执行，只保留 `Default` 到 `shareIn` 的一个处理边界。真正阻塞的网络、数据库、文件 I/O 由业务 handler 自行 `withContext(Dispatchers.IO)` 或对阻塞源 Flow 使用 `flowOn(Dispatchers.IO)`。
 - Design 7. `Mvi` 用一个 `object` 把 `Intent` / `State` / `Event` / `PartialChange` / `Snapshot` 全部嵌套进去。带来的副作用是用户代码到处写 `Mvi.PartialChange<S, E>` / `Mvi.Snapshot<S, E>`，import 一次也省不掉嵌套类的全名。这是包名职责，不是对象职责——把它们放成 `cc.colorcat.mvi` 包顶级类更顺手，命名空间靠 package 即可。
 - Design 8. `ReadOnlyContract`（`Contracts.kt:292`）是"防穿透"包装，但用户取到 `Contract` 之后仍可以 `import cc.colorcat.mvi.ReactiveContract` 然后做 `as? ReactiveContract` 强转——能拦的只是不知情的强转。真正想"UI 拿不到 dispatch"，靠的是 ViewModel 不把 `ReactiveContract` 暴露出去而不是这层包装。包装存在，但作用被它自身 KDoc 夸大了。
 - Design 9. `IntentHandler.handle` 是 `suspend fun handle(intent): Flow<...>`。同步返回 Flow 本身就支持惰性构造，几乎不需要外面再加一层 suspend。当前用法（`IntentHandlerDelegate.handle` 里直接 `return handler.handle(intent)`）也从不利用这层 suspend。多余的 suspend 让 SAM 调用方多一道思考成本。
