@@ -85,12 +85,16 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  * ## Thread Safety
  *
  * The [setup] method is NOT thread-safe and should only be called once during
- * application initialization on the main thread.
+ * application initialization on the main thread. The internal configuration reference is
+ * volatile only so background readers can observe the latest published configuration; it
+ * does not make concurrent [setup] calls atomic.
  *
  * @see Configuration
  * @see setup
  */
 object KMvi {
+    // Volatile provides cross-thread visibility for readers in Flow pipelines. setup() still
+    // performs a non-atomic read-modify-write and must not be called concurrently.
     @Volatile
     private var config: Configuration = Configuration()
 
@@ -164,7 +168,9 @@ object KMvi {
      * ## Thread Safety
      *
      * This method is NOT thread-safe. It should only be called from the main thread
-     * during application initialization.
+     * during application initialization. The backing configuration reference is volatile for
+     * reader visibility, but concurrent calls can still lose updates because this method performs
+     * a non-atomic read-modify-write.
      *
      * @param transform A lambda with receiver that transforms the current configuration.
      *                  Use `copy()` to create a modified configuration.

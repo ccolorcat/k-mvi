@@ -33,7 +33,7 @@
   ```
   当 handler 先 emit 一个带 event 的 PartialChange，紧接着另一个 PartialChange 调 `updateState { copy(loading=false) }` 收尾——后者就会把前者的 event 吞掉。KDoc 写了，但用 `updateState` 是默认手势，出错概率很高。要么把 `updateState` 改成"保留 event"语义、用 `updateWith(null, transform)` 显式清，要么至少在样例里展示一次踩坑场景。
 - ✅ **Bug 6（已修复）**. `IntentHandlerDelegate.handlers` 与默认 `GroupTagSelector.byClass()` 均以运行时 `Class` 对象作为 key/tag，不再受 R8 / ProGuard 类名混淆影响。自定义 `GroupTagSelector` 仍应返回稳定、低基数、`equals/hashCode` 行为可靠的 tag。
-- Bug 7. `KMvi.setup`（`KMvi.kt:176`）写法是 `config = config.transform()`：典型的读-改-写，配合 `@Volatile` 只能保证可见性，不保证原子性。KDoc 写了"非线程安全，主线程调用"，但 `@Volatile` 的存在反而让人误以为线程安全。两条路二选一：要么 `compareAndSet` 循环并去掉 NOT-thread-safe 声明，要么干脆去掉 `@Volatile`、单纯依赖"只在 `Application.onCreate` 调一次"的约定。
+- ✅ **Bug 7（已重新评估，降级为文档约束）**. `KMvi.setup`（`KMvi.kt:172`）确实是 `config = config.transform()` 这种非原子的读-改-写；并发调用时可能丢失其中一次基于旧快照生成的配置。但 KDoc 已明确 `setup` 非线程安全、只应在应用初始化主线程调用，因此这不构成当前公开契约下的实现正确性 Bug。保留 `@Volatile` 更合适：后台 Flow 管线可能读取 `KMvi.logger` / `retryPolicy` / `handleStrategy` 等全局配置，volatile 能保证读者看到已发布配置；代码和 KDoc 已补充说明它只保证可见性，不让并发 `setup` 变成原子操作。
 
 ---
 
@@ -103,7 +103,7 @@
   ```
   但 `IntentTransformer.transform(intentFlow: Flow<I>): Flow<...>` 接受的是 *Flow* 而不是单个 intent。要么签名错，要么 lambda 错；现状无法编译。建议示例改为 `IntentTransformer { intentFlow -> intentFlow.flatMapConcat { ... } }`。
 - Doc 10. `IntentHandlerDelegate` KDoc 大段解释"为何对每个 intent 都打 INFO 日志"，并未提到"fallback to defaultHandler 那条 WARN 在集中式 handler 模式下会刷屏"的副作用——而集中式 handler 正是另一个样例 `LoginViewModel` 推荐的写法。两个文档加起来形成自相矛盾的指导。
-- Doc 11. `KMvi.setup` KDoc 写"NOT thread-safe，主线程调用"，但同一个文件里 `private @Volatile var config` 给读者错觉——以为安全只差临界区。补一句"`@Volatile` 仅为可见性，多线程并发 setup 会丢更新"，或参考 Bug 7 修代码。
+- ✅ **Doc 11（已修复）**. `KMvi.setup` KDoc 写"NOT thread-safe，主线程调用"，但同一个文件里 `private @Volatile var config` 给读者错觉——以为安全只差临界区。KDoc 和字段注释已补充：`@Volatile` 仅保证后台读取者能看到最新发布的配置，不保证 `setup` 的读-改-写原子性，多线程并发调用仍可能丢更新。
 - Doc 12. `Mvi.Snapshot` 是 `public data class`，构造器对外可见但 KDoc 没说明"用户是否应该手动构造 Snapshot"。从用法上 Snapshot 只在 `apply` 内被读、在测试里被构造，建议在 KDoc 标明"主要用于框架内部 / 测试；业务代码应通过 `updateState` / `withEvent` / `updateWith` 派生"。
 - Doc 13. `Mvi` KDoc 顶部用 `Author / Date / GitHub:` 三行而非 KDoc 标准的 `@author`，全仓统一这种风格没问题，但 IDE / Dokka 不会把它识别为元数据；如果项目希望 Dokka 渲染出作者信息，改用 `@author ccolorcat` 才能生效。
 
