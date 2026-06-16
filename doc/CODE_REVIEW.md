@@ -14,7 +14,7 @@
 - ✅ **Design 4（已修复）**. `HybridConfig` 已去泛型，只保留业务无关的 HYBRID 运行参数；业务分组逻辑拆到 `GroupTagSelector<I>`，默认实现为 `GroupTagSelector.byClass()`。全局配置直接持有 `hybridConfig: HybridConfig`，不再混入 erased `Mvi.Intent` selector。
 - ✅ **Design 5（已通过文档和诊断日志处理）**. `groupHandle`（`InternalExtensions.kt:127`）会缓存每个 group tag 的 channel，直到 upstream 完成或 channel 被检测为 stale/closed 后替换。主动 LRU 驱逐会破坏"同 tag 顺序处理"语义，因此不引入 `maxActiveGroups`。`GroupTagSelector` 与 `groupHandle` KDoc 已明确：高基数 data-tied tag（资源 id、用户 id、查询串等）会让 active group 常驻增长；除非确实需要 per-value ordering，否则应使用 bucketed tag（如 `"user"` 而不是 `"user-${userId}"`）。同时新增 `groupCountWarningThreshold` 稀疏告警：active group channel 数量达到阈值时输出 WARN，随后阈值翻倍，避免频繁刷日志。
 - ✅ **Design 6（已修复）**. 管线已去掉 `flowOn(Dispatchers.IO)`，默认整条 `toPartialChange` / `retryWhen` / `scan` 处理链路在 `Dispatchers.Default` 上执行，只保留 `Default` 到 `shareIn` 的一个处理边界。真正阻塞的网络、数据库、文件 I/O 由业务 handler 自行 `withContext(Dispatchers.IO)` 或对阻塞源 Flow 使用 `flowOn(Dispatchers.IO)`。
-- Design 7. `Mvi` 用一个 `object` 把 `Intent` / `State` / `Event` / `PartialChange` / `Snapshot` 全部嵌套进去。带来的副作用是用户代码到处写 `Mvi.PartialChange<S, E>` / `Mvi.Snapshot<S, E>`，import 一次也省不掉嵌套类的全名。这是包名职责，不是对象职责——把它们放成 `cc.colorcat.mvi` 包顶级类更顺手，命名空间靠 package 即可。
+- ✅ **Design 7（已重新评估，建议保留）**. `Mvi` 用一个 `object` 聚合 `Intent` / `State` / `Event` / `PartialChange` / `Snapshot` 并非单纯多一层命名空间。它给高频核心类型提供了稳定的 IDE 补全入口：用户只要记住 `Mvi.`，就能枚举全部 MVI 域类型；这比分别记 `PartialChange` / `Snapshot` / `State` 等通用词更容易。放到包顶级还会让 `Intent` 在 Android 项目中更容易与 `android.content.Intent` 和业务 `Contract.Intent` 撞名。因此不建议按“全部提升到包顶级”执行；若要降低书写成本，应优先在业务 contract 内封装短名，例如 `fun interface PartialChange : Mvi.PartialChange<State, Event>`，样例已经采用这种模式。
 - Design 8. `ReadOnlyContract`（`Contracts.kt:292`）是"防穿透"包装，但用户取到 `Contract` 之后仍可以 `import cc.colorcat.mvi.ReactiveContract` 然后做 `as? ReactiveContract` 强转——能拦的只是不知情的强转。真正想"UI 拿不到 dispatch"，靠的是 ViewModel 不把 `ReactiveContract` 暴露出去而不是这层包装。包装存在，但作用被它自身 KDoc 夸大了。
 - Design 9. `IntentHandler.handle` 是 `suspend fun handle(intent): Flow<...>`。同步返回 Flow 本身就支持惰性构造，几乎不需要外面再加一层 suspend。当前用法（`IntentHandlerDelegate.handle` 里直接 `return handler.handle(intent)`）也从不利用这层 suspend。多余的 suspend 让 SAM 调用方多一道思考成本。
 
@@ -59,7 +59,7 @@
 
 ## Style（Kotlin 风格 / 简洁性）
 
-- Style 1. 嵌套在 `object Mvi { ... }` 里的接口/数据类（`Intent`、`State`、`Event`、`PartialChange`、`Snapshot`）让用户和库内部到处写 `Mvi.PartialChange<S, E>`、`Mvi.Snapshot<S, E>`。Kotlin 习惯靠 package 做命名空间，把这五个类型上提到 `cc.colorcat.mvi` 顶级即可，签名瞬间清爽：`PartialChange<S, E>`、`Snapshot<S, E>`。
+- Style 1. 保留 `Mvi.` 作为核心类型聚合入口，但文档和样例应更明确推荐“业务侧短名封装”来减少重复书写：例如在每个 feature contract 中定义 `sealed interface Intent : Mvi.Intent`、`data class State(...) : Mvi.State`、`sealed interface Event : Mvi.Event`、`fun interface PartialChange : Mvi.PartialChange<State, Event>`。这样既保留 `Mvi.` 的 IDE 可发现性和 Android 命名避让，又让 ViewModel 里的签名保持短。
 - Style 2. KDoc 之间存在大量重复——"Intent → PartialChange → State → View" 流程图、HandleStrategy 对比表、HYBRID 三类 Intent 的解释，在 `Mvi.kt`、`Contracts.kt`、`HandleStrategies.kt`、`IntentHandlers.kt`、`IntentTransformers.kt`、`ReactiveContractImpl.kt` 各写了一遍。一次写在 `Mvi.kt` 或 README，其他位置用 `@see` 即可，避免说法漂移。
 - Style 3. `ReadOnlyContract`（`Contracts.kt:292`）写成：
   ```kotlin
@@ -121,6 +121,6 @@
 主要改进方向集中在三处：
 1. **削减"为细节而细节"的日志与文档冗余**——`IntentHandlerDelegate` 的 fallback WARN、`assignGroupTag` 的冲突 WARN、各文件重复粘贴的 MVI 概述都该精简。
 2. **真正不变的契约写到 KDoc，可变 / 易踩的契约配示例反面教材**——`Snapshot.updateState` 会清 event、`groupHandle` 会常驻 Channel、`do*` 系列要求主线程，这些都该有"踩坑→怎么避免"的样例段。
-3. **削减 `Mvi.` 这层不必要的命名嵌套**，让用户日常签名从 `Mvi.PartialChange<MyState, MyEvent>` 退化为 `PartialChange<MyState, MyEvent>`，可读性收益巨大且零运行时成本。
+3. **保留 `Mvi.` 作为核心类型补全入口，同时推广业务侧短名封装**——`Mvi.` 对新用户更容易记忆和补全，也能避免顶级 `Intent` 与 Android / 业务类型撞名；日常签名的简化应交给 feature contract 内部的 `Intent` / `State` / `Event` / `PartialChange` 短名。
 
 Bug 级别的问题数量不多，且大多数是文档型（示例错、KDoc 挂错位置），真正运行时风险只有 Bug 3（`do*` 主线程未声明也未限制）和 Bug 4（`Job` 缺失时 channel 不关）——前者用户在样例约定的"viewLifecycleOwner + viewModelScope"组合里被遮盖、暂时不会爆，后者只有当 `CoreReactiveContract` 被自定义 scope 调用时才暴露。值得修，但不阻塞当前 release。
