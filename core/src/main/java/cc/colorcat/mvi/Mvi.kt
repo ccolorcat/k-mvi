@@ -127,10 +127,17 @@ object Mvi {
     }
 
     /**
-     * Represents the immutable state of the application at a given point in time.
+     * Represents the immutable, **persistent** description of the UI.
+     *
+     * In the frame model (see [PartialChange]), State is the part of a frame that
+     * **persists across frames**: it describes the elements that remain on screen,
+     * such as the current list, loading flag, or input text. Each new frame carries
+     * the previous State forward unless a [PartialChange] migrates some of it.
      *
      * State should be a data class that contains all the information needed to
      * render the UI. It should be immutable - any changes create a new instance.
+     *
+     * Contrast with [Event], which is transient and lives in exactly one frame.
      *
      * Example:
      * ```
@@ -144,12 +151,18 @@ object Mvi {
     interface State
 
     /**
-     * Represents a one-time side effect or event.
+     * Represents a one-time side effect — a **transient** part of a single frame.
      *
-     * Events are used for actions that should happen once and not be retained in state,
-     * such as showing a toast, navigating to another screen, or playing a sound.
+     * In the frame model (see [PartialChange]), an Event is the **fleeting** part of a
+     * frame: it exists in **exactly one frame** and is cleared or replaced the moment the
+     * next frame is produced (any [Snapshot.updateState] drops it). While it is present it
+     * is delivered to whatever consumer is currently subscribed; if there is no consumer,
+     * it is simply dropped — events are never retained or replayed.
      *
-     * Unlike State, Events are consumed after being handled and don't persist.
+     * Use Events for actions that should happen once and not be retained in state, such as
+     * showing a toast, navigating to another screen, or playing a sound.
+     *
+     * Contrast with [State], which is the persistent part that carries across frames.
      *
      * Example:
      * ```
@@ -293,16 +306,19 @@ object Mvi {
 
 
     /**
-     * An immutable snapshot of the current state and optional event.
+     * An immutable snapshot — one "frame" of the UI description.
      *
-     * A Snapshot pairs a [State] with an optional [Event]. It represents a moment
-     * in time in your application's state evolution. The snapshot provides methods
-     * to create new snapshots with updated state and/or events.
+     * A Snapshot pairs a persistent [State] with an optional, transient [Event]. It is one
+     * frame in your application's state evolution (see [PartialChange] for the frame model).
+     * The snapshot provides methods to derive the next frame with updated state and/or event.
      *
      * ## Key Characteristics
      *
      * - **Immutable**: All methods return new instances; the original is never modified
-     * - **Event Lifecycle**: Events are typically cleared when state is updated
+     * - **Event Lifecycle**: The [event] lives in exactly one frame. It is delivered to the
+     *   current subscriber (if any) and must be cleared when the next frame is produced —
+     *   that is why [updateState] drops it. Letting an event carry into a later frame would
+     *   re-deliver it, so a non-null [event] is meant to survive only a single frame.
      * - **Type-Safe**: Compiler ensures state and event types match
      *
      * ## Construction
@@ -330,13 +346,29 @@ object Mvi {
          * The [transform] function receives the current state and should return
          * a new state instance. Any pending event is cleared in the new snapshot.
          *
-         * **Note**: This method clears any pending event. If you need to update
-         * state while preserving or setting an event, use [updateWith] instead.
+         * **Note**: This method clears any pending event by design — an event lives in
+         * exactly one frame (see [Snapshot]). If you need to update state while also
+         * setting an event in the same frame, use [updateWith] instead.
          *
          * Example:
          * ```
          * snapshot.updateState { copy(loading = true, error = null) }
          * ```
+         *
+         * ### Pitfall: don't chain [withEvent] then [updateState] in one change
+         *
+         * Within a single [PartialChange], setting an event and then calling
+         * [updateState] silently drops the event, because [updateState] clears it:
+         * ```
+         * // ❌ The toast is lost: updateState clears the event just set
+         * Mvi.PartialChange { it.withEvent(MyEvent.ShowToast).updateState { copy(loading = false) } }
+         *
+         * // ✅ Set state and event together in the same frame
+         * Mvi.PartialChange { it.updateWith(MyEvent.ShowToast) { copy(loading = false) } }
+         * ```
+         * Note this only applies *within one change*. Emitting an event in one
+         * [PartialChange] and updating state in a later one is safe: the event-carrying
+         * frame is delivered before the next frame clears it.
          *
          * @param transform A function that transforms the current state to a new state
          * @return A new snapshot with the updated state and no event

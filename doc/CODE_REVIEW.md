@@ -26,12 +26,9 @@
 - ✅ **Bug 2（已修复）**. `EventCollector.collectTyped(KClass, ...)` 已去掉误导性的 `requireNotNull(clazz.java.cast(it))`。上游 `flow: Flow<E>` 非 null，且前置 `clazz.isInstance(it)` 已完成类型过滤，动态 `KClass` 重载保留 `clazz.isInstance + clazz.java.cast` 即可。
 - ✅ **Bug 3（已重新评估，通过文档契约处理）**. `MviExtensions` 里的 `doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 会在 `callbackFlow { ... }` 内注册 / 移除 View listener，理论上要求主线程；但库的常规生命周期 helper（`launchWithLifecycle` / `dispatchWithLifecycle`）都通过 `LifecycleOwner.lifecycleScope` 收集，正常 Fragment/View 用法已经满足。默认加 `.flowOn(Dispatchers.Main.immediate)` 会改变上游上下文并可能引入额外 Flow 边界，属于过度防御；当前选择是在 KDoc 明确这些 View Flow 必须在主线程收集，并推荐通过库提供的 lifecycle helper 使用。
 - ✅ **Bug 4（已修复）**. `CoreReactiveContract` 已把 scope 必须包含 [Job] 变成显式不变量：构造时通过 `requireNotNull(scope.coroutineContext[Job])` 获取 `scopeJob`，并用它注册 `invokeOnCompletion { channel.close() }`。这让 channel 关闭和 `dispatch` 的活跃性判断共享同一个生命周期前提；无 Job scope 会在构造阶段失败，而不是留下永远不会随 scope 完成而关闭的 intent channel。公开 `ViewModel.contract(...)` 传入的 `viewModelScope` 本身满足该条件。
-- Bug 5. `Mvi.Snapshot.updateState { ... }`（`Mvi.kt:336`）会无条件清掉 `event`：
-  ```kotlin
-  fun updateState(transform: S.() -> S): Snapshot<S, E> =
-      this.copy(state = newState, event = null)
-  ```
-  当 handler 先 emit 一个带 event 的 PartialChange，紧接着另一个 PartialChange 调 `updateState { copy(loading=false) }` 收尾——后者就会把前者的 event 吞掉。KDoc 写了，但用 `updateState` 是默认手势，出错概率很高。要么把 `updateState` 改成"保留 event"语义、用 `updateWith(null, transform)` 显式清，要么至少在样例里展示一次踩坑场景。
+- ✅ **Bug 5（已重新评估，误诊不修复）**. 原报告称"handler 先 emit 一个带 event 的 PartialChange，紧接着另一个 PartialChange 调 `updateState` 收尾，后者吞掉前者的 event"——这是误诊。关键在 `eventFlow = snapshots.mapNotNull { it.event }`（`ReactiveContractImpl.kt:265`），而 `scan`（`:202`）**对每个 PartialChange 都会发出一个独立的中间 snapshot**。两段式 emit 会依次产出 `(s1, event)` 和 `(s2, null)` 两帧，`eventFlow` 在第一帧就已投递事件；第二个 `updateState` 清的是它自己那帧的 event，吞不掉已投递的事件。唯一真实丢事件路径是 buffer `DROP_OLDEST` 拥塞，已由 `ReactiveContractImplTest.kt:322` 测试和 `eventFlow` KDoc 单独覆盖，与 `updateState` 无关。
+  更重要的是，`updateState` 清 event 是**承重设计、不能反转**：因为任何仍带非空 event 的 snapshot 都会被 `mapNotNull` 再投递一次，事件必须严格"只活一帧"。若按原建议把 `updateState` 改成"保留 event"，则一次事件之后的**每一次普通状态更新都会重复投递该事件**（重复 toast / 重复导航），直到用户显式清除——这是把一个不存在的问题换成一个高频、难察觉的真实 Bug。`updateState` 是 MVI 最高频手势，"清 event"必须是其默认语义。
+  真实存在但很窄的隐患是**单个 apply 内**链式 `withEvent(...).updateState { ... }`（清掉刚设的 event），正解为 `updateWith(...)`；该反例样板已补入 `updateState` KDoc（并见 Doc 5）。代码语义保持不动。
 - ✅ **Bug 6（已修复）**. `IntentHandlerDelegate.handlers` 与默认 `GroupTagSelector.byClass()` 均以运行时 `Class` 对象作为 key/tag，不再受 R8 / ProGuard 类名混淆影响。自定义 `GroupTagSelector` 仍应返回稳定、低基数、`equals/hashCode` 行为可靠的 tag。
 - ✅ **Bug 7（已重新评估，降级为文档约束）**. `KMvi.configure`（`KMvi.kt:178`）确实是 `config = config.transform()` 这种非原子的读-改-写；并发调用时可能丢失其中一次基于旧快照生成的配置。但 KDoc 已明确 `configure` 非线程安全、只应在应用初始化主线程调用，因此这不构成当前公开契约下的实现正确性 Bug。保留 `@Volatile` 更合适：后台 Flow 管线可能读取 `KMvi.logger` / `retryPolicy` / `handleStrategy` 等全局配置，volatile 能保证读者看到已发布配置；代码和 KDoc 已补充说明它只保证可见性，不让并发 `configure` 变成原子操作。
 
@@ -84,7 +81,7 @@
 - Doc 2. `ReactiveContract` KDoc 第 140-144 行示例调 `mviViewModel(scope = viewModelScope, initState = MyState(), defaultHandler = ::handleIntent)`——仓库里没有 `mviViewModel` 函数，工厂是 `ViewModel.contract(...)`。
 - Doc 3. `Contract.stateFlow` KDoc 说 "Conflated: Only the latest state is kept, intermediate states may be skipped"。`StateFlow` 的 conflation 行为是 *按 `equals` 去重*，"可能跳过中间值"成立但缺了 `equals` 这层关键约束；用户照字面读会误以为是按时间 conflate。
 - ✅ **Doc 4（已修复）**. `ReactiveContractImpl.kt` 的 `CoreReactiveContract` 长 KDoc 已紧贴 class 声明，Dokka / IDE 会把它归到类上。
-- Doc 5. `Mvi.Snapshot.updateState` KDoc 提到"会清空 event，需要保留请用 `updateWith`"，但示例里没有出现"先 event 再 updateState 导致 event 丢失"的反面案例。这种 API 的"反例样板"对避免 Bug 5 更有效。
+- ✅ **Doc 5（已修复）**. `Mvi.Snapshot.updateState` KDoc 已补"反例样板"：明确单个 apply 内 `withEvent(...).updateState { ... }` 会清掉刚设的 event（❌），正解为 `updateWith(...) { ... }`（✅），并说明这只发生在*单次 change 内*——跨 PartialChange 的 emit 是安全的（带 event 的帧会先投递再被下一帧清除）。同时 `State` / `Event` / `Snapshot` 的 KDoc 已用"帧模型"统一表述：State 跨帧持续，Event 只活一帧、有消费者则投递否则丢弃。参见 Bug 5。
 - ✅ **Doc 6（已修复）**. 业务分组入口已改为 `groupTagSelector = GroupTagSelector<MyIntent> { ... }`，`HybridStrategyConfig` 只保留业务无关运行参数；相关 KDoc 明确默认 `byClass()` 返回运行时 `Class`，自定义 tag 需要稳定且低基数。
 - ✅ **Doc 7（已修复）**. `MviExtensions.doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 的 KDoc 已补充主线程收集约束，并说明 `launchWithLifecycle` / `dispatchWithLifecycle` 的常规 lifecycle 用法满足该要求；样例 `doOnTextChanged` 也同步补充说明。
 - Doc 8. `Contract.eventFlow` KDoc 第 262 行示例：
