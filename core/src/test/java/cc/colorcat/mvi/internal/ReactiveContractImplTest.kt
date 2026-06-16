@@ -467,7 +467,7 @@ class ReactiveContractImplTest {
         )
 
         testScope.cancel()
-        assertEquals(DispatchResult.Inactive, contract.dispatch(TestIntent.Increment))
+        assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Increment))
         assertEquals(0, contract.stateFlow.value.count)
     }
 
@@ -751,7 +751,7 @@ class ReactiveContractImplTest {
         }
 
         testScope.cancel()
-        assertEquals(DispatchResult.Inactive, contract.dispatch(TestIntent.Increment))
+        assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Increment))
 
         assertEquals("only the blocking first intent should start before cancellation", 1, started.size)
         assertEquals(0, contract.stateFlow.value.count)

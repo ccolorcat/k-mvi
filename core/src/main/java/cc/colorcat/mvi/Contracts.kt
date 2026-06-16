@@ -194,8 +194,9 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
      *   discarded with a warning log and [DispatchResult.Full] is returned
      * - With conflated or dropping queue policies, [DispatchResult.Submitted] does not guarantee
      *   every individual intent will be processed; see [DispatchResult.Submitted]
-     * - If the coroutine scope is inactive, the intent is discarded with a warning log and
-     *   [DispatchResult.Inactive] is returned
+     * - If the contract is no longer available (its coroutine scope has completed, which also
+     *   closes the entry queue), the intent is discarded with a warning log and
+     *   [DispatchResult.Unavailable] is returned
      *
      * ## Thread Safety
      *

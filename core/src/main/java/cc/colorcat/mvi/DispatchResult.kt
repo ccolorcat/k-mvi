@@ -41,17 +41,24 @@ sealed class DispatchResult {
     data object Submitted : DispatchResult()
 
     /**
-     * The contract's coroutine scope is inactive, so the intent was not accepted.
+     * The contract is no longer available, so the intent was not accepted and never will be.
+     *
+     * This is a **terminal** result: the contract's coroutine scope has completed, which also
+     * closes the entry queue. It covers both ways that completion surfaces at dispatch time —
+     * the scope already being inactive, and the entry queue already being closed — because they
+     * share the same root cause and leave the caller with the same (in)action: do not retry.
+     *
+     * Contrast with [Full], which is **transient**: the contract is still alive and may accept
+     * the intent if dispatched again later.
      */
-    data object Inactive : DispatchResult()
+    data object Unavailable : DispatchResult()
 
     /**
      * The dispatch entry queue is full, so the intent was not accepted.
+     *
+     * This is **transient back-pressure** on a live contract: the queue is momentarily at
+     * capacity. Dispatching again later may succeed. Contrast with [Unavailable], which is
+     * terminal.
      */
     data object Full : DispatchResult()
-
-    /**
-     * The dispatch entry queue is closed, so the intent was not accepted.
-     */
-    data object Closed : DispatchResult()
 }

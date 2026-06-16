@@ -283,7 +283,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     override fun dispatch(intent: I): DispatchResult {
         if (!scope.isActive) {
             logger.w(TAG) { "Scope inactive, intent discarded: ${intent.diagnosticName}" }
-            return DispatchResult.Inactive
+            return DispatchResult.Unavailable
         }
 
         val result = intentsChannel.trySend(intent)
@@ -292,7 +292,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         }
         return if (result.exceptionOrNull() != null) {
             logger.w(TAG) { "Intent queue closed, intent discarded: ${intent.diagnosticName}" }
-            DispatchResult.Closed
+            DispatchResult.Unavailable
         } else {
             logger.w(TAG) { "Intent queue full, intent discarded: ${intent.diagnosticName}" }
             DispatchResult.Full
