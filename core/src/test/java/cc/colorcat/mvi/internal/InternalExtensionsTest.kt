@@ -1,6 +1,6 @@
 package cc.colorcat.mvi.internal
 
-import cc.colorcat.mvi.HybridConfig
+import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
@@ -44,7 +44,7 @@ class InternalExtensionsTest {
 
     @Before
     fun setUp() {
-        KMvi.setup { KMvi.Configuration(logger = Logger { _, _, _, _ -> }) }
+        KMvi.configure { KMvi.Configuration(logger = Logger { _, _, _, _ -> }) }
     }
 
     // --- isConcurrent ---
@@ -190,7 +190,7 @@ class InternalExtensionsTest {
     @Test
     fun `groupHandle warns only when active group count reaches doubled thresholds`() = runBlocking {
         val warnings = mutableListOf<String>()
-        KMvi.setup {
+        KMvi.configure {
             copy(logger = Logger { priority, _, _, message ->
                 if (priority == Logger.WARN) warnings.add(message())
             })
@@ -202,7 +202,7 @@ class InternalExtensionsTest {
             emit(TaggedIntent("c"))
             emit(TaggedIntent("d"))
         }.groupHandle(
-            config = HybridConfig(
+            config = HybridStrategyConfig(
                 groupChannelCapacity = Channel.BUFFERED,
                 groupCountWarningThreshold = 2,
             ),
@@ -229,7 +229,7 @@ class InternalExtensionsTest {
     @Test
     fun `groupHandle does not warn below group count threshold`() = runBlocking {
         val warnings = mutableListOf<String>()
-        KMvi.setup {
+        KMvi.configure {
             copy(logger = Logger { priority, _, _, message ->
                 if (priority == Logger.WARN) warnings.add(message())
             })
@@ -240,7 +240,7 @@ class InternalExtensionsTest {
             emit(TaggedIntent("b"))
             emit(TaggedIntent("c"))
         }.groupHandle(
-            config = HybridConfig(
+            config = HybridStrategyConfig(
                 groupChannelCapacity = Channel.BUFFERED,
                 groupCountWarningThreshold = 4,
             ),
@@ -256,7 +256,7 @@ class InternalExtensionsTest {
     @Test
     fun `groupHandle Int_MAX_VALUE threshold disables warnings`() = runBlocking {
         val warnings = mutableListOf<String>()
-        KMvi.setup {
+        KMvi.configure {
             copy(logger = Logger { priority, _, _, message ->
                 if (priority == Logger.WARN) warnings.add(message())
             })
@@ -265,7 +265,7 @@ class InternalExtensionsTest {
         flow {
             repeat(128) { emit(TaggedIntent("tag-$it")) }
         }.groupHandle(
-            config = HybridConfig(
+            config = HybridStrategyConfig(
                 groupChannelCapacity = Channel.BUFFERED,
                 groupCountWarningThreshold = Int.MAX_VALUE,
             ),

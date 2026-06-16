@@ -32,12 +32,12 @@ import kotlinx.coroutines.channels.Channel
  * ## Configuration
  *
  * ```kotlin
- * KMvi.setup {
+ * KMvi.configure {
  *     copy(handleStrategy = HandleStrategy.HYBRID)
  * }
  * ```
  *
- * @see HybridConfig
+ * @see HybridStrategyConfig
  * @see Mvi.Intent.Concurrent
  * @see Mvi.Intent.Sequential
  *
@@ -193,7 +193,7 @@ enum class HandleStrategy {
      * - ✅ Fine-grained control: Per-intent type strategy
      * - ✅ Prevents blocking: Parallel groups avoid total queue blocking
      *
-     * @see HybridConfig
+     * @see HybridStrategyConfig
      * @see Mvi.Intent.Concurrent
      * @see Mvi.Intent.Sequential
      */
@@ -232,7 +232,7 @@ enum class HandleStrategy {
  * is detected as stale/closed and replaced.
  *
  * @param I The intent type.
- * @see HybridConfig
+ * @see HybridStrategyConfig
  */
 fun interface GroupTagSelector<in I : Mvi.Intent> {
     fun selectTag(intent: I): Any
@@ -247,7 +247,7 @@ fun interface GroupTagSelector<in I : Mvi.Intent> {
 /**
  * Runtime configuration for the [HandleStrategy.HYBRID] intent handling strategy.
  *
- * [HybridConfig] is intentionally business-agnostic. It controls internal group
+ * [HybridStrategyConfig] is intentionally business-agnostic. It controls internal group
  * channel capacity and diagnostics only; fallback group selection belongs to
  * [GroupTagSelector].
  *
@@ -289,7 +289,7 @@ fun interface GroupTagSelector<in I : Mvi.Intent> {
  * @see HandleStrategy.HYBRID
  * @see GroupTagSelector
  */
-class HybridConfig(
+class HybridStrategyConfig(
     val groupChannelCapacity: Int = Channel.BUFFERED,
     val groupCountWarningThreshold: Int = DEFAULT_GROUP_COUNT_WARNING_THRESHOLD,
 ) {
@@ -304,7 +304,7 @@ class HybridConfig(
     }
 
     override fun toString(): String {
-        return "HybridConfig(" +
+        return "HybridStrategyConfig(" +
             "groupChannelCapacity=$groupChannelCapacity, " +
             "groupCountWarningThreshold=$groupCountWarningThreshold" +
             ")"

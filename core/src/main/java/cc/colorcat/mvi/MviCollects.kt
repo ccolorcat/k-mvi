@@ -4,8 +4,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
@@ -463,96 +461,12 @@ inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTypedEvent(
 
 
 /**
- * Launches collection of a flow with lifecycle awareness.
- *
- * This is a lower-level function for cases where you need fine-grained control
- * over the collection process. For collecting MVI state and events, prefer using
- * [collectState] or [collectEvent] which provide more convenient DSL features.
- *
- * Collection starts when the lifecycle reaches the specified state and stops
- * when it falls below that state. Collection automatically resumes when the
- * lifecycle returns to the required state.
- *
- * ## When to use this
- *
- * - When you need to collect a generic Flow (not MVI state/event)
- * - When you need custom [CoroutineStart] behavior (e.g., ATOMIC, LAZY)
- * - When you don't need the DSL features of [StateCollector] or [EventCollector]
- *
- * ## Usage Example
- *
- * ```kotlin
- * someFlow.launchCollect(
- *     owner = viewLifecycleOwner,
- *     state = Lifecycle.State.STARTED
- * ) { value ->
- *     processValue(value)
- * }
- * ```
- *
- * @param T The flow value type
- * @param owner The lifecycle owner
- * @param state The minimum lifecycle state (default: STARTED)
- * @param context Additional coroutine context
- * @param start The coroutine start mode (default: DEFAULT, suitable for most cases)
- * @param block The suspend function to call with each value
- * @return A Job that can be cancelled
- * @see collectState
- * @see collectEvent
- * @see launchWithLifecycle
- */
-fun <T> Flow<T>.launchCollect(
-    owner: LifecycleOwner,
-    state: Lifecycle.State = Lifecycle.State.STARTED,
-    context: CoroutineContext = EmptyCoroutineContext,
-    start: CoroutineStart = CoroutineStart.DEFAULT,
-    block: suspend (T) -> Unit,
-): Job = owner.lifecycleScope.launch(context, start) {
-    owner.repeatOnLifecycle(state) {
-        this@launchCollect.collect(block)
-    }
-}
-
-/**
- * Launches collection of a flow in a coroutine scope.
- *
- * This version doesn't have lifecycle awareness - collection continues until
- * the scope is cancelled.
- *
- * ## Usage Example
- *
- * ```kotlin
- * someFlow.launchCollect(
- *     scope = viewModelScope
- * ) { value ->
- *     processValue(value)
- * }
- * ```
- *
- * @param T The flow value type
- * @param scope The coroutine scope
- * @param context Additional coroutine context
- * @param start The coroutine start mode (default: DEFAULT)
- * @param block The suspend function to call with each value
- * @return A Job that can be cancelled
- */
-fun <T> Flow<T>.launchCollect(
-    scope: CoroutineScope,
-    context: CoroutineContext = EmptyCoroutineContext,
-    start: CoroutineStart = CoroutineStart.DEFAULT,
-    block: suspend (T) -> Unit,
-): Job = scope.launch(context, start) {
-    this@launchCollect.collect(block)
-}
-
-
-/**
  * Dispatches intents with full lifecycle awareness using [repeatOnLifecycle].
  *
  * Collection starts when the lifecycle reaches [state] and **stops** when the
  * lifecycle drops below that state. Collection automatically restarts when the
  * lifecycle returns to the required state. This matches the behavior of
- * [launchCollect] and [collectState] / [collectEvent].
+ * [launchWithLifecycle] and [collectState] / [collectEvent].
  *
  * ## Usage Example
  *
@@ -560,7 +474,7 @@ fun <T> Flow<T>.launchCollect(
  * intentFlow.dispatchWithLifecycle(
  *     owner = viewLifecycleOwner,
  *     state = Lifecycle.State.STARTED,
- *     dispatch = viewModel::dispatch
+ *     dispatch = { intent -> viewModel.dispatch(intent) }
  * )
  * ```
  *
@@ -573,14 +487,14 @@ fun <T> Flow<T>.launchCollect(
  * @param I The intent type
  * @param owner The lifecycle owner
  * @param state The minimum lifecycle state required for collection (default: STARTED)
- * @param dispatch The function to dispatch each intent. Its return value is ignored.
+ * @param dispatch The function to dispatch each intent.
  * @return A Job that can be cancelled
- * @see launchCollect
+ * @see launchWithLifecycle
  */
-fun <I : Mvi.Intent, R> Flow<I>.dispatchWithLifecycle(
+fun <I : Mvi.Intent> Flow<I>.dispatchWithLifecycle(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
-    dispatch: (I) -> R,
+    dispatch: (I) -> Unit,
 ): Job = owner.lifecycleScope.launch {
     owner.repeatOnLifecycle(state) {
         collect { dispatch(it) }

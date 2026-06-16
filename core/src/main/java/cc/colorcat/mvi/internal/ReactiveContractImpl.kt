@@ -3,7 +3,7 @@ package cc.colorcat.mvi.internal
 import cc.colorcat.mvi.DispatchResult
 import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.HandleStrategy
-import cc.colorcat.mvi.HybridConfig
+import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentHandlerDelegate
 import cc.colorcat.mvi.IntentHandlerRegistry
@@ -275,7 +275,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * [BufferOverflow.SUSPEND], when the queue is full, the intent is discarded, a warning is
      * logged, and [DispatchResult.Full] is returned. With conflated or dropping policies,
      * [DispatchResult.Submitted] only means the configured queue policy handled the submission.
-     * Update [intentQueueConfig] in [KMvi.setup] or per-contract if your app dispatches intents
+     * Update [intentQueueConfig] in [KMvi.configure] or per-contract if your app dispatches intents
      * faster than they can be consumed (e.g. rapid scroll events in a low-latency list).
      *
      * @param intent The user intent to process.
@@ -359,7 +359,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     intentQueueConfig: IntentQueueConfig,
     retryPolicy: RetryPolicy,
     handleStrategy: HandleStrategy,
-    hybridConfig: HybridConfig,
+    hybridStrategyConfig: HybridStrategyConfig,
     groupTagSelector: GroupTagSelector<I>,
     private val delegate: IntentHandlerDelegate<I, S, E>,
 ) : CoreReactiveContract<I, S, E>(
@@ -367,7 +367,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     initState = initState,
     intentQueueConfig = intentQueueConfig,
     retryPolicy = retryPolicy,
-    transformer = IntentTransformer(handleStrategy, hybridConfig, groupTagSelector, delegate),
+    transformer = IntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, delegate),
 ) {
     /**
      * Public constructor that creates the delegate internally.
@@ -377,7 +377,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
      * @param intentQueueConfig The dispatch entry queue configuration
      * @param retryPolicy Policy for retrying on errors
      * @param handleStrategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
-     * @param hybridConfig Runtime configuration for HYBRID strategy
+     * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
      * @param groupTagSelector Selects fallback group tags for HYBRID strategy
      * @param defaultHandler The fallback handler for unregistered intent types, or `null` for
      *                       no fallback. See [contract] for the resulting log behavior.
@@ -388,7 +388,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         intentQueueConfig: IntentQueueConfig,
         retryPolicy: RetryPolicy,
         handleStrategy: HandleStrategy,
-        hybridConfig: HybridConfig,
+        hybridStrategyConfig: HybridStrategyConfig,
         groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
         defaultHandler: IntentHandler<I, S, E>?,
     ) : this(
@@ -397,7 +397,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         intentQueueConfig = intentQueueConfig,
         retryPolicy = retryPolicy,
         handleStrategy = handleStrategy,
-        hybridConfig = hybridConfig,
+        hybridStrategyConfig = hybridStrategyConfig,
         groupTagSelector = groupTagSelector,
         delegate = IntentHandlerDelegate(defaultHandler),
     )

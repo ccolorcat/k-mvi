@@ -12,7 +12,7 @@ import cc.colorcat.mvi.Logger
 class SampleApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        KMvi.setup {
+        KMvi.configure {
             copy(logger = Logger(Logger.DEBUG))
         }
     }

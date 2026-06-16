@@ -66,7 +66,7 @@ import java.util.concurrent.ConcurrentHashMap
  * ```kotlin
  * val transformer = IntentTransformer<MyIntent, MyState, MyEvent>(
  *     handleStrategy = HandleStrategy.HYBRID,
- *     hybridConfig = HybridConfig(),
+ *     hybridStrategyConfig = HybridStrategyConfig(),
  *     handler = myIntentHandler
  * )
  *
@@ -108,7 +108,7 @@ import java.util.concurrent.ConcurrentHashMap
  * @param E The event type
  * @see HandleStrategy
  * @see IntentHandler
- * @see HybridConfig
+ * @see HybridStrategyConfig
  * @see toPartialChange
  *
  * Author: ccolorcat
@@ -135,18 +135,18 @@ fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
          * strategy-based transformers.
          *
          * @param handleStrategy The handling strategy to apply
-         * @param hybridConfig Runtime configuration for HYBRID strategy
+         * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
          * @param groupTagSelector Selects fallback group tags for HYBRID strategy
          * @param handler The intent handler to delegate to
          * @return An IntentTransformer that applies the specified strategy
          */
         internal operator fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> invoke(
             handleStrategy: HandleStrategy,
-            hybridConfig: HybridConfig,
+            hybridStrategyConfig: HybridStrategyConfig,
             groupTagSelector: GroupTagSelector<I>,
             handler: IntentHandler<I, S, E>,
         ): IntentTransformer<I, S, E> {
-            return StrategyIntentTransformer(handleStrategy, hybridConfig, groupTagSelector, handler)
+            return StrategyIntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, handler)
         }
     }
 }
@@ -242,16 +242,16 @@ private object SequentialGroup
  * @param S The state type
  * @param E The event type
  * @param handleStrategy The handling strategy to apply
- * @param hybridConfig Runtime configuration for HYBRID strategy (unused for other strategies)
+ * @param hybridStrategyConfig Runtime configuration for HYBRID strategy (unused for other strategies)
  * @param groupTagSelector Selects fallback group tags for HYBRID strategy
  * @param handler The intent handler that processes individual intents
  * @see HandleStrategy
- * @see HybridConfig
+ * @see HybridStrategyConfig
  * @see IntentHandler
  */
 internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val handleStrategy: HandleStrategy,
-    private val hybridConfig: HybridConfig,
+    private val hybridStrategyConfig: HybridStrategyConfig,
     private val groupTagSelector: GroupTagSelector<I>,
     private val handler: IntentHandler<I, S, E>,
 ) : IntentTransformer<I, S, E> {
@@ -260,7 +260,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
         logger.i(TAG) {
             if (handleStrategy == HandleStrategy.HYBRID) {
-                "Transforming intents using handleStrategy=$handleStrategy, hybridConfig=$hybridConfig"
+                "Transforming intents using handleStrategy=$handleStrategy, hybridStrategyConfig=$hybridStrategyConfig"
             } else {
                 "Transforming intents using handleStrategy=$handleStrategy"
             }
@@ -286,7 +286,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @return A flow of flows, where each inner flow represents a group's partial changes
      */
     private fun Flow<I>.hybrid(): Flow<Flow<Mvi.PartialChange<S, E>>> {
-        return groupHandle(hybridConfig, ::assignGroupTag) {
+        return groupHandle(hybridStrategyConfig, ::assignGroupTag) {
             handleByTag(it)
         }
     }

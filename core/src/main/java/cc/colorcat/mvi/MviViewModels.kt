@@ -166,8 +166,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *                          [KMvi.intentQueueConfig]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
  * @param handleStrategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
- * @param hybridConfig The runtime configuration when using HYBRID strategy.
- *                     Defaults to [KMvi.hybridConfig].
+ * @param hybridStrategyConfig The runtime configuration when using HYBRID strategy.
+ *                     Defaults to [KMvi.hybridStrategyConfig].
  * @param groupTagSelector Selects fallback group tags when using HYBRID strategy.
  *                         Defaults to [GroupTagSelector.byClass].
  * @param defaultHandler The fallback handler for Intents without a registered handler.
@@ -187,7 +187,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     intentQueueConfig: IntentQueueConfig = KMvi.intentQueueConfig,
     retryPolicy: RetryPolicy = KMvi.retryPolicy,
     handleStrategy: HandleStrategy = KMvi.handleStrategy,
-    hybridConfig: HybridConfig = KMvi.hybridConfig,
+    hybridStrategyConfig: HybridStrategyConfig = KMvi.hybridStrategyConfig,
     groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
     defaultHandler: IntentHandler<I, S, E>? = null,
     setup: IntentHandlerRegistry<I, S, E>.() -> Unit = {},
@@ -199,7 +199,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
             intentQueueConfig = intentQueueConfig,
             retryPolicy = retryPolicy,
             handleStrategy = handleStrategy,
-            hybridConfig = hybridConfig,
+            hybridStrategyConfig = hybridStrategyConfig,
             groupTagSelector = groupTagSelector,
             defaultHandler = defaultHandler,
         ).also { it.setupIntentHandlers(setup) }

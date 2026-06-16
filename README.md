@@ -170,7 +170,7 @@ class MainActivity : AppCompatActivity() {
         // Dispatch intents
         incrementButton.doOnClick { IMain.Intent.Increment }
             .debounceLeading(500)
-            .launchCollect(this) { viewModel.dispatch(it) }
+            .launchWithLifecycle(this) { viewModel.dispatch(it) }
     }
 }
 ```
@@ -255,7 +255,7 @@ K-MVI supports three strategies for processing intents:
 All intents are processed in parallel. Best for independent operations.
 
 ```kotlin
-KMvi.setup {
+KMvi.configure {
     copy(handleStrategy = HandleStrategy.CONCURRENT)
 }
 ```
@@ -265,7 +265,7 @@ KMvi.setup {
 All intents are processed one-by-one in order. Best for operations that must maintain strict ordering.
 
 ```kotlin
-KMvi.setup {
+KMvi.configure {
     copy(handleStrategy = HandleStrategy.SEQUENTIAL)
 }
 ```
@@ -283,10 +283,10 @@ Combines both approaches:
 Configure the strategy globally for all contracts:
 
 ```kotlin
-KMvi.setup {
+KMvi.configure {
     copy(
         handleStrategy = HandleStrategy.HYBRID,
-        hybridConfig = HybridConfig(
+        hybridStrategyConfig = HybridStrategyConfig(
             groupTagSelector = { intent ->
                 when (intent) {
                     is LoadIntent -> "load_group"
@@ -310,7 +310,7 @@ class MyViewModel : ViewModel() {
     private val contract by contract(
         initState = MyState(),
         handleStrategy = HandleStrategy.HYBRID,
-        config = HybridConfig(
+        config = HybridStrategyConfig(
             groupTagSelector = { intent ->
                 when (intent) {
                     // Database operations - process sequentially within this group
@@ -521,7 +521,7 @@ class UserViewModel : ViewModel() {
     private val contract by contract(
         initState = UserState(),
         handleStrategy = HandleStrategy.HYBRID,
-        config = HybridConfig(
+        config = HybridStrategyConfig(
             groupTagSelector = { intent ->
                 when (intent) {
                     // Group all database operations together
@@ -608,7 +608,7 @@ class UserViewModel : ViewModel() {
     private val contract by contract(
         initState = UserState(),
         handleStrategy = HandleStrategy.HYBRID,
-        config = HybridConfig(
+        config = HybridStrategyConfig(
             groupTagSelector = { intent ->
                 when (intent) {
                     is UserIntent.Save,
@@ -715,17 +715,17 @@ K-MVI provides convenient extensions for common UI events:
 // Button clicks
 button.doOnClick { MyIntent.ButtonClicked }
     .debounceLeading(500) // Prevent rapid clicks
-    .launchCollect(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(this) { viewModel.dispatch(it) }
 
 // Text changes
 editText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
     send(MyIntent.TextChanged(editable?.toString().orEmpty()))
-}.launchCollect(this) { viewModel.dispatch(it) }
+}.launchWithLifecycle(this) { viewModel.dispatch(it) }
 
 // Checkbox changes
 checkbox.doOnCheckedChange { isChecked ->
     send(MyIntent.CheckboxToggled(isChecked))
-}.launchCollect(this) { viewModel.dispatch(it) }
+}.launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
 
 ### Debouncing and Throttling
@@ -738,7 +738,7 @@ double-clicks:
 ```kotlin
 button.doOnClick { SubmitIntent }
     .debounceLeading(500) // Ignore clicks within 500ms of the first click
-    .launchCollect(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
 
 #### debounce (from Kotlin Flow)
@@ -748,7 +748,7 @@ Responds to the **last** event after a period of silence. Perfect for search as 
 ```kotlin
 searchEditText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
     send(SearchIntent(editable?.toString().orEmpty()))
-}.launchCollect(this) { viewModel.dispatch(it) }
+}.launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
 
 ## Configuration
@@ -760,7 +760,7 @@ class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        KMvi.setup {
+        KMvi.configure {
             copy(
                 // Intent handling strategy
                 handleStrategy = HandleStrategy.HYBRID,
@@ -771,7 +771,7 @@ class MyApplication : Application() {
                 },
 
                 // Hybrid strategy configuration
-                hybridConfig = HybridConfig(
+                hybridStrategyConfig = HybridStrategyConfig(
                     groupTagSelector = { intent ->
                         // Return a group key for intents that should be grouped
                         when (intent) {
@@ -845,7 +845,7 @@ Default policy:
 > `IllegalArgumentException`, or `NullPointerException`. Override it if your app has
 > additional domain-specific transient failures.
 
-#### HybridConfig
+#### HybridStrategyConfig
 
 Configuration for HYBRID strategy:
 
@@ -915,7 +915,7 @@ subsequent intents can still be processed. The failing intent is not replayed â€
 intent-level error recovery:
 
 ```kotlin
-KMvi.setup {
+KMvi.configure {
     copy(
         retryPolicy = { attempt, cause ->
             when (cause) {
@@ -996,7 +996,7 @@ fun `error event is emitted on failure`() = runTest {
 
 ```kotlin
 // Option 1: threshold-based default logger (uses Android Log)
-KMvi.setup {
+KMvi.configure {
     copy(logger = Logger(Logger.DEBUG))  // Log DEBUG and above
 }
 
@@ -1016,7 +1016,7 @@ val customLogger = Logger { priority, tag, error, message ->
     }
 }
 
-KMvi.setup {
+KMvi.configure {
     copy(logger = customLogger)
 }
 ```

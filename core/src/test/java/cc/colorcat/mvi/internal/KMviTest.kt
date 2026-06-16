@@ -2,7 +2,7 @@ package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.GroupTagSelector
-import cc.colorcat.mvi.HybridConfig
+import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
@@ -35,7 +35,7 @@ class KMviTest {
         // Full reset to defaults each test; logger replaced with a no-op to avoid Android Log.
         // Ignoring the receiver (the previous Configuration) is intentional — we want a clean slate
         // so capacity / strategy / retry changes from earlier tests cannot leak into later ones.
-        KMvi.setup { KMvi.Configuration(logger = Logger { _, _, _, _ -> }) }
+        KMvi.configure { KMvi.Configuration(logger = Logger { _, _, _, _ -> }) }
     }
 
     @Test
@@ -44,15 +44,15 @@ class KMviTest {
 
         assertEquals(IntentQueueConfig.DEFAULT_CAPACITY, config.intentQueueConfig.capacity)
         assertEquals(BufferOverflow.SUSPEND, config.intentQueueConfig.onBufferOverflow)
-        assertEquals(HybridConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD, config.hybridConfig.groupCountWarningThreshold)
-        assertEquals(256, HybridConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD)
+        assertEquals(HybridStrategyConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD, config.hybridStrategyConfig.groupCountWarningThreshold)
+        assertEquals(256, HybridStrategyConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD)
     }
 
     @Test
-    fun `setup with custom values`() {
+    fun `configure with custom values`() {
         val customLogger = Logger { _, _, _, _ -> }
 
-        KMvi.setup {
+        KMvi.configure {
             copy(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 logger = customLogger,
@@ -61,8 +61,8 @@ class KMviTest {
     }
 
     @Test
-    fun `setup allows zero intentQueueConfig capacity`() {
-        KMvi.setup {
+    fun `configure allows zero intentQueueConfig capacity`() {
+        KMvi.configure {
             copy(
                 intentQueueConfig = IntentQueueConfig(capacity = 0),
                 logger = Logger { _, _, _, _ -> },
@@ -71,8 +71,8 @@ class KMviTest {
     }
 
     @Test
-    fun `setup allows CONFLATED intentQueueConfig capacity`() {
-        KMvi.setup {
+    fun `configure allows CONFLATED intentQueueConfig capacity`() {
+        KMvi.configure {
             copy(
                 intentQueueConfig = IntentQueueConfig(capacity = Channel.CONFLATED),
                 logger = Logger { _, _, _, _ -> },
@@ -81,9 +81,9 @@ class KMviTest {
     }
 
     @Test
-    fun `setup rejects invalid negative intentQueueConfig capacity`() {
+    fun `configure rejects invalid negative intentQueueConfig capacity`() {
         assertThrows(IllegalArgumentException::class.java) {
-            KMvi.setup {
+            KMvi.configure {
                 copy(
                     intentQueueConfig = IntentQueueConfig(capacity = -3),
                     logger = Logger { _, _, _, _ -> },
@@ -93,8 +93,8 @@ class KMviTest {
     }
 
     @Test
-    fun `setup allows UNLIMITED intentQueueConfig capacity`() {
-        KMvi.setup {
+    fun `configure allows UNLIMITED intentQueueConfig capacity`() {
+        KMvi.configure {
             copy(
                 intentQueueConfig = IntentQueueConfig(capacity = Channel.UNLIMITED),
                 logger = Logger { _, _, _, _ -> },
@@ -103,8 +103,8 @@ class KMviTest {
     }
 
     @Test
-    fun `setup allows positive intentQueueConfig capacity`() {
-        KMvi.setup {
+    fun `configure allows positive intentQueueConfig capacity`() {
+        KMvi.configure {
             copy(
                 intentQueueConfig = IntentQueueConfig(capacity = 128),
                 logger = Logger { _, _, _, _ -> },
@@ -113,9 +113,9 @@ class KMviTest {
     }
 
     @Test
-    fun `setup rejects CONFLATED intentQueueConfig with drop overflow`() {
+    fun `configure rejects CONFLATED intentQueueConfig with drop overflow`() {
         assertThrows(IllegalArgumentException::class.java) {
-            KMvi.setup {
+            KMvi.configure {
                 copy(
                     intentQueueConfig = IntentQueueConfig(
                         capacity = Channel.CONFLATED,
@@ -128,120 +128,120 @@ class KMviTest {
     }
 
     @Test
-    fun `setup allows Channel_BUFFERED hybrid groupChannelCapacity`() {
-        KMvi.setup {
+    fun `configure allows Channel_BUFFERED hybrid groupChannelCapacity`() {
+        KMvi.configure {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = HybridConfig(groupChannelCapacity = Channel.BUFFERED),
+                hybridStrategyConfig = HybridStrategyConfig(groupChannelCapacity = Channel.BUFFERED),
             )
         }
     }
 
     @Test
-    fun `setup allows positive hybrid groupChannelCapacity`() {
-        KMvi.setup {
+    fun `configure allows positive hybrid groupChannelCapacity`() {
+        KMvi.configure {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = HybridConfig(groupChannelCapacity = 32),
+                hybridStrategyConfig = HybridStrategyConfig(groupChannelCapacity = 32),
             )
         }
     }
 
     @Test
-    fun `setup allows positive hybrid groupCountWarningThreshold`() {
-        KMvi.setup {
+    fun `configure allows positive hybrid groupCountWarningThreshold`() {
+        KMvi.configure {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = HybridConfig(groupCountWarningThreshold = 32),
+                hybridStrategyConfig = HybridStrategyConfig(groupCountWarningThreshold = 32),
             )
         }
     }
 
     @Test
-    fun `setup allows Int_MAX_VALUE hybrid groupCountWarningThreshold`() {
-        KMvi.setup {
+    fun `configure allows Int_MAX_VALUE hybrid groupCountWarningThreshold`() {
+        KMvi.configure {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = HybridConfig(groupCountWarningThreshold = Int.MAX_VALUE),
+                hybridStrategyConfig = HybridStrategyConfig(groupCountWarningThreshold = Int.MAX_VALUE),
             )
         }
     }
 
     @Test
-    fun `setup rejects zero hybrid groupCountWarningThreshold`() {
+    fun `configure rejects zero hybrid groupCountWarningThreshold`() {
         assertThrows(IllegalArgumentException::class.java) {
-            KMvi.setup {
+            KMvi.configure {
                 copy(
                     logger = Logger { _, _, _, _ -> },
-                    hybridConfig = HybridConfig(groupCountWarningThreshold = 0),
+                    hybridStrategyConfig = HybridStrategyConfig(groupCountWarningThreshold = 0),
                 )
             }
         }
     }
 
     @Test
-    fun `setup rejects negative hybrid groupCountWarningThreshold`() {
+    fun `configure rejects negative hybrid groupCountWarningThreshold`() {
         assertThrows(IllegalArgumentException::class.java) {
-            KMvi.setup {
+            KMvi.configure {
                 copy(
                     logger = Logger { _, _, _, _ -> },
-                    hybridConfig = HybridConfig(groupCountWarningThreshold = -1),
+                    hybridStrategyConfig = HybridStrategyConfig(groupCountWarningThreshold = -1),
                 )
             }
         }
     }
 
     @Test
-    fun `setup allows CONFLATED hybrid groupChannelCapacity`() {
-        KMvi.setup {
+    fun `configure allows CONFLATED hybrid groupChannelCapacity`() {
+        KMvi.configure {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = HybridConfig(groupChannelCapacity = Channel.CONFLATED),
+                hybridStrategyConfig = HybridStrategyConfig(groupChannelCapacity = Channel.CONFLATED),
             )
         }
     }
 
     @Test
-    fun `setup rejects invalid negative hybrid groupChannelCapacity`() {
+    fun `configure rejects invalid negative hybrid groupChannelCapacity`() {
         assertThrows(IllegalArgumentException::class.java) {
-            KMvi.setup {
+            KMvi.configure {
                 copy(
                     logger = Logger { _, _, _, _ -> },
-                    hybridConfig = HybridConfig(groupChannelCapacity = -3),
+                    hybridStrategyConfig = HybridStrategyConfig(groupChannelCapacity = -3),
                 )
             }
         }
     }
 
     @Test
-    fun `configuration accepts custom hybridConfig`() {
-        val hybridConfig = HybridConfig(
+    fun `configuration accepts custom hybridStrategyConfig`() {
+        val hybridStrategyConfig = HybridStrategyConfig(
             groupChannelCapacity = 32,
             groupCountWarningThreshold = 128,
         )
 
-        KMvi.setup {
+        KMvi.configure {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                hybridConfig = hybridConfig,
+                hybridStrategyConfig = hybridStrategyConfig,
             )
         }
 
-        assertEquals(32, KMvi.hybridConfig.groupChannelCapacity)
-        assertEquals(128, KMvi.hybridConfig.groupCountWarningThreshold)
+        assertEquals(32, KMvi.hybridStrategyConfig.groupChannelCapacity)
+        assertEquals(128, KMvi.hybridStrategyConfig.groupCountWarningThreshold)
     }
 
     @Test
-    fun `HybridConfig rejects zero groupCountWarningThreshold`() {
+    fun `HybridStrategyConfig rejects zero groupCountWarningThreshold`() {
         assertThrows(IllegalArgumentException::class.java) {
-            HybridConfig(groupCountWarningThreshold = 0)
+            HybridStrategyConfig(groupCountWarningThreshold = 0)
         }
     }
 
     @Test
-    fun `HybridConfig rejects negative groupCountWarningThreshold`() {
+    fun `HybridStrategyConfig rejects negative groupCountWarningThreshold`() {
         assertThrows(IllegalArgumentException::class.java) {
-            HybridConfig(groupCountWarningThreshold = -1)
+            HybridStrategyConfig(groupCountWarningThreshold = -1)
         }
     }
 
@@ -266,14 +266,14 @@ class KMviTest {
     }
 
     @Test
-    fun `setup can be called multiple times`() {
-        KMvi.setup {
+    fun `configure can be called multiple times`() {
+        KMvi.configure {
             copy(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 logger = Logger { _, _, _, _ -> },
             )
         }
-        KMvi.setup {
+        KMvi.configure {
             copy(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 logger = Logger { _, _, _, _ -> },

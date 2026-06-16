@@ -27,21 +27,21 @@ import java.util.concurrent.TimeUnit
  */
 
 /**
- * Converts a single value into a Flow that emits this value.
+ * Converts a single [Mvi.PartialChange] into a Flow that emits it.
  *
  * This is a convenience extension that wraps [flowOf].
  *
  * ## Usage Example
  *
  * ```kotlin
- * val intent = LoginIntent.Initialize
- * intent.asSingleFlow()
- *     .launchCollect(this) { viewModel.dispatch(it) }
+ * LoginChange.ClearError
+ *     .asSingleFlow()
+ *     .collect { change -> ... }
  * ```
  *
- * @return A Flow that emits this single value
+ * @return A Flow that emits this single partial change
  */
-fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
+fun <S : Mvi.State, E : Mvi.Event, C : Mvi.PartialChange<S, E>> C.asSingleFlow(): Flow<C> = flowOf(this)
 
 /**
  * Debounces the flow with a leading edge trigger and sliding timeout window.
@@ -110,12 +110,12 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  * // User's first click is processed immediately, subsequent rapid clicks are ignored
  * button.doOnClick { trySend(SubmitIntent) }
  *     .debounceLeading(500L)  // 500ms sliding window
- *     .launchCollect(viewLifecycleOwner) { viewModel.dispatch(it) }
+ *     .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
  *
  * // Compare with standard debounce (waits for user to stop, then responds)
  * searchEditText.afterTextChanged()
  *     .debounce(500L)  // Waits for user to stop typing
- *     .launchCollect(viewLifecycleOwner) { viewModel.dispatch(SearchIntent(it)) }
+ *     .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(SearchIntent(it)) }
  * ```
  *
  * ## Use Cases
@@ -158,14 +158,14 @@ internal fun <T> Flow<T>.debounceLeading(timeMillis: Long, nanoTimeSource: () ->
  * The click listener is automatically removed when the Flow is cancelled.
  * This Flow must be collected on the main thread because it registers and
  * removes Android View listeners. The lifecycle helpers in this library
- * ([launchCollect] and [dispatchWithLifecycle]) collect from
+ * ([launchWithLifecycle] and [dispatchWithLifecycle]) collect from
  * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *
  * ```kotlin
  * button.doOnClick { trySend(LoginIntent.ClickLoginButton) }
- *     .launchCollect(viewLifecycleOwner) { intent ->
+ *     .launchWithLifecycle(viewLifecycleOwner) { intent ->
  *         viewModel.dispatch(intent)
  *     }
  * ```
@@ -189,7 +189,7 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  * The long click listener is automatically removed when the Flow is cancelled.
  * This Flow must be collected on the main thread because it registers and
  * removes Android View listeners. The lifecycle helpers in this library
- * ([launchCollect] and [dispatchWithLifecycle]) collect from
+ * ([launchWithLifecycle] and [dispatchWithLifecycle]) collect from
  * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
@@ -198,7 +198,7 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  * button.doOnLongClick {
  *     trySend(EditIntent.ShowContextMenu)
  *     true  // Consume the event
- * }.launchCollect(viewLifecycleOwner) { intent ->
+ * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
  * ```
@@ -224,7 +224,7 @@ fun <I : Mvi.Intent> View.doOnLongClick(
  * The checked change listener is automatically removed when the Flow is cancelled.
  * This Flow must be collected on the main thread because it registers and
  * removes Android View listeners. The lifecycle helpers in this library
- * ([launchCollect] and [dispatchWithLifecycle]) collect from
+ * ([launchWithLifecycle] and [dispatchWithLifecycle]) collect from
  * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
@@ -232,7 +232,7 @@ fun <I : Mvi.Intent> View.doOnLongClick(
  * ```kotlin
  * switchButton.doOnCheckedChange { isChecked ->
  *     trySend(SettingsIntent.ToggleNotification(isChecked))
- * }.launchCollect(viewLifecycleOwner) { intent ->
+ * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
  * ```
@@ -260,7 +260,7 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  * The text watcher is automatically removed when the Flow is cancelled.
  * This Flow must be collected on the main thread because it registers and
  * removes Android View listeners. The lifecycle helpers in this library
- * ([launchCollect] and [dispatchWithLifecycle]) collect from
+ * ([launchWithLifecycle] and [dispatchWithLifecycle]) collect from
  * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
@@ -268,7 +268,7 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  * ```kotlin
  * searchEditText.doOnAfterTextChanged(debounceMillis = 500L) { editable ->
  *     trySend(SearchIntent.QueryChanged(editable?.toString().orEmpty()))
- * }.launchCollect(viewLifecycleOwner) { intent ->
+ * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
  * ```

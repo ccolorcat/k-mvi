@@ -25,7 +25,7 @@ class IntentHandlersTest {
 
     @Before
     fun setUp() {
-        KMvi.setup {
+        KMvi.configure {
             copy(
                 intentQueueConfig = IntentQueueConfig(capacity = 64),
                 logger = Logger { _, _, _, _ -> },
@@ -90,7 +90,7 @@ class IntentHandlersTest {
     @Test
     fun `null defaultHandler produces empty flow and logs WARN for unregistered intent`() = runBlocking {
         val warns = mutableListOf<String>()
-        KMvi.setup {
+        KMvi.configure {
             copy(logger = Logger { priority, _, _, message ->
                 if (priority == Logger.WARN) warns.add(message())
             })
@@ -108,7 +108,7 @@ class IntentHandlersTest {
     @Test
     fun `null defaultHandler is silent for intents with registered handler`() = runBlocking {
         val warns = mutableListOf<String>()
-        KMvi.setup {
+        KMvi.configure {
             copy(logger = Logger { priority, _, _, message ->
                 if (priority == Logger.WARN) warns.add(message())
             })

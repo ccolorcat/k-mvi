@@ -1,6 +1,6 @@
 package cc.colorcat.mvi.internal
 
-import cc.colorcat.mvi.HybridConfig
+import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.Mvi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -117,7 +117,7 @@ internal val Mvi.Intent.diagnosticName: String
  * ```
  * intentFlow
  *     .groupHandle(
- *         config = HybridConfig(),
+ *         config = HybridStrategyConfig(),
  *         tagSelector = { it.userId },
  *         handler = { tag ->
  *             map { intent -> processIntent(tag, intent) }
@@ -133,7 +133,7 @@ internal val Mvi.Intent.diagnosticName: String
  *
  *   **Performance note**: When a group's channel is full (e.g. handler is slow),
  *   [channel.send] suspends the single outer `collect` coroutine, blocking *all*
- *   groups (see ⚠️ above). Increase [HybridConfig.groupChannelCapacity] for
+ *   groups (see ⚠️ above). Increase [HybridStrategyConfig.groupChannelCapacity] for
  *   high-throughput scenarios, or use [Channel.UNLIMITED] to eliminate per-group
  *   backpressure (risk: unbounded memory).
  * @param tagSelector Function to extract the grouping tag from an intent
@@ -149,7 +149,7 @@ internal val Mvi.Intent.diagnosticName: String
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
-    config: HybridConfig,
+    config: HybridStrategyConfig,
     tagSelector: (I) -> Any,
     handler: Flow<I>.(tag: Any) -> Flow<R>,
 ): Flow<Flow<R>> = flow {
