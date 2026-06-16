@@ -22,7 +22,7 @@
 
 ## Bug（实现正确性）
 
-- Bug 1. `ReactiveContractImpl.kt` 第 36-129 行那块长 KDoc 描述的是 `CoreReactiveContract` 类，但它后面紧跟的是 `private const val SNAPSHOT_BUFFER_CAPACITY = 64`（第 130 行），类本身从第 132 行开始。KDoc 在 Kotlin 里挂给紧随其后的声明——所以这段长说明实际挂在常量上，`CoreReactiveContract` 这个类对 Dokka / IDE 来说是 *零 KDoc*。需要把 `SNAPSHOT_BUFFER_CAPACITY` 移到 KDoc 之前，或把 KDoc 紧挨到 class 头之上。
+- ✅ **Bug 1（已修复）**. `ReactiveContractImpl.kt` 中 `SNAPSHOT_BUFFER_CAPACITY` 已移到 `CoreReactiveContract` 长 KDoc 之前，类 KDoc 现在正确挂在 `CoreReactiveContract` 上，不再误挂到常量声明。
 - Bug 2. `EventCollector.collectTyped(KClass, ...)`（`MviCollects.kt:400`）写成：
   ```kotlin
   flow.filter { clazz.isInstance(it) }
@@ -88,7 +88,7 @@
   `by viewModels()` 返回 `ViewModel`，不可能赋给 `Contract`。这段代码不可编译。
 - Doc 2. `ReactiveContract` KDoc 第 140-144 行示例调 `mviViewModel(scope = viewModelScope, initState = MyState(), defaultHandler = ::handleIntent)`——仓库里没有 `mviViewModel` 函数，工厂是 `ViewModel.contract(...)`。
 - Doc 3. `Contract.stateFlow` KDoc 说 "Conflated: Only the latest state is kept, intermediate states may be skipped"。`StateFlow` 的 conflation 行为是 *按 `equals` 去重*，"可能跳过中间值"成立但缺了 `equals` 这层关键约束；用户照字面读会误以为是按时间 conflate。
-- Doc 4. `ReactiveContractImpl.kt` 36-129 行的长 KDoc 实际挂在 `SNAPSHOT_BUFFER_CAPACITY` 上（见 Bug 1）。Dokka 渲染时 `CoreReactiveContract` 是空文档。
+- ✅ **Doc 4（已修复）**. `ReactiveContractImpl.kt` 的 `CoreReactiveContract` 长 KDoc 已紧贴 class 声明，Dokka / IDE 会把它归到类上。
 - Doc 5. `Mvi.Snapshot.updateState` KDoc 提到"会清空 event，需要保留请用 `updateWith`"，但示例里没有出现"先 event 再 updateState 导致 event 丢失"的反面案例。这种 API 的"反例样板"对避免 Bug 5 更有效。
 - ✅ **Doc 6（已修复）**. 业务分组入口已改为 `groupTagSelector = GroupTagSelector<MyIntent> { ... }`，`HybridConfig` 只保留业务无关运行参数；相关 KDoc 明确默认 `byClass()` 返回运行时 `Class`，自定义 tag 需要稳定且低基数。
 - Doc 7. `MviExtensions.doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 的 KDoc 完全没说"必须在主线程 collect"。`setOnClickListener` 和 `TextWatcher` 都是 View 操作，需要 Main。配合 Bug 3，这条文档遗漏是必须补的。

@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 
+private const val SNAPSHOT_BUFFER_CAPACITY = 64
+
 /**
  * Core implementation of [ReactiveContract] that handles the MVI flow processing.
  *
@@ -124,8 +126,6 @@ import kotlinx.coroutines.isActive
  * Date: 2024-05-10
  * GitHub: https://github.com/ccolorcat
  */
-private const val SNAPSHOT_BUFFER_CAPACITY = 64
-
 internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val scope: CoroutineScope,
     initState: S,
