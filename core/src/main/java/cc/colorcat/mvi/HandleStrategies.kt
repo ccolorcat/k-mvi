@@ -135,7 +135,7 @@ enum class HandleStrategy {
      * - Best for operations requiring strict order
      *
      * ### 3. Fallback Intents (neither Concurrent nor Sequential)
-     * - Grouped by the result of [HybridConfig.groupTagSelector]
+     * - Grouped by the result of [GroupTagSelector]
      * - **Within each group**: Processed sequentially
      * - **Between groups**: Processed in parallel
      * - Best for operations that need partial ordering
@@ -173,17 +173,17 @@ enum class HandleStrategy {
      *
      * Customize grouping for fallback intents:
      * ```kotlin
-     * val config = KMvi.hybridConfig<MyIntent> { intent ->
+     * val groupTagSelector = GroupTagSelector<MyIntent> { intent ->
      *     when (intent) {
      *         is LoadData -> intent.type  // Group by data type
-     *         else -> intent.javaClass.name
+     *         else -> intent.javaClass
      *     }
      * }
      *
      * mviViewModel(
      *     // ...
      *     strategy = HandleStrategy.HYBRID,
-     *     config = config
+     *     groupTagSelector = groupTagSelector
      * )
      * ```
      *
@@ -202,76 +202,54 @@ enum class HandleStrategy {
 
 
 /**
- * Configuration for the [HandleStrategy.HYBRID] intent handling strategy.
+ * Selects the HYBRID fallback group tag for an intent.
  *
- * Controls how fallback intents (those not explicitly marked as [Mvi.Intent.Concurrent]
- * or [Mvi.Intent.Sequential]) are grouped and processed. Intents with the same group tag
- * are processed sequentially within their group, while different groups process in parallel.
+ * This selector is business-facing: it decides which fallback intents must be
+ * ordered together. Intents with the same tag are processed sequentially within
+ * that tag, while different tags process in parallel.
  *
- * ## Default Behavior
+ * The default selector uses the runtime [Class] object, which avoids grouping changes
+ * caused by ProGuard/R8 class-name obfuscation.
  *
- * By default, fallback intents are grouped by their class name:
  * ```kotlin
- * HybridConfig()  // Equivalent to: groupTagSelector = { it.javaClass.name }
- * ```
- *
- * This means each intent type gets its own sequential queue:
- * ```kotlin
- * // These form separate groups, processed in parallel
- * LoadUserIntent(1)  → Group: "LoadUserIntent"
- * LoadPostIntent(1)  → Group: "LoadPostIntent"
- *
- * // These are in the same group, processed sequentially
- * LoadUserIntent(1)  → Executes first
- * LoadUserIntent(2)  → Waits for first to complete
- * ```
- *
- * ## Custom Grouping
- *
- * You can customize grouping to achieve more sophisticated processing patterns.
- *
- * ### Example 1: Group by Business Entity
- * ```kotlin
- * sealed interface MyIntent : Mvi.Intent {
- *     data class LoadUser(val userId: String) : MyIntent
- *     data class LoadPost(val postId: String) : MyIntent
- *     data class UpdateUser(val userId: String, val data: UserData) : MyIntent
- * }
- *
- * val config = KMvi.hybridConfig<MyIntent> { intent ->
+ * val selector = GroupTagSelector<MyIntent> { intent ->
  *     when (intent) {
- *         is LoadUser, is UpdateUser -> "user-operations"  // Same group
- *         is LoadPost -> "post-operations"
- *         else -> intent.javaClass.name
+ *         is MyIntent.LoadUser -> "user"
+ *         is MyIntent.LoadPost -> "post"
+ *         else -> intent.javaClass
  *     }
  * }
  * ```
- * Now all user operations are sequential with each other, but parallel with post operations.
  *
- * ### Example 2: Group by Resource ID
- * ```kotlin
- * data class LoadData(val type: String, val id: String) : Mvi.Intent
+ * Tags are equality keys: return values must have stable [Any.equals] and
+ * [Any.hashCode] behavior for the lifetime of the contract. Avoid returning newly
+ * allocated objects that only compare by identity, random values, or mutable objects
+ * whose equality can change after insertion.
  *
- * val config = KMvi.hybridConfig<MyIntent> { intent ->
- *     when (intent) {
- *         is LoadData -> "${intent.type}-${intent.id}"  // Group by type and id
- *         else -> intent.javaClass.name
- *     }
- * }
- * ```
- * Now `LoadData("user", "123")` and `LoadData("user", "456")` process in parallel,
- * but multiple `LoadData("user", "123")` requests are sequential.
+ * Avoid high-cardinality data-tied tags such as raw user IDs, item IDs, search
+ * queries, or timestamps unless per-value ordering is required. Each distinct tag
+ * keeps a group channel active until the contract pipeline completes or the channel
+ * is detected as stale/closed and replaced.
  *
- * ### Example 3: Global Sequential for Specific Types
- * ```kotlin
- * val config = KMvi.hybridConfig<MyIntent> { intent ->
- *     when (intent) {
- *         is CriticalOperation -> "critical"  // All critical ops in one queue
- *         is RegularOperation -> intent.javaClass.name  // Each type separate
- *         else -> intent.javaClass.name
- *     }
- * }
- * ```
+ * @param I The intent type.
+ * @see HybridConfig
+ */
+fun interface GroupTagSelector<in I : Mvi.Intent> {
+    fun selectTag(intent: I): Any
+
+    companion object {
+        fun <I : Mvi.Intent> byClass(): GroupTagSelector<I> {
+            return GroupTagSelector { it.javaClass }
+        }
+    }
+}
+
+/**
+ * Runtime configuration for the [HandleStrategy.HYBRID] intent handling strategy.
+ *
+ * [HybridConfig] is intentionally business-agnostic. It controls internal group
+ * channel capacity and diagnostics only; fallback group selection belongs to
+ * [GroupTagSelector].
  *
  * ## Channel Capacity
  *
@@ -285,17 +263,6 @@ enum class HandleStrategy {
  * - **Use [Channel.UNLIMITED]** if you never want to drop intents (may cause memory issues)
  * - **Use [Channel.RENDEZVOUS]** (0) for strict backpressure
  *
- * ```kotlin
- * // Inherit KMvi.Configuration.groupChannelCapacity and use class-name grouping.
- * KMvi.hybridConfig<MyIntent>()
- *
- * // Override the capacity for one contract while keeping the class-name selector.
- * KMvi.hybridConfig<MyIntent>(groupChannelCapacity = 128)
- *
- * // Override both capacity and selector.
- * KMvi.hybridConfig<MyIntent>(groupChannelCapacity = 128) { it.javaClass.name }
- * ```
- *
  * ## Group Count Diagnostics
  *
  * [groupCountWarningThreshold] controls warning logs for high active group channel
@@ -303,49 +270,12 @@ enum class HandleStrategy {
  * ordering behavior. When the active group count reaches the threshold, a WARN log is
  * emitted. The next warning threshold then doubles, so the default warning points are
  * 256, 512, 1024, and so on. Use [Int.MAX_VALUE] to disable this
- * diagnostic in normal applications. The warning log uses the opened tag's hash and
- * length instead of the raw tag value.
+ * diagnostic in normal applications. The warning log uses the opened tag's type and
+ * hash instead of the raw tag value.
  *
- * ## Best Practices
- *
- * ### ✅ Good Grouping Strategies
- * - Group by resource type (user operations, post operations)
- * - Group by resource ID (operations on the same entity)
- * - Group by logical workflow (checkout steps, form validation)
- *
- * ### ⚠️ Avoid These Pitfalls
- * - Don't return different tags for the same logical operation
- * - Don't use random or time-based tags (breaks sequential guarantees)
- * - Avoid high-cardinality data-tied tags (resource ids, user ids, raw query strings,
- *   timestamps) unless you intentionally want one long-lived group per value. Each
- *   distinct fallback tag keeps a group channel active until the contract pipeline
- *   completes or the channel is replaced after being detected as stale/closed.
- *   Prefer bucketed tags (e.g. `"user"` instead of `"user-${userId}"`) when per-id
- *   ordering is unnecessary.
- *
- * ### 💡 Tips
- * - Use distinct tags for truly independent operations
- * - Use the same tag for operations that must be ordered
- * - Consider using prefixes for related groups (e.g., "user-load", "user-update")
- * - Log your tags during development to verify grouping behavior
- *
- * ## Performance Considerations
- *
- * - **More groups** = More parallelism but more overhead
- * - **Fewer groups** = Less overhead but more sequential bottlenecks
- * - Default grouping (by class name) is a good balance for most apps
- *
- * ## Relationship with Intent Types
- *
- * [groupTagSelector] **only affects fallback intents**:
- * - [Mvi.Intent.Concurrent] intents ignore this config (always parallel)
- * - [Mvi.Intent.Sequential] intents ignore this config (always one global queue)
- * - Other intents use this config for grouping
- *
- * [groupCountWarningThreshold] observes all active HYBRID group channels, including
+ * The warning observes all active HYBRID group channels, including
  * the fixed concurrent and sequential groups when they have been opened.
  *
- * @param I The intent type
  * @param groupChannelCapacity The capacity of internal channels used for grouping.
  *                             Allowed values: [Channel.BUFFERED], [Channel.CONFLATED],
  *                             [Channel.RENDEZVOUS], or any positive Int.
@@ -356,54 +286,12 @@ enum class HandleStrategy {
  *                                   the next doubled threshold. Must be positive. Defaults to
  *                                   [DEFAULT_GROUP_COUNT_WARNING_THRESHOLD]. Use [Int.MAX_VALUE]
  *                                   to disable this diagnostic.
- * @param groupTagSelector A function that assigns a group tag to each fallback intent.
- *                         Intents with the same tag are processed sequentially within
- *                         their group. Different tags process in parallel.
- *                         Defaults to the intent's class name.
- *
- *                         ## ⚠️ ProGuard / R8 Warning
- *
- *                         The default implementation uses `it.javaClass.name`, which relies on
- *                         the class's fully-qualified name at runtime. In release builds with
- *                         ProGuard or R8 minification enabled, class names are typically
- *                         **obfuscated** (e.g., `a`, `b`, `c`). This can cause previously
- *                         distinct intent types to collide on the same group tag, silently
- *                         converting what should be parallelism into unintended serialization.
- *
- *                         **Recommendation**: Always supply an explicit, stable groupTagSelector
- *                         in production apps, or add a `-keepnames` ProGuard rule for your
- *                         Intent classes:
- *
- *                         ```kotlin
- *                         // ✅ Explicit, obfuscation-safe selector
- *                         KMvi.hybridConfig<MyIntent> { intent ->
- *                             when (intent) {
- *                                 is LoadUser   -> "user"
- *                                 is LoadPost   -> "post"
- *                                 else          -> "default"
- *                             }
- *                         }
- *                         ```
- *
- *                         ```proguard
- *                         # ProGuard rule alternative
- *                         -keepnames class cc.example.intent.**
- *                         ```
- *
- * ## Note on `internal` Properties
- *
- * [groupChannelCapacity], [groupCountWarningThreshold], and [groupTagSelector] are declared
- * `internal` so they cannot be accessed from outside the `cc.colorcat.mvi` library module.
- * End-users configure them through the constructor or [KMvi.hybridConfig].
- *
  * @see HandleStrategy.HYBRID
- * @see Mvi.Intent.Concurrent
- * @see Mvi.Intent.Sequential
+ * @see GroupTagSelector
  */
-class HybridConfig<in I : Mvi.Intent>(
-    internal val groupChannelCapacity: Int = Channel.BUFFERED,
-    internal val groupCountWarningThreshold: Int = DEFAULT_GROUP_COUNT_WARNING_THRESHOLD,
-    internal val groupTagSelector: (I) -> String = { it.javaClass.name },
+class HybridConfig(
+    val groupChannelCapacity: Int = Channel.BUFFERED,
+    val groupCountWarningThreshold: Int = DEFAULT_GROUP_COUNT_WARNING_THRESHOLD,
 ) {
     init {
         requireSupportedChannelConfig(
@@ -418,8 +306,7 @@ class HybridConfig<in I : Mvi.Intent>(
     override fun toString(): String {
         return "HybridConfig(" +
             "groupChannelCapacity=$groupChannelCapacity, " +
-            "groupCountWarningThreshold=$groupCountWarningThreshold, " +
-            "groupTagSelector=$groupTagSelector" +
+            "groupCountWarningThreshold=$groupCountWarningThreshold" +
             ")"
     }
 

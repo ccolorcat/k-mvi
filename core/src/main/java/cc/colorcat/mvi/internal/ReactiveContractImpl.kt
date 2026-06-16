@@ -1,6 +1,7 @@
 package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.DispatchResult
+import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.IntentHandler
@@ -364,14 +365,15 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     intentQueueConfig: IntentQueueConfig,
     retryPolicy: RetryPolicy,
     strategy: HandleStrategy,
-    config: HybridConfig<I>,
+    hybridConfig: HybridConfig,
+    groupTagSelector: GroupTagSelector<I>,
     private val delegate: IntentHandlerDelegate<I, S, E>,
 ) : CoreReactiveContract<I, S, E>(
     scope = scope,
     initState = initState,
     intentQueueConfig = intentQueueConfig,
     retryPolicy = retryPolicy,
-    transformer = IntentTransformer(strategy, config, delegate),
+    transformer = IntentTransformer(strategy, hybridConfig, groupTagSelector, delegate),
 ) {
     /**
      * Public constructor that creates the delegate internally.
@@ -381,7 +383,8 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
      * @param intentQueueConfig The dispatch entry queue configuration
      * @param retryPolicy Policy for retrying on errors
      * @param strategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
-     * @param config Configuration for HYBRID strategy
+     * @param hybridConfig Runtime configuration for HYBRID strategy
+     * @param groupTagSelector Selects fallback group tags for HYBRID strategy
      * @param defaultHandler The fallback handler for unregistered intent types, or `null` for
      *                       no fallback. See [contract] for the resulting log behavior.
      */
@@ -391,7 +394,8 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         intentQueueConfig: IntentQueueConfig,
         retryPolicy: RetryPolicy,
         strategy: HandleStrategy,
-        config: HybridConfig<I>,
+        hybridConfig: HybridConfig,
+        groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
         defaultHandler: IntentHandler<I, S, E>?,
     ) : this(
         scope = scope,
@@ -399,7 +403,8 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         intentQueueConfig = intentQueueConfig,
         retryPolicy = retryPolicy,
         strategy = strategy,
-        config = config,
+        hybridConfig = hybridConfig,
+        groupTagSelector = groupTagSelector,
         delegate = IntentHandlerDelegate(defaultHandler),
     )
 

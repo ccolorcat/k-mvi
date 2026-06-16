@@ -2,7 +2,7 @@ package cc.colorcat.mvi.sample.login
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
-import cc.colorcat.mvi.HybridConfig
+import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.contract
 import cc.colorcat.mvi.sample.login.LoginContract.Event
@@ -52,19 +52,15 @@ import kotlin.random.Random
  * - Input validation with early returns
  *
  * Note on `intentGroupTag` behavior and assumptions:
- * - The current implementation of [intentGroupTag] uses `intent::class.simpleName` as the
- *   fallback tag and does NOT perform additional normalization (such as replacing `\$`) or
- *   fallback to `qualifiedName`.
+ * - The current implementation of [intentGroupTag] groups authentication intents under a
+ *   semantic `"auth"` tag and uses the runtime `Class` object as the fallback tag.
  * - This choice is intentional for brevity because in this contract:
- *   - `Intent` types are sealed (no anonymous intents) and therefore `simpleName` is
- *     expected to be available and stable within the same process/build.
+ *   - `Intent` types are sealed and class objects are stable within the same process.
  *   - Tags are used only at runtime inside this contract to group intents for ordered
  *     execution; tags are neither persisted nor shared across processes or versions.
  * - Risks and considerations:
- *   - `simpleName` may be null for some generated types; this contract assumes intents are
- *     not anonymous or generated in a way that yields null simple names.
  *   - If you later need cross-version or cross-process stability, or persistence of tags,
- *     prefer an explicit `groupTag` on the Intent type or use a normalized `qualifiedName`.
+ *     prefer an explicit semantic `groupTag` on the Intent type.
  *
  * Author: ccolorcat
  * Date: 2025-11-20
@@ -73,20 +69,15 @@ import kotlin.random.Random
 class LoginViewModel : ViewModel() {
     private val contract by contract(
         initState = State(),
-        config = HybridConfig(
-            groupTagSelector = ::intentGroupTag,
-        ),
+        groupTagSelector = GroupTagSelector(::intentGroupTag),
         defaultHandler = ::handleIntent,
     )
 
-    private fun intentGroupTag(intent: Intent): String = when (intent) {
+    private fun intentGroupTag(intent: Intent): Any = when (intent) {
         // Group authentication-related intents under a clear, semantic tag
         is Intent.Login, is Intent.Logout -> "auth"
-        // Fallback: use the intent's simple class name as the tag. NOTE:
-        // - This implementation intentionally does not perform normalization (no `\$` replacement)
-        //   and does not fall back to qualifiedName. It assumes Intents are sealed/non-anonymous
-        //   and tags are used only within this contract at runtime.
-        else -> intent::class.simpleName ?: "fallback_tag"
+        // Fallback: use the runtime class object so minified class names do not affect grouping.
+        else -> intent.javaClass
     }
 
     val stateFlow: StateFlow<State> = contract.stateFlow

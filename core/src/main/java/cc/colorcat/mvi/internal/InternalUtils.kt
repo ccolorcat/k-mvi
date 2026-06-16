@@ -31,3 +31,9 @@ internal fun requireSupportedChannelConfig(
         "$name with Channel.CONFLATED requires BufferOverflow.SUSPEND, but onBufferOverflow was $onBufferOverflow"
     }
 }
+
+/**
+ * Redacted label for logging a group tag without invoking its raw [Any.toString].
+ */
+internal val Any.tagLabel: String
+    get() = "tag(type=${javaClass.name}, hash=${Integer.toHexString(hashCode())})"

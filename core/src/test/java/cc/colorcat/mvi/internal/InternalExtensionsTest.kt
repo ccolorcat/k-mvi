@@ -1,5 +1,6 @@
 package cc.colorcat.mvi.internal
 
+import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
@@ -201,8 +202,10 @@ class InternalExtensionsTest {
             emit(TaggedIntent("c"))
             emit(TaggedIntent("d"))
         }.groupHandle(
-            capacity = Channel.BUFFERED,
-            warningThreshold = 2,
+            config = HybridConfig(
+                groupChannelCapacity = Channel.BUFFERED,
+                groupCountWarningThreshold = 2,
+            ),
             tagSelector = { it.tag },
         ) { tag ->
             map { "$tag:${it.tag}" }
@@ -212,12 +215,14 @@ class InternalExtensionsTest {
         assertEquals(2, warnings.size)
         assertTrue(warnings[0].contains("active groups reached 2"))
         assertTrue(warnings[0].contains("threshold=2"))
-        assertTrue(warnings[0].contains("openedTagHash=${Integer.toHexString("b".hashCode())}"))
-        assertTrue(warnings[0].contains("openedTagLength=1"))
+        assertTrue(
+            warnings[0].contains("openedTag=tag(type=java.lang.String, hash=${Integer.toHexString("b".hashCode())})"),
+        )
         assertTrue(warnings[1].contains("active groups reached 4"))
         assertTrue(warnings[1].contains("threshold=4"))
-        assertTrue(warnings[1].contains("openedTagHash=${Integer.toHexString("d".hashCode())}"))
-        assertTrue(warnings[1].contains("openedTagLength=1"))
+        assertTrue(
+            warnings[1].contains("openedTag=tag(type=java.lang.String, hash=${Integer.toHexString("d".hashCode())})"),
+        )
     }
 
     @OptIn(FlowPreview::class)
@@ -235,8 +240,10 @@ class InternalExtensionsTest {
             emit(TaggedIntent("b"))
             emit(TaggedIntent("c"))
         }.groupHandle(
-            capacity = Channel.BUFFERED,
-            warningThreshold = 4,
+            config = HybridConfig(
+                groupChannelCapacity = Channel.BUFFERED,
+                groupCountWarningThreshold = 4,
+            ),
             tagSelector = { it.tag },
         ) {
             map { it.tag }
@@ -258,8 +265,10 @@ class InternalExtensionsTest {
         flow {
             repeat(128) { emit(TaggedIntent("tag-$it")) }
         }.groupHandle(
-            capacity = Channel.BUFFERED,
-            warningThreshold = Int.MAX_VALUE,
+            config = HybridConfig(
+                groupChannelCapacity = Channel.BUFFERED,
+                groupCountWarningThreshold = Int.MAX_VALUE,
+            ),
             tagSelector = { it.tag },
         ) {
             map { it.tag }

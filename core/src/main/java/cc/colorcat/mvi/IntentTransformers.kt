@@ -1,6 +1,13 @@
 package cc.colorcat.mvi
 
-import cc.colorcat.mvi.internal.*
+import cc.colorcat.mvi.internal.TAG
+import cc.colorcat.mvi.internal.diagnosticName
+import cc.colorcat.mvi.internal.groupHandle
+import cc.colorcat.mvi.internal.i
+import cc.colorcat.mvi.internal.isConcurrent
+import cc.colorcat.mvi.internal.isSequential
+import cc.colorcat.mvi.internal.logger
+import cc.colorcat.mvi.internal.w
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
@@ -59,7 +66,7 @@ import java.util.concurrent.ConcurrentHashMap
  * ```kotlin
  * val transformer = IntentTransformer<MyIntent, MyState, MyEvent>(
  *     strategy = HandleStrategy.HYBRID,
- *     config = HybridConfig(),
+ *     hybridConfig = HybridConfig(),
  *     handler = myIntentHandler
  * )
  *
@@ -128,16 +135,18 @@ fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
          * strategy-based transformers.
          *
          * @param strategy The handling strategy to apply
-         * @param config Configuration for HYBRID strategy
+         * @param hybridConfig Runtime configuration for HYBRID strategy
+         * @param groupTagSelector Selects fallback group tags for HYBRID strategy
          * @param handler The intent handler to delegate to
          * @return An IntentTransformer that applies the specified strategy
          */
         internal operator fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> invoke(
             strategy: HandleStrategy,
-            config: HybridConfig<I>,
+            hybridConfig: HybridConfig,
+            groupTagSelector: GroupTagSelector<I>,
             handler: IntentHandler<I, S, E>,
         ): IntentTransformer<I, S, E> {
-            return StrategyIntentTransformer(strategy, config, handler)
+            return StrategyIntentTransformer(strategy, hybridConfig, groupTagSelector, handler)
         }
     }
 }
@@ -171,10 +180,9 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> Flow<I>.toPartialChange(
 ): Flow<Mvi.PartialChange<S, E>> = transformer.transform(this)
 
 
-// Group tag constants for HYBRID strategy
-private const val TAG_CONCURRENT = "CONCURRENT"
-private const val TAG_SEQUENTIAL = "SEQUENTIAL"
-private const val TAG_PREFIX_FALLBACK = "FALLBACK"
+// Private sentinel tags for fixed HYBRID groups.
+private object ConcurrentGroup
+private object SequentialGroup
 
 /**
  * Default implementation of [IntentTransformer] that applies a [HandleStrategy].
@@ -198,9 +206,9 @@ private const val TAG_PREFIX_FALLBACK = "FALLBACK"
  *
  * ### HYBRID Strategy (Most Complex)
  * 1. **Group intents by type**:
- *    - [Mvi.Intent.Concurrent] → CONCURRENT group (parallel processing)
- *    - [Mvi.Intent.Sequential] → SEQUENTIAL group (sequential processing)
- *    - Fallback intents → Custom groups based on [HybridConfig.groupTagSelector]
+ *    - [Mvi.Intent.Concurrent] → fixed concurrent group (parallel processing)
+ *    - [Mvi.Intent.Sequential] → fixed sequential group (sequential processing)
+ *    - Fallback intents → Custom groups based on [GroupTagSelector]
  * 2. **Process groups**:
  *    - Within each group: Sequential processing (`flatMapConcat`)
  *    - Between groups: Parallel processing (`flattenMerge`)
@@ -215,7 +223,7 @@ private const val TAG_PREFIX_FALLBACK = "FALLBACK"
  * groupHandle()     ← Group by tag
  *     ↓
  * ┌─────────────────┬─────────────────┬──────────────────┐
- * │ CONCURRENT      │ SEQUENTIAL      │ FALLBACK_xxx     │
+ * │ ConcurrentGroup │ SequentialGroup │ Custom tag       │
  * │ (flatMapMerge)  │ (flatMapConcat) │ (flatMapConcat)  │
  * └─────────────────┴─────────────────┴──────────────────┘
  *     ↓                   ↓                   ↓
@@ -234,7 +242,8 @@ private const val TAG_PREFIX_FALLBACK = "FALLBACK"
  * @param S The state type
  * @param E The event type
  * @param strategy The handling strategy to apply
- * @param config Configuration for HYBRID strategy (unused for other strategies)
+ * @param hybridConfig Runtime configuration for HYBRID strategy (unused for other strategies)
+ * @param groupTagSelector Selects fallback group tags for HYBRID strategy
  * @param handler The intent handler that processes individual intents
  * @see HandleStrategy
  * @see HybridConfig
@@ -242,7 +251,8 @@ private const val TAG_PREFIX_FALLBACK = "FALLBACK"
  */
 internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val strategy: HandleStrategy,
-    private val config: HybridConfig<I>,
+    private val hybridConfig: HybridConfig,
+    private val groupTagSelector: GroupTagSelector<I>,
     private val handler: IntentHandler<I, S, E>,
 ) : IntentTransformer<I, S, E> {
     private val conflictIntentTypes = ConcurrentHashMap.newKeySet<Class<*>>()
@@ -250,7 +260,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
         logger.i(TAG) {
             if (strategy == HandleStrategy.HYBRID) {
-                "Transforming intents using strategy: strategy = $strategy, config = $config"
+                "Transforming intents using strategy: strategy = $strategy, config = $hybridConfig"
             } else {
                 "Transforming intents using strategy: $strategy"
             }
@@ -276,18 +286,16 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @return A flow of flows, where each inner flow represents a group's partial changes
      */
     private fun Flow<I>.hybrid(): Flow<Flow<Mvi.PartialChange<S, E>>> {
-        return groupHandle(
-            capacity = config.groupChannelCapacity,
-            warningThreshold = config.groupCountWarningThreshold,
-            tagSelector = ::assignGroupTag,
-        ) { handleByTag(it) }
+        return groupHandle(hybridConfig, ::assignGroupTag) {
+            handleByTag(it)
+        }
     }
 
     /**
      * Processes a flow of intents within a group based on the group's tag.
      *
-     * - **CONCURRENT group**: Uses `flatMapMerge` for parallel processing
-     * - **Other groups** (SEQUENTIAL, FALLBACK_*): Uses `flatMapConcat` for sequential processing
+     * - **Concurrent group**: Uses `flatMapMerge` for parallel processing
+     * - **Other groups** (sequential and fallback): Uses `flatMapConcat` for sequential processing
      *
      * This differentiation allows concurrent intents to be processed in parallel
      * while maintaining sequential order for other intent types within their groups.
@@ -296,8 +304,8 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @return A flow of partial changes for this group
      */
     @OptIn(FlowPreview::class)
-    private fun Flow<I>.handleByTag(tag: String): Flow<Mvi.PartialChange<S, E>> {
-        return if (tag == TAG_CONCURRENT) {
+    private fun Flow<I>.handleByTag(tag: Any): Flow<Mvi.PartialChange<S, E>> {
+        return if (tag === ConcurrentGroup) {
             flatMapMerge { handler.handle(it) }
         } else {
             flatMapConcat { handler.handle(it) }
@@ -310,15 +318,15 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * The tag determines how the intent will be processed in HYBRID strategy:
      *
      * - **Concurrent Intent** ([Mvi.Intent.Concurrent]):
-     *   - Tag: [TAG_CONCURRENT]
+     *   - Tag: private concurrent sentinel
      *   - Processing: Parallel with all other concurrent intents
      *
      * - **Sequential Intent** ([Mvi.Intent.Sequential]):
-     *   - Tag: [TAG_SEQUENTIAL]
+     *   - Tag: private sequential sentinel
      *   - Processing: Sequential in a single global queue
      *
      * - **Fallback Intent** (implements neither [Mvi.Intent.Concurrent] nor [Mvi.Intent.Sequential]):
-     *   - Tag: [TAG_PREFIX_FALLBACK] + result of [HybridConfig.groupTagSelector]
+     *   - Tag: result of [GroupTagSelector.selectTag]
      *   - Processing: Sequential within the same tag group, parallel with other groups
      *   - This is a valid, intentional pattern — use it for fine-grained grouping control
      *     when neither fixed concurrency mode fits.
@@ -331,10 +339,10 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @param intent The intent to classify
      * @return The group tag for this intent
      */
-    private fun assignGroupTag(intent: I): String {
+    private fun assignGroupTag(intent: I): Any {
         return when {
-            intent.isConcurrent -> TAG_CONCURRENT
-            intent.isSequential -> TAG_SEQUENTIAL
+            intent.isConcurrent -> ConcurrentGroup
+            intent.isSequential -> SequentialGroup
             else -> {
                 if (intent is Mvi.Intent.Concurrent && intent is Mvi.Intent.Sequential) {
                     if (conflictIntentTypes.add(intent.javaClass)) {
@@ -344,7 +352,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
                         }
                     }
                 }
-                TAG_PREFIX_FALLBACK + config.groupTagSelector(intent)
+                groupTagSelector.selectTag(intent)
             }
         }
     }

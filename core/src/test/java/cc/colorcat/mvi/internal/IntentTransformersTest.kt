@@ -1,10 +1,11 @@
 package cc.colorcat.mvi.internal
 
+import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.IntentHandler
-import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.IntentQueueConfig
+import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
@@ -12,20 +13,19 @@ import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.toPartialChange
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
-import java.util.Collections
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestRule
+import java.util.Collections
 
 class IntentTransformersTest {
 
@@ -58,7 +58,9 @@ class IntentTransformersTest {
         data object Other : BothIntent
     }
 
-    @Rule @JvmField val testLog: TestRule = TestLogger()
+    @Rule
+    @JvmField
+    val testLog: TestRule = TestLogger()
 
     @Before
     fun setUp() {
@@ -76,7 +78,8 @@ class IntentTransformersTest {
     fun `CONCURRENT transforms intents`() = runBlocking {
         val transformer = IntentTransformer(
             strategy = HandleStrategy.CONCURRENT,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
         )
 
@@ -93,7 +96,8 @@ class IntentTransformersTest {
     fun `toPartialChange extension`() = runBlocking {
         val transformer = IntentTransformer(
             strategy = HandleStrategy.CONCURRENT,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
         )
 
@@ -117,7 +121,8 @@ class IntentTransformersTest {
 
         val transformer = IntentTransformer(
             strategy = HandleStrategy.SEQUENTIAL,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = trackingHandler,
         )
 
@@ -136,10 +141,10 @@ class IntentTransformersTest {
     fun `HYBRID accepts config`() {
         val transformer = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig<TestIntent>(
+            hybridConfig = HybridConfig(
                 groupChannelCapacity = kotlinx.coroutines.channels.Channel.BUFFERED,
-                groupTagSelector = { it::class.java.name },
             ),
+            groupTagSelector = GroupTagSelector { it::class.java.name },
             handler = echoHandler,
         )
 
@@ -150,17 +155,20 @@ class IntentTransformersTest {
     fun `transformer factory creates with correct strategy`() {
         val concurrent = IntentTransformer(
             strategy = HandleStrategy.CONCURRENT,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
         )
         val sequential = IntentTransformer(
             strategy = HandleStrategy.SEQUENTIAL,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
         )
         val hybrid = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
         )
 
@@ -175,7 +183,8 @@ class IntentTransformersTest {
     fun `toPartialChange with empty flow returns empty`() = runBlocking {
         val transformer = IntentTransformer(
             strategy = HandleStrategy.CONCURRENT,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
         )
 
@@ -188,7 +197,8 @@ class IntentTransformersTest {
         val silentHandler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() }
         val transformer = IntentTransformer(
             strategy = HandleStrategy.SEQUENTIAL,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = silentHandler,
         )
 
@@ -202,7 +212,7 @@ class IntentTransformersTest {
 
     @Test
     fun `intent implementing both Concurrent and Sequential is treated as fallback`() = runBlocking {
-        var handledTag = ""
+        var handledTag: Any? = null
         val trackingHandler = IntentHandler<BothIntent, TestState, TestEvent> {
             Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
                 .asSingleFlow()
@@ -210,9 +220,8 @@ class IntentTransformersTest {
 
         val transformer = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig<BothIntent>(
-                groupTagSelector = { handledTag = it::class.java.name; it::class.java.name },
-            ),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector { handledTag = it::class.java; it::class.java },
             handler = trackingHandler,
         )
 
@@ -222,23 +231,25 @@ class IntentTransformersTest {
 
         assertEquals(1, results.size)
         // Ambiguous implements both interfaces, so neither isConcurrent nor isSequential,
-        // meaning it falls through to FALLBACK + groupTagSelector result
-        assertFalse("should not be CONCURRENT or SEQUENTIAL tag", handledTag.contains("CONCURRENT"))
-        assertFalse("should not be CONCURRENT or SEQUENTIAL tag", handledTag.contains("SEQUENTIAL"))
+        // meaning it falls through to the custom groupTagSelector result.
+        assertSame(BothIntent.Ambiguous.javaClass, handledTag)
     }
 
     @Test
     fun `conflict intent emits WARN once per class`() = runBlocking {
         val warns = mutableListOf<String>()
         KMvi.setup {
-            copy(logger = Logger { priority, _, _, message ->
-                if (priority == Logger.WARN) warns.add(message())
-            })
+            copy(
+                logger = Logger { priority, _, _, message ->
+                    if (priority == Logger.WARN) warns.add(message())
+                },
+            )
         }
 
         val transformer = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig<BothIntent>(groupTagSelector = { it::class.java.name }),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector { it::class.java.name },
             handler = IntentHandler<BothIntent, TestState, TestEvent> {
                 Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
                     .asSingleFlow()
@@ -266,7 +277,8 @@ class IntentTransformersTest {
     fun `CONCURRENT strategy processes multiple intents`() = runBlocking {
         val transformer = IntentTransformer(
             strategy = HandleStrategy.CONCURRENT,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
         )
 
@@ -282,7 +294,8 @@ class IntentTransformersTest {
     fun `HYBRID strategy processes multiple intents`() = runBlocking {
         val transformer = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
         )
 
@@ -311,7 +324,8 @@ class IntentTransformersTest {
 
         val transformer = IntentTransformer(
             strategy = HandleStrategy.SEQUENTIAL,
-            config = HybridConfig(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = trackingHandler,
         )
 
@@ -344,7 +358,8 @@ class IntentTransformersTest {
 
         val transformer = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig<ConcurrentIntent>(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = handler,
         )
 
@@ -374,7 +389,8 @@ class IntentTransformersTest {
 
         val transformer = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig<SequentialIntent>(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = handler,
         )
 
@@ -405,7 +421,8 @@ class IntentTransformersTest {
 
         val transformer = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig<TestIntent>(),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector.byClass(),
             handler = handler,
         )
 
@@ -443,9 +460,8 @@ class IntentTransformersTest {
 
         val transformer = IntentTransformer(
             strategy = HandleStrategy.HYBRID,
-            config = HybridConfig<TestIntent>(
-                groupTagSelector = { "fallback" },
-            ),
+            hybridConfig = HybridConfig(),
+            groupTagSelector = GroupTagSelector { "fallback" },
             handler = handler,
         )
 

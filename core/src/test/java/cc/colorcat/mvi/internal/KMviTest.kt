@@ -1,6 +1,7 @@
 package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.HandleStrategy
+import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.KMvi
@@ -12,6 +13,7 @@ import kotlinx.coroutines.channels.Channel
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Before
@@ -42,7 +44,7 @@ class KMviTest {
 
         assertEquals(IntentQueueConfig.DEFAULT_CAPACITY, config.intentQueueConfig.capacity)
         assertEquals(BufferOverflow.SUSPEND, config.intentQueueConfig.onBufferOverflow)
-        assertEquals(HybridConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD, config.groupCountWarningThreshold)
+        assertEquals(HybridConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD, config.hybridConfig.groupCountWarningThreshold)
         assertEquals(256, HybridConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD)
     }
 
@@ -126,172 +128,141 @@ class KMviTest {
     }
 
     @Test
-    fun `setup allows Channel_BUFFERED groupChannelCapacity`() {
+    fun `setup allows Channel_BUFFERED hybrid groupChannelCapacity`() {
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                groupChannelCapacity = Channel.BUFFERED,
+                hybridConfig = HybridConfig(groupChannelCapacity = Channel.BUFFERED),
             )
         }
     }
 
     @Test
-    fun `setup allows positive groupChannelCapacity`() {
+    fun `setup allows positive hybrid groupChannelCapacity`() {
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                groupChannelCapacity = 32,
+                hybridConfig = HybridConfig(groupChannelCapacity = 32),
             )
         }
     }
 
     @Test
-    fun `setup allows positive groupCountWarningThreshold`() {
+    fun `setup allows positive hybrid groupCountWarningThreshold`() {
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                groupCountWarningThreshold = 32,
+                hybridConfig = HybridConfig(groupCountWarningThreshold = 32),
             )
         }
     }
 
     @Test
-    fun `setup allows Int_MAX_VALUE groupCountWarningThreshold`() {
+    fun `setup allows Int_MAX_VALUE hybrid groupCountWarningThreshold`() {
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                groupCountWarningThreshold = Int.MAX_VALUE,
+                hybridConfig = HybridConfig(groupCountWarningThreshold = Int.MAX_VALUE),
             )
         }
     }
 
     @Test
-    fun `setup rejects zero groupCountWarningThreshold`() {
+    fun `setup rejects zero hybrid groupCountWarningThreshold`() {
         assertThrows(IllegalArgumentException::class.java) {
             KMvi.setup {
                 copy(
                     logger = Logger { _, _, _, _ -> },
-                    groupCountWarningThreshold = 0,
+                    hybridConfig = HybridConfig(groupCountWarningThreshold = 0),
                 )
             }
         }
     }
 
     @Test
-    fun `setup rejects negative groupCountWarningThreshold`() {
+    fun `setup rejects negative hybrid groupCountWarningThreshold`() {
         assertThrows(IllegalArgumentException::class.java) {
             KMvi.setup {
                 copy(
                     logger = Logger { _, _, _, _ -> },
-                    groupCountWarningThreshold = -1,
+                    hybridConfig = HybridConfig(groupCountWarningThreshold = -1),
                 )
             }
         }
     }
 
     @Test
-    fun `setup allows CONFLATED groupChannelCapacity`() {
+    fun `setup allows CONFLATED hybrid groupChannelCapacity`() {
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                groupChannelCapacity = Channel.CONFLATED,
+                hybridConfig = HybridConfig(groupChannelCapacity = Channel.CONFLATED),
             )
         }
     }
 
     @Test
-    fun `setup rejects invalid negative groupChannelCapacity`() {
+    fun `setup rejects invalid negative hybrid groupChannelCapacity`() {
         assertThrows(IllegalArgumentException::class.java) {
             KMvi.setup {
                 copy(
                     logger = Logger { _, _, _, _ -> },
-                    groupChannelCapacity = -3,
+                    hybridConfig = HybridConfig(groupChannelCapacity = -3),
                 )
             }
         }
     }
 
     @Test
-    fun `hybridConfig factory uses global groupChannelCapacity`() {
+    fun `configuration accepts custom hybridConfig`() {
+        val hybridConfig = HybridConfig(
+            groupChannelCapacity = 32,
+            groupCountWarningThreshold = 128,
+        )
+
         KMvi.setup {
             copy(
                 logger = Logger { _, _, _, _ -> },
-                groupChannelCapacity = 32,
+                hybridConfig = hybridConfig,
             )
         }
 
-        val config = KMvi.hybridConfig<TestIntent>()
-
-        assertEquals(32, config.groupChannelCapacity)
-    }
-
-    @Test
-    fun `hybridConfig factory uses global groupCountWarningThreshold`() {
-        KMvi.setup {
-            copy(
-                logger = Logger { _, _, _, _ -> },
-                groupCountWarningThreshold = 32,
-            )
-        }
-
-        val config = KMvi.hybridConfig<TestIntent>()
-
-        assertEquals(32, config.groupCountWarningThreshold)
-    }
-
-    @Test
-    fun `hybridConfig factory accepts groupChannelCapacity override`() {
-        KMvi.setup {
-            copy(
-                logger = Logger { _, _, _, _ -> },
-                groupChannelCapacity = 32,
-            )
-        }
-
-        val config = KMvi.hybridConfig<TestIntent>(groupChannelCapacity = 64)
-
-        assertEquals(64, config.groupChannelCapacity)
-    }
-
-    @Test
-    fun `hybridConfig factory accepts groupCountWarningThreshold override`() {
-        KMvi.setup {
-            copy(
-                logger = Logger { _, _, _, _ -> },
-                groupCountWarningThreshold = 32,
-            )
-        }
-
-        val config = KMvi.hybridConfig<TestIntent>(groupCountWarningThreshold = 128)
-
-        assertEquals(128, config.groupCountWarningThreshold)
+        assertEquals(32, KMvi.hybridConfig.groupChannelCapacity)
+        assertEquals(128, KMvi.hybridConfig.groupCountWarningThreshold)
     }
 
     @Test
     fun `HybridConfig rejects zero groupCountWarningThreshold`() {
         assertThrows(IllegalArgumentException::class.java) {
-            HybridConfig<TestIntent>(groupCountWarningThreshold = 0)
+            HybridConfig(groupCountWarningThreshold = 0)
         }
     }
 
     @Test
     fun `HybridConfig rejects negative groupCountWarningThreshold`() {
         assertThrows(IllegalArgumentException::class.java) {
-            HybridConfig<TestIntent>(groupCountWarningThreshold = -1)
+            HybridConfig(groupCountWarningThreshold = -1)
         }
     }
 
     @Test
-    fun `hybridConfig factory creates typed groupTagSelector`() {
-        val config = KMvi.hybridConfig<TestIntent> { intent ->
+    fun `GroupTagSelector creates typed selector`() {
+        val selector = GroupTagSelector<TestIntent> { intent ->
             when (intent) {
                 TestIntent.LoadUser -> "user"
                 TestIntent.LoadPost -> "post"
             }
         }
 
-        assertEquals("user", config.groupTagSelector(TestIntent.LoadUser))
-        assertEquals("post", config.groupTagSelector(TestIntent.LoadPost))
+        assertEquals("user", selector.selectTag(TestIntent.LoadUser))
+        assertEquals("post", selector.selectTag(TestIntent.LoadPost))
+    }
+
+    @Test
+    fun `GroupTagSelector byClass uses runtime class`() {
+        val selector = GroupTagSelector.byClass<TestIntent>()
+
+        assertSame(TestIntent.LoadUser.javaClass, selector.selectTag(TestIntent.LoadUser))
     }
 
     @Test

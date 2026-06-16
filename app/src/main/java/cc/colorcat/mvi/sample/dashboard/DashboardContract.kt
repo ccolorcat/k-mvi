@@ -18,7 +18,7 @@ import cc.colorcat.mvi.sample.dashboard.DashboardContract.Companion.CATEGORY_TAB
  *    Shopping-cart operations (AddToCart / RemoveLastFromCart / Checkout).
  *    Each operation waits for the previous one to finish — strict FIFO order.
  *
- * 3. **Grouped fallback** (neither Concurrent nor Sequential, tag-routed via [HybridConfig]):
+ * 3. **Grouped fallback** (neither Concurrent nor Sequential, tag-routed via `GroupTagSelector`):
  *    Three product-category loaders: Phones / Laptops / Tablets.
  *    Batches of the **same** category queue up sequentially while the three
  *    categories run in **parallel** with each other.
@@ -128,7 +128,7 @@ sealed interface DashboardContract {
         /**
          * Load a batch of products for [category].
          *
-         * The [HybridConfig] in [DashboardViewModel] assigns tag `"category-<category>"`
+         * The `groupTagSelector` in [DashboardViewModel] assigns tag `"category-<category>"`
          * so that multiple batches for the **same** category are serialised while different
          * categories proceed in parallel.
          *
@@ -160,4 +160,3 @@ sealed interface DashboardContract {
         const val CATEGORY_TABLETS = "Tablets"
     }
 }
-

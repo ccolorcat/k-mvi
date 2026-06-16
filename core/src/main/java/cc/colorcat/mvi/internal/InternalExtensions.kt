@@ -1,5 +1,6 @@
 package cc.colorcat.mvi.internal
 
+import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.Mvi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -88,9 +89,10 @@ internal val Mvi.Intent.diagnosticName: String
  * ## Active Group Lifetime
  *
  * Each distinct tag keeps an active channel until the upstream Flow completes, fails,
- * or the channel is detected as stale/closed and replaced. This preserves the core
- * guarantee that intents with the same tag are processed sequentially by the same
- * group pipeline.
+ * or the channel is detected as stale/closed and replaced. Tags are equality keys:
+ * return values must have stable [Any.equals] and [Any.hashCode] behavior for the
+ * lifetime of the flow. This preserves the core guarantee that intents with the same
+ * tag are processed sequentially by the same group pipeline.
  *
  * Avoid high-cardinality tags such as resource IDs, user IDs, raw search queries, or
  * timestamps unless you intentionally want a long-lived group for each value. Prefer
@@ -104,7 +106,7 @@ internal val Mvi.Intent.diagnosticName: String
  * to [Int.MAX_VALUE] to disable these warning logs.
  *
  * This is diagnostic only; it never closes or evicts group channels. The log includes
- * the opened tag's hash and length, not the raw tag value, because tags may contain
+ * the opened tag's type and hash, not the raw tag value, because tags may contain
  * user IDs, search queries, or other sensitive data.
  *
  * **Resource Management**: All channels are closed when the upstream Flow completes
@@ -115,8 +117,7 @@ internal val Mvi.Intent.diagnosticName: String
  * ```
  * intentFlow
  *     .groupHandle(
- *         capacity = Channel.BUFFERED,
- *         warningThreshold = 256,
+ *         config = HybridConfig(),
  *         tagSelector = { it.userId },
  *         handler = { tag ->
  *             map { intent -> processIntent(tag, intent) }
@@ -128,16 +129,13 @@ internal val Mvi.Intent.diagnosticName: String
  *
  * @param I The intent type, must extend [Mvi.Intent]
  * @param R The result type produced by the handler
- * @param capacity The capacity of each channel buffer.
+ * @param config Runtime configuration for the HYBRID strategy.
  *
  *   **Performance note**: When a group's channel is full (e.g. handler is slow),
  *   [channel.send] suspends the single outer `collect` coroutine, blocking *all*
- *   groups (see ⚠️ above). Default is [Channel.BUFFERED] (64). Increase for
+ *   groups (see ⚠️ above). Increase [HybridConfig.groupChannelCapacity] for
  *   high-throughput scenarios, or use [Channel.UNLIMITED] to eliminate per-group
  *   backpressure (risk: unbounded memory).
- * @param warningThreshold The active group count that triggers the first warning log.
- *   Warnings repeat only when the count reaches the next doubled threshold. Must be
- *   positive. Use [Int.MAX_VALUE] to disable this diagnostic.
  * @param tagSelector Function to extract the grouping tag from an intent
  * @param handler Function that processes the Flow of intents for each tag and produces results
  * @return A Flow of Flows, where each inner Flow represents a tagged group of processed results.
@@ -151,29 +149,21 @@ internal val Mvi.Intent.diagnosticName: String
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
-    capacity: Int,
-    warningThreshold: Int,
-    tagSelector: (I) -> String,
-    handler: Flow<I>.(tag: String) -> Flow<R>,
+    config: HybridConfig,
+    tagSelector: (I) -> Any,
+    handler: Flow<I>.(tag: Any) -> Flow<R>,
 ): Flow<Flow<R>> = flow {
-    require(warningThreshold > 0) {
-        "warningThreshold must be positive; use Int.MAX_VALUE to disable warnings."
-    }
-    val activeChannels = linkedMapOf<String, Channel<I>>()
+    val activeChannels = linkedMapOf<Any, Channel<I>>()
     var cause: Throwable? = null
-    var nextWarningThreshold = warningThreshold
+    var nextWarningThreshold = config.groupCountWarningThreshold
 
-    fun warnIfGroupCountHigh(tag: String) {
+    fun warnIfGroupCountHigh(tag: Any) {
         if (nextWarningThreshold == Int.MAX_VALUE) return
         val count = activeChannels.size
         if (count < nextWarningThreshold) return
         logger.w(TAG) {
-            "groupHandle active groups reached $count " +
-                "(threshold=$nextWarningThreshold, " +
-                "openedTagHash=${Integer.toHexString(tag.hashCode())}, " +
-                "openedTagLength=${tag.length}). " +
-                "High-cardinality group tags keep channels active; use bucketed tags " +
-                "unless per-value ordering is required."
+            "groupHandle active groups reached $count (threshold=$nextWarningThreshold, openedTag=${tag.tagLabel}). " +
+                "High-cardinality group tags keep channels active; use bucketed tags unless per-value ordering is required."
         }
         nextWarningThreshold = if (nextWarningThreshold <= Int.MAX_VALUE / 2) {
             nextWarningThreshold * 2
@@ -186,8 +176,8 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     // BEFORE calling emit so that if emit suspends the map already holds the new entry.
     // The inner flow produced by [handler] is immediately subscribed by the downstream
     // (e.g. flattenMerge) when emit returns, so subsequent sends are safely received.
-    suspend fun openChannel(tag: String): Channel<I> {
-        val channel = Channel<I>(capacity)
+    suspend fun openChannel(tag: Any): Channel<I> {
+        val channel = Channel<I>(config.groupChannelCapacity)
         activeChannels[tag] = channel
         emit(channel.consumeAsFlow().handler(tag))
         warnIfGroupCountHigh(tag)
@@ -208,7 +198,7 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
                 // Remove the stale entry first so openChannel writes a clean new mapping.
                 if (existingChannel != null) {
                     activeChannels.remove(tag)
-                    logger.w(TAG) { "Stale channel detected for group \"$tag\", reopening." }
+                    logger.w(TAG) { "Stale channel detected for group ${tag.tagLabel}, reopening." }
                 }
                 openChannel(tag)
             } else {

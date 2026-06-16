@@ -2,8 +2,8 @@ package cc.colorcat.mvi.sample.dashboard
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.HandleStrategy
-import cc.colorcat.mvi.HybridConfig
 import cc.colorcat.mvi.contract
 import cc.colorcat.mvi.register
 import cc.colorcat.mvi.sample.dashboard.DashboardContract.Event
@@ -31,10 +31,10 @@ class DashboardViewModel : ViewModel() {
     private val contract by contract(
         initState = State(),
         strategy = HandleStrategy.HYBRID,
-        config = HybridConfig { intent: Intent ->
+        groupTagSelector = GroupTagSelector { intent: Intent ->
             when (intent) {
                 is Intent.LoadCategory -> "category-${intent.category}"
-                else -> intent.javaClass.name
+                else -> intent.javaClass
             }
         },
     ) {
@@ -178,4 +178,3 @@ class DashboardViewModel : ViewModel() {
     private fun now(): String = fmtTime.format(Date())
     private fun stamp(msg: String): String = "[${fmtMs.format(Date())}] $msg"
 }
-
