@@ -276,7 +276,11 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @return A flow of flows, where each inner flow represents a group's partial changes
      */
     private fun Flow<I>.hybrid(): Flow<Flow<Mvi.PartialChange<S, E>>> {
-        return groupHandle(config.groupChannelCapacity, ::assignGroupTag) { handleByTag(it) }
+        return groupHandle(
+            capacity = config.groupChannelCapacity,
+            warningThreshold = config.groupCountWarningThreshold,
+            tagSelector = ::assignGroupTag,
+        ) { handleByTag(it) }
     }
 
     /**

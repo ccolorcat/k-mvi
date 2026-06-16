@@ -85,6 +85,28 @@ internal val Mvi.Intent.diagnosticName: String
  * (default [Channel.BUFFERED] = 64). Consider [Channel.UNLIMITED] if you never want
  * group-level backpressure to block the router (at the cost of unbounded memory).
  *
+ * ## Active Group Lifetime
+ *
+ * Each distinct tag keeps an active channel until the upstream Flow completes, fails,
+ * or the channel is detected as stale/closed and replaced. This preserves the core
+ * guarantee that intents with the same tag are processed sequentially by the same
+ * group pipeline.
+ *
+ * Avoid high-cardinality tags such as resource IDs, user IDs, raw search queries, or
+ * timestamps unless you intentionally want a long-lived group for each value. Prefer
+ * bucketed tags such as `"user"` or `"search"` when per-value ordering is unnecessary.
+ *
+ * ## Group Count Diagnostics
+ *
+ * [warningThreshold] controls sparse warning logs for active group counts. Each time
+ * a new channel is opened, the active group count is checked. When the count reaches
+ * the threshold, a WARN log is emitted and the next warning threshold doubles. Set it
+ * to [Int.MAX_VALUE] to disable these warning logs.
+ *
+ * This is diagnostic only; it never closes or evicts group channels. The log includes
+ * the opened tag's hash and length, not the raw tag value, because tags may contain
+ * user IDs, search queries, or other sensitive data.
+ *
  * **Resource Management**: All channels are closed when the upstream Flow completes
  * or throws. If the upstream throws, the exception is passed as the close cause so
  * that each inner Flow terminates with the same error rather than silently completing.
@@ -94,6 +116,7 @@ internal val Mvi.Intent.diagnosticName: String
  * intentFlow
  *     .groupHandle(
  *         capacity = Channel.BUFFERED,
+ *         warningThreshold = 256,
  *         tagSelector = { it.userId },
  *         handler = { tag ->
  *             map { intent -> processIntent(tag, intent) }
@@ -112,6 +135,9 @@ internal val Mvi.Intent.diagnosticName: String
  *   groups (see ⚠️ above). Default is [Channel.BUFFERED] (64). Increase for
  *   high-throughput scenarios, or use [Channel.UNLIMITED] to eliminate per-group
  *   backpressure (risk: unbounded memory).
+ * @param warningThreshold The active group count that triggers the first warning log.
+ *   Warnings repeat only when the count reaches the next doubled threshold. Must be
+ *   positive. Use [Int.MAX_VALUE] to disable this diagnostic.
  * @param tagSelector Function to extract the grouping tag from an intent
  * @param handler Function that processes the Flow of intents for each tag and produces results
  * @return A Flow of Flows, where each inner Flow represents a tagged group of processed results.
@@ -126,11 +152,35 @@ internal val Mvi.Intent.diagnosticName: String
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     capacity: Int,
+    warningThreshold: Int,
     tagSelector: (I) -> String,
     handler: Flow<I>.(tag: String) -> Flow<R>,
 ): Flow<Flow<R>> = flow {
+    require(warningThreshold > 0) {
+        "warningThreshold must be positive; use Int.MAX_VALUE to disable warnings."
+    }
     val activeChannels = linkedMapOf<String, Channel<I>>()
     var cause: Throwable? = null
+    var nextWarningThreshold = warningThreshold
+
+    fun warnIfGroupCountHigh(tag: String) {
+        if (nextWarningThreshold == Int.MAX_VALUE) return
+        val count = activeChannels.size
+        if (count < nextWarningThreshold) return
+        logger.w(TAG) {
+            "groupHandle active groups reached $count " +
+                "(threshold=$nextWarningThreshold, " +
+                "openedTagHash=${Integer.toHexString(tag.hashCode())}, " +
+                "openedTagLength=${tag.length}). " +
+                "High-cardinality group tags keep channels active; use bucketed tags " +
+                "unless per-value ordering is required."
+        }
+        nextWarningThreshold = if (nextWarningThreshold <= Int.MAX_VALUE / 2) {
+            nextWarningThreshold * 2
+        } else {
+            Int.MAX_VALUE
+        }
+    }
 
     // Local function: creates a fresh Channel for [tag], registers it in [activeChannels]
     // BEFORE calling emit so that if emit suspends the map already holds the new entry.
@@ -140,6 +190,7 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
         val channel = Channel<I>(capacity)
         activeChannels[tag] = channel
         emit(channel.consumeAsFlow().handler(tag))
+        warnIfGroupCountHigh(tag)
         return channel
     }
 

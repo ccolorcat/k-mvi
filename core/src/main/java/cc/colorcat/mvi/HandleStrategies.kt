@@ -296,6 +296,16 @@ enum class HandleStrategy {
  * KMvi.hybridConfig<MyIntent>(groupChannelCapacity = 128) { it.javaClass.name }
  * ```
  *
+ * ## Group Count Diagnostics
+ *
+ * [groupCountWarningThreshold] controls warning logs for high active group channel
+ * counts. It is diagnostic only; it does not cap groups, close channels, or change
+ * ordering behavior. When the active group count reaches the threshold, a WARN log is
+ * emitted. The next warning threshold then doubles, so the default warning points are
+ * 256, 512, 1024, and so on. Use [Int.MAX_VALUE] to disable this
+ * diagnostic in normal applications. The warning log uses the opened tag's hash and
+ * length instead of the raw tag value.
+ *
  * ## Best Practices
  *
  * ### ✅ Good Grouping Strategies
@@ -305,8 +315,13 @@ enum class HandleStrategy {
  *
  * ### ⚠️ Avoid These Pitfalls
  * - Don't return different tags for the same logical operation
- * - Don't create too many groups (defeats the purpose of grouping)
  * - Don't use random or time-based tags (breaks sequential guarantees)
+ * - Avoid high-cardinality data-tied tags (resource ids, user ids, raw query strings,
+ *   timestamps) unless you intentionally want one long-lived group per value. Each
+ *   distinct fallback tag keeps a group channel active until the contract pipeline
+ *   completes or the channel is replaced after being detected as stale/closed.
+ *   Prefer bucketed tags (e.g. `"user"` instead of `"user-${userId}"`) when per-id
+ *   ordering is unnecessary.
  *
  * ### 💡 Tips
  * - Use distinct tags for truly independent operations
@@ -322,10 +337,13 @@ enum class HandleStrategy {
  *
  * ## Relationship with Intent Types
  *
- * This configuration **only affects fallback intents**:
+ * [groupTagSelector] **only affects fallback intents**:
  * - [Mvi.Intent.Concurrent] intents ignore this config (always parallel)
  * - [Mvi.Intent.Sequential] intents ignore this config (always one global queue)
  * - Other intents use this config for grouping
+ *
+ * [groupCountWarningThreshold] observes all active HYBRID group channels, including
+ * the fixed concurrent and sequential groups when they have been opened.
  *
  * @param I The intent type
  * @param groupChannelCapacity The capacity of internal channels used for grouping.
@@ -333,6 +351,11 @@ enum class HandleStrategy {
  *                             [Channel.RENDEZVOUS], or any positive Int.
  *                             Defaults to [Channel.BUFFERED] (64).
  *                             Adjust based on your intent frequency and backpressure needs.
+ * @param groupCountWarningThreshold The active group channel count that triggers the first
+ *                                   warning log. Warnings repeat only when the count reaches
+ *                                   the next doubled threshold. Must be positive. Defaults to
+ *                                   [DEFAULT_GROUP_COUNT_WARNING_THRESHOLD]. Use [Int.MAX_VALUE]
+ *                                   to disable this diagnostic.
  * @param groupTagSelector A function that assigns a group tag to each fallback intent.
  *                         Intents with the same tag are processed sequentially within
  *                         their group. Different tags process in parallel.
@@ -369,10 +392,9 @@ enum class HandleStrategy {
  *
  * ## Note on `internal` Properties
  *
- * [groupChannelCapacity] and [groupTagSelector] are declared `internal` so they cannot
- * be accessed from outside the `cc.colorcat.mvi` library module. They are configurable
- * **only** via the primary constructor or `copy()` when inside the module. End-users
- * interact with them through the constructor or [KMvi.hybridConfig].
+ * [groupChannelCapacity], [groupCountWarningThreshold], and [groupTagSelector] are declared
+ * `internal` so they cannot be accessed from outside the `cc.colorcat.mvi` library module.
+ * End-users configure them through the constructor or [KMvi.hybridConfig].
  *
  * @see HandleStrategy.HYBRID
  * @see Mvi.Intent.Concurrent
@@ -380,13 +402,33 @@ enum class HandleStrategy {
  */
 class HybridConfig<in I : Mvi.Intent>(
     internal val groupChannelCapacity: Int = Channel.BUFFERED,
+    internal val groupCountWarningThreshold: Int = DEFAULT_GROUP_COUNT_WARNING_THRESHOLD,
     internal val groupTagSelector: (I) -> String = { it.javaClass.name },
 ) {
     init {
-        requireSupportedChannelConfig("groupChannelCapacity", groupChannelCapacity)
+        requireSupportedChannelConfig(
+            name = "groupChannelCapacity",
+            capacity = groupChannelCapacity,
+        )
+        require(groupCountWarningThreshold > 0) {
+            "groupCountWarningThreshold must be positive; use Int.MAX_VALUE to disable warnings."
+        }
     }
 
     override fun toString(): String {
-        return "HybridConfig(groupChannelCapacity=$groupChannelCapacity, groupTagSelector=$groupTagSelector)"
+        return "HybridConfig(" +
+            "groupChannelCapacity=$groupChannelCapacity, " +
+            "groupCountWarningThreshold=$groupCountWarningThreshold, " +
+            "groupTagSelector=$groupTagSelector" +
+            ")"
+    }
+
+    companion object {
+        /**
+         * Default active group channel count that triggers the first warning.
+         *
+         * Warnings repeat only when the count reaches the next doubled threshold.
+         */
+        const val DEFAULT_GROUP_COUNT_WARNING_THRESHOLD: Int = 256
     }
 }

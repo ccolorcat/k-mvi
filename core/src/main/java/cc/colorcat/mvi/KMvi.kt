@@ -134,9 +134,9 @@ object KMvi {
     /**
      * Creates a [HybridConfig] for the given Intent type.
      *
-     * The returned config uses [Configuration.groupChannelCapacity] as its default
-     * group channel capacity, while keeping [groupTagSelector] strongly typed to
-     * the contract's Intent root type.
+     * The returned config uses [Configuration.groupChannelCapacity] and
+     * [Configuration.groupCountWarningThreshold] as defaults, while keeping
+     * [groupTagSelector] strongly typed to the contract's Intent root type.
      *
      * ## Usage Example
      *
@@ -152,6 +152,10 @@ object KMvi {
      *
      * @param groupChannelCapacity The capacity of internal channels used by HYBRID fallback groups.
      *                              Defaults to [Configuration.groupChannelCapacity].
+     * @param groupCountWarningThreshold The active group channel count that triggers the first
+     *                                   warning log. Defaults to
+     *                                   [Configuration.groupCountWarningThreshold]. Use
+     *                                   [Int.MAX_VALUE] to disable this diagnostic.
      * @param groupTagSelector A function that assigns a group tag to each fallback Intent.
      *                         Defaults to `{ it.javaClass.name }`; see
      *                         [HybridConfig.groupTagSelector] for the R8/ProGuard caveats this
@@ -161,10 +165,12 @@ object KMvi {
      */
     fun <I : Mvi.Intent> hybridConfig(
         groupChannelCapacity: Int = config.groupChannelCapacity,
+        groupCountWarningThreshold: Int = config.groupCountWarningThreshold,
         groupTagSelector: (I) -> String = { it.javaClass.name },
     ): HybridConfig<I> {
         return HybridConfig(
             groupChannelCapacity = groupChannelCapacity,
+            groupCountWarningThreshold = groupCountWarningThreshold,
             groupTagSelector = groupTagSelector,
         )
     }
@@ -255,6 +261,7 @@ object KMvi {
      *
      * - **handleStrategy**: How Intents are processed (CONCURRENT, SEQUENTIAL, or HYBRID)
      * - **groupChannelCapacity**: Buffer capacity for HYBRID fallback intent groups
+     * - **groupCountWarningThreshold**: Active HYBRID group channel count that triggers sparse WARN logs
      * - **retryPolicy**: Determines whether to retry failed Intent processing
      * - **logger**: The logger instance used throughout the framework
      *
@@ -279,6 +286,10 @@ object KMvi {
      *                                [HandleStrategy.HYBRID] fallback groups.
      *                                This does not affect the dispatch entry queue; use
      *                                [intentQueueConfig] for that.
+     * @property groupCountWarningThreshold The active group channel count that triggers the first
+     *                                      warning log. The next warning threshold doubles after
+     *                                      each warning. Must be positive. Use [Int.MAX_VALUE] to
+     *                                      disable this diagnostic.
      * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
      *                       Default: retry on [IOException] when `attempt < 3` (up to 3 retries)
      * @property logger The logger instance. Default: Logger with WARN level
@@ -292,11 +303,15 @@ object KMvi {
         val intentQueueConfig: IntentQueueConfig = IntentQueueConfig(),
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
         val groupChannelCapacity: Int = Channel.BUFFERED,
+        val groupCountWarningThreshold: Int = HybridConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD,
         val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
         val logger: Logger = Logger(),
     ) {
         init {
             requireSupportedChannelConfig("groupChannelCapacity", groupChannelCapacity)
+            require(groupCountWarningThreshold > 0) {
+                "groupCountWarningThreshold must be positive; use Int.MAX_VALUE to disable warnings."
+            }
         }
     }
 }
