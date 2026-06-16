@@ -436,14 +436,17 @@ class EventCollector<E : Mvi.Event> internal constructor(
 /**
  * Collects events of a specific type with lifecycle awareness.
  *
- * This is a standalone function for collecting a specific event type without
- * using [EventCollector]. Useful for simple cases where you only need to
- * collect one event type.
+ * This is a standalone function (not part of [EventCollector]) for simple cases where you only
+ * need to collect one event type. It is the free-function counterpart of
+ * [EventCollector.collectTyped]: same behavior, but you pass [owner] explicitly instead of
+ * collecting inside a [collectEvent] block. When collecting several event types, prefer the
+ * [collectEvent] DSL and its [EventCollector.collectTyped] member (collectors then share one
+ * supervisor job).
  *
  * ## Usage Example
  *
  * ```kotlin
- * eventFlow.collectTypedEvent<ShowToast>(
+ * eventFlow.collectTyped<ShowToast>(
  *     owner = viewLifecycleOwner
  * ) { event ->
  *     showToast(event.message)
@@ -456,8 +459,10 @@ class EventCollector<E : Mvi.Event> internal constructor(
  * @param context Additional coroutine context
  * @param block The suspend function to call with each event of type E
  * @return A Job that can be cancelled
+ * @see EventCollector.collectTyped
+ * @see collectEvent
  */
-inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTypedEvent(
+inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTyped(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     context: CoroutineContext = EmptyCoroutineContext,
