@@ -44,7 +44,7 @@ import kotlinx.coroutines.flow.onEach
  *
  * **Efficient State Observation:**
  * - Use [collectState] with lifecycle awareness (automatically handles lifecycle)
- * - Use `collectPartial` to observe only specific state properties (e.g., `State::countText`)
+ * - Use `collectProperty` to observe only specific state properties (e.g., `State::countText`)
  * - Only update UI when the observed property actually changes (efficient rendering)
  *
  * **Type-Safe Event Handling:**
@@ -148,17 +148,17 @@ class CounterFragment : Fragment() {
     private fun setupViewModel() {
         // **Pattern 1: Efficient Partial State Collection**
         // collectState: Lifecycle-aware state collection (automatically starts/stops with lifecycle)
-        // collectPartial: Observe only specific state properties, update UI only when they change
+        // collectProperty: Observe only specific state properties, update UI only when they change
         // Benefits:
         // - Efficient: Only triggers when State::countText actually changes (not on every state emission)
         // - Concise: Direct method reference (binding.count::setText) for clean UI binding
         // - Type-safe: Compiler ensures State::countText returns String compatible with TextView.setText
         // - Computed property: countText is derived from count, providing presentation logic separation
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
-            collectPartial(State::countText, binding.count::setText)
-            collectPartial(State::countInfo, binding.counterInfo::setText)
-            collectPartial(State::showLoading, binding.loadingBar::isVisible::set)
-            collectPartial(State::alpha255, Lifecycle.State.RESUMED) {
+            collectProperty(State::countText, binding.count::setText)
+            collectProperty(State::countInfo, binding.counterInfo::setText)
+            collectProperty(State::showLoading, binding.loadingBar::isVisible::set)
+            collectProperty(State::alpha255, Lifecycle.State.RESUMED) {
                 binding.root.background?.alpha = it
             }
         }

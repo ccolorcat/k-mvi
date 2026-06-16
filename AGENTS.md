@@ -171,7 +171,7 @@ value.asSingleFlow()              // wraps a PartialChange in Flow<PartialChange
 ```kotlin
 collectState(contract) { state -> /* render */ }
 collectEvent(contract) { event -> /* handle */ }
-collectPartialState(contract, selector) { part -> /* render subset */ }
+stateFlow.collectProperty(MyState::loading, owner) { value -> /* render one property */ }
 dispatchWithLifecycle(lifecycleOwner, contract) { MyIntent.Foo }
 launchWithLifecycle(lifecycleOwner) { /* coroutine */ }
 ```

@@ -153,31 +153,31 @@ class DashboardFragment : Fragment() {
     private fun setupObservers(): Unit = binding.run {
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
             // Section 1
-            collectPartial(State::bannerLoading) { loading ->
+            collectProperty(State::bannerLoading) { loading ->
                 btnLoadBanners.isEnabled = !loading
             }
-            collectPartial(State::recommendationsLoading) { loading ->
+            collectProperty(State::recommendationsLoading) { loading ->
                 btnLoadRecs.isEnabled = !loading
             }
-            collectPartial(State::flashSaleLoading) { loading ->
+            collectProperty(State::flashSaleLoading) { loading ->
                 btnLoadFlashSale.isEnabled = !loading
             }
-            collectPartial(State::bannersText) { text ->
+            collectProperty(State::bannersText) { text ->
                 tvBannersStatus.text = "Banners: $text"
             }
-            collectPartial(State::recommendationsText) { text ->
+            collectProperty(State::recommendationsText) { text ->
                 tvRecsStatus.text = "Recs: $text"
             }
-            collectPartial(State::flashSaleText) { text ->
+            collectProperty(State::flashSaleText) { text ->
                 tvFlashStatus.text = "Flash Sale: $text"
             }
 
             // Section 2
-            collectPartial(State::cartText) { text -> tvCartStatus.text = "Cart: $text" }
-            collectPartial(State::orderStatus) { text ->
+            collectProperty(State::cartText) { text -> tvCartStatus.text = "Cart: $text" }
+            collectProperty(State::orderStatus) { text ->
                 tvOrderStatus.text = "Order: $text"
             }
-            collectPartial(State::cartLoading) { loading ->
+            collectProperty(State::cartLoading) { loading ->
                 btnAddApple.isEnabled = !loading
                 btnAddBanana.isEnabled = !loading
                 btnAddOrange.isEnabled = !loading
@@ -186,33 +186,33 @@ class DashboardFragment : Fragment() {
             }
 
             // Section 3
-            collectPartial(State::phonesText) { text ->
+            collectProperty(State::phonesText) { text ->
                 tvPhonesStatus.text = "Phones: $text"
             }
-            collectPartial(State::laptopsText) { text ->
+            collectProperty(State::laptopsText) { text ->
                 tvLaptopsStatus.text = "Laptops: $text"
             }
-            collectPartial(State::tabletsText) { text ->
+            collectProperty(State::tabletsText) { text ->
                 tvTabletsStatus.text = "Tablets: $text"
             }
-            collectPartial(State::phonesLoading) { loading ->
+            collectProperty(State::phonesLoading) { loading ->
                 btnPhonesB1.isVisible = !loading
                 btnPhonesB2.isVisible = !loading
                 btnPhonesB3.isVisible = !loading
             }
-            collectPartial(State::laptopsLoading) { loading ->
+            collectProperty(State::laptopsLoading) { loading ->
                 btnLaptopsB1.isVisible = !loading
                 btnLaptopsB2.isVisible = !loading
                 btnLaptopsB3.isVisible = !loading
             }
-            collectPartial(State::tabletsLoading) { loading ->
+            collectProperty(State::tabletsLoading) { loading ->
                 btnTabletsB1.isVisible = !loading
                 btnTabletsB2.isVisible = !loading
                 btnTabletsB3.isVisible = !loading
             }
 
             // Log
-            collectPartial(State::logText) { text -> tvLog.text = text }
+            collectProperty(State::logText) { text -> tvLog.text = text }
         }
 
         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {

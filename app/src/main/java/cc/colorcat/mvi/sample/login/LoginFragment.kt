@@ -71,13 +71,13 @@ class LoginFragment : Fragment() {
 
     private fun setupViewModel() {
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
-            collectPartial(State::statusText, binding.statusText::setText)
-            collectPartial(State::isLoading, binding.loadingBar::isVisible::set)
-            collectPartial(State::isLoginEnabled, binding.loginButton::setEnabled)
-            collectPartial(State::isLogoutEnabled, binding.logoutButton::setEnabled)
-            collectPartial(State::errorMessage, binding.errorText::setText)
-            collectPartial(State::hasError, binding.errorText::isVisible::set)
-            collectPartial(State::shouldShowLoginForm, binding.loginCard::isVisible::set)
+            collectProperty(State::statusText, binding.statusText::setText)
+            collectProperty(State::isLoading, binding.loadingBar::isVisible::set)
+            collectProperty(State::isLoginEnabled, binding.loginButton::setEnabled)
+            collectProperty(State::isLogoutEnabled, binding.logoutButton::setEnabled)
+            collectProperty(State::errorMessage, binding.errorText::setText)
+            collectProperty(State::hasError, binding.errorText::isVisible::set)
+            collectProperty(State::shouldShowLoginForm, binding.loginCard::isVisible::set)
         }
 
         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {

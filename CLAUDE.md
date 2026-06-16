@@ -103,7 +103,7 @@ UI layer uses `collectState` and `collectEvent` DSL builders:
 
 ```kotlin
 viewModel.stateFlow.collectState(this) {
-    collectPartial(State::loading) { /* triggered only when loading changes */ }
+    collectProperty(State::loading) { /* triggered only when loading changes */ }
     collectWhole { state -> /* triggered on any state change */ }
 }
 viewModel.eventFlow.collectEvent(this) {

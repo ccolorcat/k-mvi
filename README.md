@@ -147,11 +147,11 @@ class MainActivity : AppCompatActivity() {
 
         // Collect state changes
         viewModel.stateFlow.collectState(this) {
-            collectPartial(IMain.State::count) { count ->
+            collectProperty(IMain.State::count) { count ->
                 countTextView.text = count.toString()
             }
 
-            collectPartial(IMain.State::loading) { loading ->
+            collectProperty(IMain.State::loading) { loading ->
                 progressBar.isVisible = loading
             }
         }
@@ -668,11 +668,11 @@ More efficient - only triggers when the specific property changes:
 
 ```kotlin
 viewModel.stateFlow.collectState(this) {
-    collectPartial(MyState::loading) { isLoading ->
+    collectProperty(MyState::loading) { isLoading ->
         progressBar.isVisible = isLoading
     }
 
-    collectPartial(MyState::title) { title ->
+    collectProperty(MyState::title) { title ->
         titleTextView.text = title
     }
 }
@@ -1114,7 +1114,7 @@ Collect only what you need:
 
 ```kotlin
 // ✅ Good - only updates when count changes
-collectPartial(MyState::count) { count ->
+collectProperty(MyState::count) { count ->
     countTextView.text = count.toString()
 }
 

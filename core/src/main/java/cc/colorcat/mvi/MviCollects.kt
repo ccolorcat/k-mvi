@@ -45,11 +45,11 @@ import kotlin.reflect.KProperty1
  *     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
  *         viewModel.stateFlow.collectState(viewLifecycleOwner) {
  *             // Collect individual properties
- *             collectPartial(MyState::loading) { isLoading ->
+ *             collectProperty(MyState::loading) { isLoading ->
  *                 progressBar.isVisible = isLoading
  *             }
  *
- *             collectPartial(MyState::data) { data ->
+ *             collectProperty(MyState::data) { data ->
  *                 adapter.submitList(data)
  *             }
  *
@@ -74,7 +74,7 @@ import kotlin.reflect.KProperty1
  * @param collector A lambda with receiver to configure state collectors
  * @return A Job that manages all collectors. Cancelling this job will cancel all collectors at once.
  * @see StateCollector
- * @see StateCollector.collectPartial
+ * @see StateCollector.collectProperty
  * @see StateCollector.collectWhole
  */
 fun <S : Mvi.State> Flow<S>.collectState(
@@ -92,7 +92,7 @@ fun <S : Mvi.State> Flow<S>.collectState(
  * ## Key Features
  *
  * - **Lifecycle aware**: Automatically starts/stops based on lifecycle
- * - **Property-level collection**: Collect individual state properties with [collectPartial]
+ * - **Property-level collection**: Collect individual state properties with [collectProperty]
  * - **Whole state collection**: Collect entire state with [collectWhole]
  * - **Deduplication**: Automatically filters duplicate values using [distinctUntilChanged]
  * - **Supervised**: One collector's failure doesn't affect others
@@ -101,11 +101,11 @@ fun <S : Mvi.State> Flow<S>.collectState(
  *
  * ```kotlin
  * stateFlow.collectState(viewLifecycleOwner) {
- *     collectPartial(MyState::isLoading) { loading ->
+ *     collectProperty(MyState::isLoading) { loading ->
  *         showLoadingIndicator(loading)
  *     }
  *
- *     collectPartial(MyState::errorMessage) { message ->
+ *     collectProperty(MyState::errorMessage) { message ->
  *         message?.let { showError(it) }
  *     }
  *
@@ -118,7 +118,7 @@ fun <S : Mvi.State> Flow<S>.collectState(
  *
  * @param S The state type
  * @see collectState
- * @see StateCollector.collectPartial
+ * @see StateCollector.collectProperty
  * @see StateCollector.collectWhole
  */
 class StateCollector<S : Mvi.State> internal constructor(
@@ -131,7 +131,7 @@ class StateCollector<S : Mvi.State> internal constructor(
      *
      * This job is a child of [owner]'s lifecycleScope, ensuring automatic cleanup
      * when the lifecycle is destroyed. Cancelling this job will cancel all collectors
-     * created by [collectPartial] and [collectWhole].
+     * created by [collectProperty] and [collectWhole].
      * This job is returned by [collectState] and can be used to cancel all collectors at once.
      */
     internal val job: Job = SupervisorJob(owner.lifecycleScope.coroutineContext[Job])
@@ -147,10 +147,10 @@ class StateCollector<S : Mvi.State> internal constructor(
      * @param block The suspend function to call with each distinct property value
      * @return A Job for this specific collector
      */
-    fun <A> collectPartial(
+    fun <A> collectProperty(
         property: KProperty1<S, A>,
         block: suspend (A) -> Unit,
-    ): Job = collectPartial(property, state, block)
+    ): Job = collectProperty(property, state, block)
 
     /**
      * Collects a single property of the state with a specific lifecycle state.
@@ -162,7 +162,7 @@ class StateCollector<S : Mvi.State> internal constructor(
      * ```kotlin
      * stateFlow.collectState(viewLifecycleOwner) {
      *     // Collect only when RESUMED
-     *     collectPartial(MyState::sensitiveData, Lifecycle.State.RESUMED) { data ->
+     *     collectProperty(MyState::sensitiveData, Lifecycle.State.RESUMED) { data ->
      *         displaySensitiveInfo(data)
      *     }
      * }
@@ -174,7 +174,7 @@ class StateCollector<S : Mvi.State> internal constructor(
      * @param block The suspend function to call with each distinct property value
      * @return A Job for this specific collector
      */
-    fun <A> collectPartial(
+    fun <A> collectProperty(
         property: KProperty1<S, A>,
         state: Lifecycle.State,
         block: suspend (A) -> Unit,
@@ -215,12 +215,15 @@ class StateCollector<S : Mvi.State> internal constructor(
  * Collects a single property of the state flow with lifecycle awareness.
  *
  * This is a standalone function (not part of [StateCollector]) for simple cases
- * where you only need to collect one property.
+ * where you only need to collect one property. It is the free-function counterpart of
+ * [StateCollector.collectProperty]: same behavior, but you pass [owner] explicitly instead
+ * of collecting inside a [collectState] block. When collecting several properties, prefer the
+ * [collectState] DSL and its [StateCollector.collectProperty] member.
  *
  * ## Usage Example
  *
  * ```kotlin
- * stateFlow.collectPartialState(
+ * stateFlow.collectProperty(
  *     property = MyState::loading,
  *     owner = viewLifecycleOwner
  * ) { isLoading ->
@@ -236,8 +239,10 @@ class StateCollector<S : Mvi.State> internal constructor(
  * @param context Additional coroutine context
  * @param block The suspend function to call with each distinct property value
  * @return A Job that can be cancelled
+ * @see StateCollector.collectProperty
+ * @see collectState
  */
-fun <S : Mvi.State, A> Flow<S>.collectPartialState(
+fun <S : Mvi.State, A> Flow<S>.collectProperty(
     property: KProperty1<S, A>,
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
