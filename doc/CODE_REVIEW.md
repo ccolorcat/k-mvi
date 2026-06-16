@@ -45,7 +45,7 @@
 - ✅ **Name 4（已修复）**. `asSingleFlow()` 已从任意 `T` receiver 收窄为 `Mvi.PartialChange<S, E>` receiver，不再污染项目里所有类型的自动补全。
 - ✅ **Name 5（已修复）**. 两个公开 `launchCollect` 重载已删除，生命周期感知收集统一保留 `launchWithLifecycle`；MVI state / event 仍优先使用 `collectState` / `collectEvent` DSL。
 - ✅ **Name 6（已修复）**. `dispatchWithLifecycle` 已去掉额外的 `R` 泛型，签名改为 `dispatch: (I) -> Unit`，函数自身仍返回可取消的 `Job`。
-- Name 7. `Mvi.PartialChange` 名字里只说"state"——但实现里它既能改 state 又能附带 event，apply 后还可能只动 event。`SnapshotUpdate` 或 `StateMutation` 更贴近实际语义。
+- ✅ **Name 7（已重新评估，建议保留 `PartialChange`）**. 评审最初认为名字偏向 "state"、建议改为 `SnapshotUpdate` / `StateMutation`，这是误读，被旧 KDoc 强化了。正确模型是更高一层的"帧迁移"：一个 `Snapshot` 是一帧完整的画面描述（state + 可选 event），新一帧永远从上一帧迁移而来，而 `PartialChange` 就是这次迁移——只更新上一帧描述里的*一部分*（某些 state 字段、和/或那条 event），其余从上一帧顺延。`apply(old: Snapshot): Snapshot` 这个签名本身已表达"拿 old 派生 new"的增量语义。因此 "partial" 的参照系是*整帧 Snapshot*，名字选得恰当；改为 `SnapshotUpdate` 会丢失 "partial（只改部分）" 与 "从上一帧迁移" 两层含义，`StateMutation` 还额外把范围窄回 state 并用 "mutation" 错误暗示可变。真正的缺陷在 KDoc：`Mvi.kt` "What is Partial" 段把 "partial" 锚成了"state 的部分字段"，已重写为以整帧（Snapshot）为参照系。
 - Name 8. `StateCollector.collectPartial(KProperty1<S, A>, ...)`：这里 "partial" 指的是"一个 property"，但库里 `Mvi.PartialChange` 的 "partial" 含义完全不同（更新 *部分字段*）。同一个词意义混用，读者得在两套语境间切换。`collectProperty` 更直白。
 - Name 9. `DispatchResult.Inactive` 与 `DispatchResult.Closed` 对调用方来说没有可操作区别——都是"我没排进队"。强行二分让 `when` 多写一支。合并为单个 `Rejected(reason)` 或 `NotAccepted` 更轻量。
 - ✅ **Name 10（已修复）**. `IntentHandler.handle` 已去掉 `suspend`，签名现在更准确地表达契约：handler 同步构造 Flow，异步处理发生在返回的 Flow 内（参见 Design 9）。

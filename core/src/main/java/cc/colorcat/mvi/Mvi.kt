@@ -163,27 +163,35 @@ object Mvi {
 
 
     /**
-     * A function that applies a partial change to a state snapshot.
+     * A partial migration of one UI "frame" to the next.
      *
      * ## What is "Partial"?
      *
-     * "Partial" means you typically update **only some properties** of the state
-     * (using Kotlin's `copy()` method), rather than replacing the entire state object.
-     * This encourages immutable updates and fine-grained state control.
+     * A [Snapshot] is one complete "frame" of the UI description: the current [State]
+     * plus an optional, one-shot [Event]. Every frame is **derived from the previous
+     * frame** rather than rebuilt from scratch. A `PartialChange` *is* that derivation:
+     * it receives the previous frame (`old`) and updates **only part** of it — some
+     * state properties, and/or the attached event — while everything it does not touch
+     * carries over from the previous frame.
      *
-     * For example, when loading data, you might only change the `loading` property:
+     * "Partial" is therefore relative to the **whole frame ([Snapshot])**, not to the
+     * state alone: you almost never replace an entire frame outright, you migrate it
+     * incrementally into the next one.
+     *
+     * For example, when loading data, you might only change the `loading` property and
+     * let every other field carry over:
      * ```
      * snapshot.updateState { copy(loading = true) }  // Other properties unchanged
      * ```
      *
      * ## What Can Be Changed?
      *
-     * A PartialChange can perform one or more of the following:
-     * - **Update state properties** (partial or complete)
-     * - **Attach an event** to the snapshot
-     * - **Do both** in one operation
+     * A single PartialChange can perform any one of the following:
+     * - **Update state only** (some or all properties)
+     * - **Attach an event only**, leaving the state untouched ([Snapshot.withEvent])
+     * - **Do both** in one operation ([Snapshot.updateWith])
      *
-     * It represents a transformation: `Snapshot → Snapshot`
+     * It represents a transformation of the frame: `Snapshot → Snapshot`.
      *
      * ## Typical Flow: Intent → Flow<PartialChange>
      *
