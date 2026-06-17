@@ -372,15 +372,12 @@ KMvi.configure {
     copy(
         handleStrategy = HandleStrategy.HYBRID,
         hybridStrategyConfig = HybridStrategyConfig(
-            groupTagSelector = { intent ->
-                when (intent) {
-                    is LoadIntent -> "load_group"
-                    is SaveIntent -> "save_group"
-                    // Default: return class name so same type intents execute sequentially
-                    else -> intent::class.java.name
-                }
-            }
-        )
+            groupChannelCapacity = Channel.BUFFERED,
+        ),
+        retryPolicy = { attempt, cause ->
+            attempt < 3 && cause is IOException
+        },
+        logger = Logger(Logger.DEBUG),
     )
 }
 ```

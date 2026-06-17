@@ -66,11 +66,10 @@ enum class HandleStrategy {
      *
      * ## Example
      * ```kotlin
-     * // All these intents execute in parallel
-     * viewModel.sendIntent(ClickButton)
-     * viewModel.sendIntent(ScrollList)
-     * viewModel.sendIntent(LoadMoreData)
-     * ```
+ * // All these intents execute in parallel
+ * viewModel.dispatch(ClickButton)
+ * viewModel.dispatch(ScrollList)
+ * viewModel.dispatch(LoadMoreData)
      */
     CONCURRENT,
 
@@ -96,12 +95,10 @@ enum class HandleStrategy {
      * - ✅ Prevents race conditions by design
      *
      * ## Example
-     * ```kotlin
-     * // These intents execute one after another
-     * viewModel.sendIntent(ValidateForm)      // Completes first
-     * viewModel.sendIntent(SubmitForm)        // Waits for validation
-     * viewModel.sendIntent(NavigateToSuccess) // Waits for submission
-     * ```
+ * // These intents execute one after another
+ * viewModel.dispatch(ValidateForm)      // Completes first
+ * viewModel.dispatch(SubmitForm)        // Waits for validation
+ * viewModel.dispatch(NavigateToSuccess) // Waits for submission
      *
      * ## Debugging Tip
      * Check logs to identify which intent is blocking the queue:
@@ -147,14 +144,13 @@ enum class HandleStrategy {
      *     data class LoadData(val type: String) : MyIntent  // Fallback
      * }
      *
-     * // Execution flow:
-     * viewModel.sendIntent(Click)              // Group: CONCURRENT (parallel)
-     * viewModel.sendIntent(LoadUser("1"))      // Group: SEQUENTIAL (queued)
-     * viewModel.sendIntent(LoadData("posts"))  // Group: FALLBACK_posts (queued in group)
-     * viewModel.sendIntent(LoadData("users"))  // Group: FALLBACK_users (parallel with posts)
-     * viewModel.sendIntent(LoadData("posts"))  // Group: FALLBACK_posts (waits for first posts)
-     * viewModel.sendIntent(LoadUser("2"))      // Group: SEQUENTIAL (waits for LoadUser(1))
-     * ```
+ * // Execution flow:
+ * viewModel.dispatch(Click)              // Group: CONCURRENT (parallel)
+ * viewModel.dispatch(LoadUser("1"))      // Group: SEQUENTIAL (queued)
+ * viewModel.dispatch(LoadData("posts"))  // Group: FALLBACK_posts (queued in group)
+ * viewModel.dispatch(LoadData("users"))  // Group: FALLBACK_users (parallel with posts)
+ * viewModel.dispatch(LoadData("posts"))  // Group: FALLBACK_posts (waits for first posts)
+ * viewModel.dispatch(LoadUser("2"))      // Group: SEQUENTIAL (waits for LoadUser(1))
      *
      * ## Visual Representation
      * ```

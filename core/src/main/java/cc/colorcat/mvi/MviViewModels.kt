@@ -137,14 +137,14 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *         handleStrategy = HandleStrategy.HYBRID
  *     ) {
  *         // Register handlers for different Intent types
- *         register<LoadIntent> { intent ->
+ *         register<LoadIntent>(IntentHandler { intent ->
  *             flow {
  *                 emit(PartialChange.Loading(true))
  *                 val data = repository.loadData(intent.id)
  *                 emit(PartialChange.DataLoaded(data))
  *                 emit(PartialChange.Loading(false))
  *             }
- *         }
+ *         })
  *
  *         // Register a handler returning a single PartialChange
  *         register<RefreshIntent> { intent ->
