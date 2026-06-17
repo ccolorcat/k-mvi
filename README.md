@@ -200,49 +200,134 @@ K-MVI follows the unidirectional data flow pattern:
 
 ### Key Components
 
+K-MVI describes the UI as a sequence of **frames**. Understanding the five core types below is mostly
+understanding this "frame model":
+
+- A **`Snapshot`** is one **frame** of the UI description: a persistent **`State`** plus an optional,
+  transient **`Event`**.
+- Each new frame is **derived from the previous one** by a **`PartialChange`** — conceptually
+  `frame N+1 = partialChange.apply(frame N)`. A frame is never rebuilt from scratch; it is migrated.
+- **`Intent`s** are what drive these transitions: a user action arrives, its handler emits one or more
+  `PartialChange`s, and each produces the next frame.
+
+```
+Intent ──handler──▶ PartialChange ──apply(old)──▶ Snapshot(State + Event?) ──▶ stateFlow / eventFlow
+                                         ▲                    │
+                                         └──── previous frame ┘
+```
+
 #### 1. Intent
 
-Represents user actions or system events. Can be marked as:
+A user action or system event — the **entry point** to the pipeline. You dispatch an `Intent`, the
+framework routes it to a handler, and the handler produces `PartialChange`s. Under the **HYBRID**
+strategy, marker sub-interfaces decide how an intent is scheduled relative to others:
 
-- `Mvi.Intent.Concurrent`: Processed in parallel
-- `Mvi.Intent.Sequential`: Processed sequentially (one at a time)
-- Neither: Uses the default strategy from configuration
+- `Mvi.Intent.Concurrent`: processed in parallel — for independent actions (a click, a refresh).
+- `Mvi.Intent.Sequential`: processed one-at-a-time in a single FIFO queue — for order-dependent
+  actions (submit, then navigate).
+- Neither marker: falls back to **group** scheduling — sequential within the same
+  `GroupTagSelector` tag, parallel across different tags (e.g. group all DB writes together).
+
+```kotlin
+sealed interface Intent : Mvi.Intent {
+    data object Refresh : Intent, Mvi.Intent.Concurrent          // parallel
+    data class Submit(val form: Form) : Intent, Mvi.Intent.Sequential  // strict order
+    data class Load(val id: String) : Intent                     // grouped by tag
+}
+```
 
 #### 2. State
 
-Represents the complete UI state at any point in time. Should be:
+The **persistent** part of a frame — it describes the elements that *stay on screen* (the current
+list, a loading flag, the input text) and carries across frames until something changes it. State is an
+**immutable** data class, updated only by producing a new copy via `copy()`. It has two kinds of
+property:
 
-- **Immutable**: Use data classes with `copy()`
-- **Serializable**: For process death handling
-- **Complete**: Contains all information needed to render UI
+- **Source state properties** — the stored constructor `val`s. They are the **single source of
+  truth** and the only things a `copy()` actually changes (e.g. `count`, `loading`).
+- **Computed properties** — derived `val`s with a custom getter, computed *from* the source
+  properties. They keep presentation/derivation logic out of the UI, are never stored or manually kept
+  in sync, and plug straight into `collectProperty(State::derived)` (they change exactly when their
+  inputs change).
+
+```kotlin
+data class State(
+    val count: Int = 0,              // source state property
+    val targetCount: Int = 100,      // source state property
+    val showLoading: Boolean = false // source state property
+) : Mvi.State {
+    val countText: String get() = count.toString()           // computed
+    val isAtTarget: Boolean get() = count == targetCount      // computed
+}
+
+// In the UI, computed properties are collected like any other:
+viewModel.stateFlow.collectState(this) {
+    collectProperty(State::countText) { tv.text = it }
+}
+```
+
+> See the sample `CounterContract.State` (`app/src/main/java/cc/colorcat/mvi/sample/count/`):
+> `count` / `targetCount` are source properties; `countText` / `alpha255` are computed and collected
+> directly in `CounterFragment`.
 
 #### 3. Event
 
-Represents one-time side effects that don't belong in state:
+The **transient** part of a frame — a one-time side effect that does **not** belong in State: showing
+a toast/snackbar, navigation, triggering an animation. An event is fleeting: it lives in **exactly one
+frame**, is delivered to an active collector (or dropped if none is listening), and is **cleared or
+replaced** the moment the next frame is produced.
 
-- Showing toasts or snackbars
-- Navigation actions
-- Triggering animations
-- Any action that should happen once
+```kotlin
+sealed interface Event : Mvi.Event {
+    data class ShowToast(val message: String) : Event
+    data class NavigateTo(val id: String) : Event
+}
+```
 
-#### 4. PartialChange
+> Rule of thumb: if a signal should fire *once*, it's an Event; if it should *persist* on screen, it's
+> State. Don't put transient signals (like a one-shot toast message) into State.
 
-A function that takes the current `Snapshot` (state + event queue) and returns an updated `Snapshot`. It can:
+#### 4. Snapshot
 
-- Update state: `snapshot.updateState { copy(field = newValue) }`
-- Emit events: `snapshot.withEvent(MyEvent.SomeEvent)`
-- Chain updates: `snapshot.updateState { ... }.withEvent(...)`
+One immutable **frame**: `state: S` plus an optional `event: E?`. You never mutate a snapshot — you
+**derive the next frame** from the `old` one inside a `PartialChange`, using:
 
-#### 5. Contract
+- `updateState { copy(...) }` — change some state, **clears** any pending event.
+- `withEvent(event)` — attach an event, keep the state.
+- `updateWith(event) { copy(...) }` — change state **and** attach an event in the same frame.
 
-The read-only interface that exposes:
+`updateState` clearing the event is intentional and load-bearing: an event must live in only one
+frame, otherwise it would be re-delivered on every later frame.
+
+#### 5. PartialChange
+
+The function that performs **one frame migration**: `apply(old: Snapshot): Snapshot`. The word
+**"partial"** is relative to the *whole frame* — a change touches only **part** of the previous frame
+(one or a few **source state properties**, and/or the **event**, or both), and everything it doesn't
+touch carries over unchanged. Frames are continuous: each is migrated from the previous, never rebuilt.
+
+```kotlin
+// A two-step load: each emitted PartialChange produces one frame.
+flow {
+    emit(MyPartialChange { it.updateState { copy(loading = true) } })          // frame 1
+    val data = repository.load()
+    emit(MyPartialChange { it.updateWith(Event.Loaded) { copy(loading = false, data = data) } }) // frame 2 (state + event)
+}
+```
+
+> Pitfall — don't chain `withEvent(...).updateState { ... }` inside a single change: `updateState`
+> clears the event you just set. Set both together with `updateWith(event) { copy(...) }` instead.
+
+#### 6. Contract
+
+The read-only interface exposed to the UI:
 
 - `stateFlow: StateFlow<S>`: Hot flow of state changes
-- `eventFlow: Flow<E>`: Cold flow of one-time events
+- `eventFlow: Flow<E>`: Flow of one-time events
 
-#### 6. ReactiveContract
+#### 7. ReactiveContract
 
-Extends Contract with the ability to dispatch intents:
+Extends `Contract` with the ability to dispatch intents:
 
 - `dispatch(intent: I)`: Send an intent for processing
 
