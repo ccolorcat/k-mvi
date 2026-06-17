@@ -55,7 +55,7 @@ The processing pipeline:
 |------------------------------------|----------------------------------------------------------------------------------------------|
 | `Mvi.kt`                           | Core types: `Intent`, `State`, `Event`, `PartialChange`, `Snapshot`                          |
 | `Contracts.kt`                     | `Contract` (read-only) and `ReactiveContract` (read-write) interfaces                        |
-| `KMvi.kt`                          | Global config singleton: handleStrategy, retryPolicy, logger, hybridConfig                   |
+| `KMvi.kt`                          | Global config singleton: handleStrategy, retryPolicy, logger, hybridStrategyConfig           |
 | `HandleStrategies.kt`              | `HandleStrategy` enum (CONCURRENT/SEQUENTIAL/HYBRID) + `HybridConfig`                        |
 | `IntentHandlers.kt`                | `IntentHandler`, `IntentHandlerRegistry`, `IntentHandlerDelegate` (ConcurrentHashMap-backed) |
 | `IntentTransformers.kt`            | `IntentTransformer` + `StrategyIntentTransformer` (per-strategy implementation)              |
