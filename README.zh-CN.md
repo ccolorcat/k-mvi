@@ -50,27 +50,34 @@ dependencies {
 创建接口定义你的 Intent、State 和 Event：
 
 ```kotlin
-sealed interface IMain {
-    // State 表示 UI 状态
+sealed interface CounterContract {
+    companion object {
+        const val COUNT_MAX = 100
+        const val COUNT_MIN = 0
+    }
+
+    // State：UI 的持久化描述
     data class State(
         val count: Int = 0,
-        val loading: Boolean = false
-    ) : Mvi.State
+        val showLoading: Boolean = false,
+    ) : Mvi.State {
+        // 计算属性——把展示逻辑从 UI 层抽离出来
+        val countText: String get() = count.toString()
+    }
 
-    // Event 是一次性的副作用
+    // Event：一次性副作用，仅被消费一次
     sealed interface Event : Mvi.Event {
-        data class ShowToast(val message: String) : Event
-        data class NavigateToDetail(val id: String) : Event
+        data class ShowToast(val message: CharSequence) : Event
     }
 
-    // Intent 代表用户操作或系统事件
-    sealed interface Intent : Mvi.Intent {
-        data object Increment : Intent, Mvi.Intent.Concurrent
-        data object Decrement : Intent, Mvi.Intent.Sequential
-        data class LoadData(val id: String) : Intent, Mvi.Intent.Sequential
+    // Intent：用户操作。Sequential = 按顺序逐个处理
+    sealed interface Intent : Mvi.Intent.Sequential {
+        data object Increment : Intent
+        data object Decrement : Intent
+        data object Reset : Intent
     }
 
-    // PartialChange 更新状态并发送事件
+    // PartialChange：将一个 Snapshot（帧）迁移到下一帧
     fun interface PartialChange : Mvi.PartialChange<State, Event>
 }
 ```
@@ -78,96 +85,90 @@ sealed interface IMain {
 ### 2. 创建 ViewModel
 
 ```kotlin
-class MainViewModel : ViewModel() {
-    private val contract: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(
-        initState = IMain.State(),
-        defaultHandler = ::handleIntent
-    )
+// 为简洁起见，CounterContract.State / Event / Intent / PartialChange（及 COUNT_* 常量）已被 import。
+class CounterViewModel : ViewModel() {
+    // 为每个 Intent 类型注册一个 handler；Intent 类型由各自的引用推断得出。
+    private val contract by contract(initState = State()) {
+        register(::handleIncrement) // 同步，单个 PartialChange
+        register(::handleDecrement) // 同步，单个 PartialChange
+        register(::handleReset)     // 异步，Flow<PartialChange>
+    }
 
-    val stateFlow: StateFlow<IMain.State> = contract.stateFlow
-    val eventFlow: Flow<IMain.Event> = contract.eventFlow
+    val stateFlow: StateFlow<State> = contract.stateFlow
+    val eventFlow: Flow<Event> = contract.eventFlow
 
-    fun dispatch(intent: IMain.Intent) = contract.dispatch(intent)
+    fun dispatch(intent: Intent) = contract.dispatch(intent)
 
-    // 所有 Intent 路由到同一方法，提升可读性
-    private suspend fun handleIntent(intent: IMain.Intent): Flow<IMain.PartialChange> {
-        return when (intent) {
-            is IMain.Intent.Increment -> handleIncrement(intent)
-            is IMain.Intent.Decrement -> handleDecrement(intent)
-            is IMain.Intent.LoadData -> handleLoadData(intent)
+    // 在 change 内部做判断。简洁，且在分支只是一行简单守卫时是可以接受的。
+    private fun handleIncrement(intent: Intent.Increment) = PartialChange { old ->
+        if (old.state.count == COUNT_MAX) {
+            old.withEvent(Event.ShowToast("Already reached $COUNT_MAX"))
+        } else {
+            old.updateState { copy(count = count + 1) }
         }
     }
 
-    private fun handleIncrement(intent: IMain.Intent.Increment): Flow<IMain.PartialChange> {
-        return IMain.PartialChange { snapshot ->
-            snapshot.updateState { copy(count = count + 1) }
-        }.asSingleFlow()
+    // 在 handler 中做判断，从而让每个 PartialChange 保持最小化——只更新 snapshot。
+    private fun handleDecrement(intent: Intent.Decrement): PartialChange {
+        return if (stateFlow.value.count == COUNT_MIN) {
+            PartialChange { it.withEvent(Event.ShowToast("Already reached $COUNT_MIN")) }
+        } else {
+            PartialChange { it.updateState { copy(count = count - 1) } }
+        }
     }
 
-    private fun handleDecrement(intent: IMain.Intent.Decrement): Flow<IMain.PartialChange> {
-        return IMain.PartialChange { snapshot ->
-            if (snapshot.state.count > 0) {
-                snapshot.updateState { copy(count = count - 1) }
-            } else {
-                snapshot.withEvent(IMain.Event.ShowToast("Already at 0"))
-            }
-        }.asSingleFlow()
-    }
-
-    private fun handleLoadData(intent: IMain.Intent.LoadData): Flow<IMain.PartialChange> = flow {
-        emit(IMain.PartialChange { it.updateState { copy(loading = true) } })
-
+    // 异步工作应放在 Flow 中：加载中 → 成功/失败 → 结束。
+    private fun handleReset(intent: Intent.Reset): Flow<PartialChange> = flow {
         try {
-            val data = repository.loadData(intent.id)
-            emit(IMain.PartialChange { it.updateState { copy(loading = false, data = data) } })
+            emit(PartialChange { it.updateState { copy(showLoading = true) } })
+            delay(1_000) // 模拟异步工作（网络/数据库等）
+            emit(PartialChange {
+                it.updateWith(Event.ShowToast("Reset successfully")) { copy(count = 0) }
+            })
         } catch (e: Exception) {
-            emit(
-                IMain.PartialChange {
-                    it.updateState { copy(loading = false) }
-                        .withEvent(IMain.Event.ShowToast("Load failed: ${e.message}"))
-                }
-            )
+            emit(PartialChange { it.withEvent(Event.ShowToast("Reset failed")) })
+        } finally {
+            emit(PartialChange { it.updateState { copy(showLoading = false) } })
         }
     }
 }
 ```
 
+> 两个同步 handler 的写法是刻意不同的。`PartialChange` 在状态累加器内部运行，应保持极简——它唯一的职责
+> 就是更新 snapshot。因此随着分支变多，应优先在 handler 中做判断（`handleDecrement`），而非在 change
+> 内部分支（`handleIncrement`）。完整带注释的版本见 [`app`](app/) 模块中的 `CounterViewModel`。
+
 ### 3. 连接 UI（Activity/Fragment）
 
 ```kotlin
-class MainActivity : AppCompatActivity() {
-    private val viewModel: MainViewModel by viewModels()
+class CounterFragment : Fragment(R.layout.fragment_counter) {
+    private val viewModel: CounterViewModel by viewModels()
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        val binding = FragmentCounterBinding.bind(view)
 
-        // 收集状态变化
-        viewModel.stateFlow.collectState(this) {
-            collectProperty(IMain.State::count) { count ->
-                countTextView.text = count.toString()
-            }
+        // 渲染状态——collectProperty 仅在该属性发生变化时触发。
+        viewModel.stateFlow.collectState(viewLifecycleOwner) {
+            collectProperty(State::countText, binding.count::setText)
+            collectProperty(State::showLoading, binding.loadingBar::isVisible::set)
+        }
 
-            collectProperty(IMain.State::loading) { loading ->
-                progressBar.isVisible = loading
+        // 处理一次性事件。
+        viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
+            collectTyped<Event.ShowToast> { event ->
+                Toast.makeText(requireContext(), event.message, Toast.LENGTH_SHORT).show()
             }
         }
 
-        // 收集一次性事件
-        viewModel.eventFlow.collectEvent(this) {
-            collectTyped<IMain.Event.ShowToast> { event ->
-                Toast.makeText(this@MainActivity, event.message, Toast.LENGTH_SHORT).show()
-            }
-
-            collectTyped<IMain.Event.NavigateToDetail> { event ->
-                // 导航到详情页
-            }
-        }
-
-        // 派发 Intent
-        incrementButton.doOnClick { IMain.Intent.Increment }
-            .debounceLeading(500)
-            .launchWithLifecycle(this) { viewModel.dispatch(it) }
+        // 将用户操作合并为单一 Intent 流并派发（生命周期感知）。
+        // debounceLeading 会发射首次点击并忽略随后的快速点击。
+        merge(
+            binding.increment.doOnClick { trySend(Intent.Increment) },
+            binding.decrement.doOnClick { trySend(Intent.Decrement) },
+            binding.reset.doOnClick { trySend(Intent.Reset) },
+        ).debounceLeading(300L)
+            .dispatchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
     }
 }
 ```
@@ -213,15 +214,18 @@ Intent ──handler──▶ PartialChange ──apply(old)──▶ Snapshot(S
 
 用户操作或系统事件——管线的**入口**。你派发一个 `Intent`，框架将其路由到 handler，handler 产生 `PartialChange`。在 **HYBRID** 策略下，标记子接口决定 Intent 相对于其他 Intent 的调度方式：
 
-- `Mvi.Intent.Concurrent`：并行处理——用于独立操作（点击、刷新）。
-- `Mvi.Intent.Sequential`：按顺序逐个处理——用于依赖顺序的操作（提交、然后导航）。
+- `Mvi.Intent.Concurrent`：并行处理——用于独立操作（刷新、上报埋点）。
+- `Mvi.Intent.Sequential`：按顺序逐个处理——用于依赖顺序的操作（计数器自增、提交表单）。
 - 无标记：回退到**分组**调度——同组内顺序、不同组间并行（例如将数据库写入操作归为一组）。
+
+以[快速开始](#快速开始)中的计数器为例，并假设它还能从服务器 `Refresh` 当前值。这一个 contract 即可演示全部三种模式：
 
 ```kotlin
 sealed interface Intent : Mvi.Intent {
-    data object Refresh : Intent, Mvi.Intent.Concurrent           // 并行
-    data class Submit(val form: Form) : Intent, Mvi.Intent.Sequential  // 严格顺序
-    data class Load(val id: String) : Intent                      // 按标签分组
+    data object Increment : Intent, Mvi.Intent.Sequential  // 顺序敏感 → 严格 FIFO
+    data object Decrement : Intent, Mvi.Intent.Sequential  // 顺序敏感 → 严格 FIFO
+    data object Refresh : Intent, Mvi.Intent.Concurrent    // 相互独立 → 并行执行
+    data object Reset : Intent                             // 无标记 → 按标签分组
 }
 ```
 
@@ -229,17 +233,17 @@ sealed interface Intent : Mvi.Intent {
 
 帧的**持久化**部分——描述那些**留在屏幕上**的元素（当前列表、加载标志、输入文本），在发生变化之前持续存在于各帧之间。State 是**不可变的** data class，通过 `copy()` 产生新副本来更新。包含两类属性：
 
-- **源状态属性**——构造函数中的 `val` 声明。它们是**唯一事实来源**，只有 `copy()` 才能实际修改它们（例如 `count`、`loading`）。
+- **源状态属性**——构造函数中的 `val` 声明。它们是**唯一事实来源**，只有 `copy()` 才能实际修改它们（例如 `count`、`showLoading`）。
 - **计算属性**——带有自定义 getter 的 `val`，由源属性**计算**得出。它们将展示/推导逻辑从 UI 中抽离，无需手动同步，可直接接入 `collectProperty(State::derived)`（当其输入变化时精确触发更新）。
 
 ```kotlin
+// 与快速开始相同的 State，额外多了一个计算属性：
 data class State(
-    val count: Int = 0,              // 源状态属性
-    val targetCount: Int = 100,      // 源状态属性
-    val showLoading: Boolean = false // 源状态属性
+    val count: Int = 0,               // 源状态属性
+    val showLoading: Boolean = false, // 源状态属性
 ) : Mvi.State {
-    val countText: String get() = count.toString()           // 计算属性
-    val isAtTarget: Boolean get() = count == targetCount      // 计算属性
+    val countText: String get() = count.toString()  // 计算属性
+    val isAtMax: Boolean get() = count >= 100        // 计算属性
 }
 
 // 在 UI 中，计算属性与其他属性一样收集：
@@ -248,8 +252,9 @@ viewModel.stateFlow.collectState(this) {
 }
 ```
 
-> 参见示例 `CounterContract.State`（`app/src/main/java/cc/colorcat/mvi/sample/count/`）：
-> `count` / `targetCount` 是源属性；`countText` / `alpha255` 是计算属性，在 `CounterFragment` 中直接收集。
+> 真实示例 `CounterContract.State`（`app/src/main/java/cc/colorcat/mvi/sample/count/`）更进一步：
+> `count` / `targetCount` / `showLoading` 是源属性，而 `countText` / `countInfo` / `alpha255` 是
+> 计算属性，并在 `CounterFragment` 中直接收集。
 
 #### 3. Event
 
@@ -257,8 +262,9 @@ viewModel.stateFlow.collectState(this) {
 
 ```kotlin
 sealed interface Event : Mvi.Event {
-    data class ShowToast(val message: String) : Event
-    data class NavigateTo(val id: String) : Event
+    // 计数器到达上下限或完成重置时，弹出一个 Toast。
+    data class ShowToast(val message: CharSequence) : Event
+    // 随着界面变复杂，可在此添加更多一次性副作用，例如 NavigateToHistory。
 }
 ```
 
@@ -266,11 +272,11 @@ sealed interface Event : Mvi.Event {
 
 #### 4. Snapshot
 
-一个不可变的**帧**：`state: S` 加上可选的 `event: E?`。你从不直接修改 snapshot——你在 `PartialChange` 内部从 `old`（前一帧）**推导出下一帧**，使用：
+一个不可变的**帧**：`state: S` 加上可选的 `event: E?`。你从不直接修改 snapshot——你在 `PartialChange` 内部从 `old`（前一帧）**推导出下一帧**，使用（以下用计数器的 `State`/`Event` 举例）：
 
-- `updateState { copy(...) }`——修改某些状态，**清除**任何待处理的 event。
-- `withEvent(event)`——附加一个事件，保持状态不变。
-- `updateWith(event) { copy(...) }`——在同一帧中修改状态**并**附加事件。
+- `updateState { copy(count = count + 1) }`——修改某些状态，**清除**任何待处理的 event。
+- `withEvent(Event.ShowToast("Already at max"))`——附加一个事件，保持状态不变。
+- `updateWith(Event.ShowToast("Synced")) { copy(count = 0) }`——在同一帧中修改状态**并**附加事件。
 
 `updateState` 清除 event 是有意为之且承担着重要职责：event 必须只存在于一帧中，否则会在后续每一帧中被重复投递。
 
@@ -279,11 +285,17 @@ sealed interface Event : Mvi.Event {
 执行**一帧迁移**的函数：`apply(old: Snapshot): Snapshot`。这里的"部分"是相对于**完整帧**而言的——一个 change 只接触前一帧的**一部分**（一个或几个**源状态属性**，和/或 **event**，或两者兼具），其余未触及的部分原样继承。帧是连续的：每一帧都从前一帧迁移而来，从不重建。
 
 ```kotlin
-// 两步加载：每个发射的 PartialChange 产生一帧。
+// 处理计数器的 Refresh：两步迁移，每个 PartialChange 产生一帧。
 flow {
-    emit(MyPartialChange { it.updateState { copy(loading = true) } })          // 帧 1
-    val data = repository.load()
-    emit(MyPartialChange { it.updateWith(Event.Loaded) { copy(loading = false, data = data) } }) // 帧 2（状态 + 事件）
+    // 帧 1——只改变加载标志；count 原样保留
+    emit(PartialChange { it.updateState { copy(showLoading = true) } })
+
+    val latest = repository.fetchCount()
+
+    // 帧 2——更新 count、清除加载状态，并附加一次性 Toast（状态 + 事件）
+    emit(PartialChange {
+        it.updateWith(Event.ShowToast("Synced")) { copy(count = latest, showLoading = false) }
+    })
 }
 ```
 
@@ -404,7 +416,7 @@ class MyViewModel : ViewModel() {
 **推荐方式**是使用 `defaultHandler` 在一个方法中处理所有 Intent。这样所有 Intent 的处理逻辑集中在一处，更易阅读：
 
 ```kotlin
-class MainViewModel : ViewModel() {
+class MyViewModel : ViewModel() {
     private val contract by contract(
         initState = MyState(),
         defaultHandler = ::handleIntent
@@ -475,7 +487,7 @@ class MainViewModel : ViewModel() {
 实现更简洁的代码，可以让你的 Intent 直接实现 PartialChange：
 
 ```kotlin
-sealed interface IMain {
+sealed interface MyContract {
     data class State(val count: Int = 0) : Mvi.State
 
     sealed interface Event : Mvi.Event {
@@ -511,21 +523,21 @@ sealed interface IMain {
     data object Decrement : PartialChange(), Intent
 }
 
-class MainViewModel : ViewModel() {
+class MyViewModel : ViewModel() {
     private val contract by contract(
-        initState = IMain.State(),
+        initState = MyContract.State(),
         defaultHandler = ::handleIntent
     )
 
-    val stateFlow: StateFlow<IMain.State> = contract.stateFlow
-    val eventFlow: Flow<IMain.Event> = contract.eventFlow
+    val stateFlow: StateFlow<MyContract.State> = contract.stateFlow
+    val eventFlow: Flow<MyContract.Event> = contract.eventFlow
 
-    fun dispatch(intent: IMain.Intent) = contract.dispatch(intent)
+    fun dispatch(intent: MyContract.Intent) = contract.dispatch(intent)
 
     // 简单的 handler——直接转换并返回
-    private suspend fun handleIntent(intent: IMain.Intent): Flow<IMain.PartialChange> {
+    private suspend fun handleIntent(intent: MyContract.Intent): Flow<MyContract.PartialChange> {
         return when (intent) {
-            is IMain.PartialChange -> intent.asSingleFlow()
+            is MyContract.PartialChange -> intent.asSingleFlow()
         }
     }
 }
@@ -551,8 +563,11 @@ class MainViewModel : ViewModel() {
 private val contract by contract(
     initState = MyState()
 ) {
-    register(IncrementIntent::class.java, ::handleIncrement)
-    register(DecrementIntent::class.java, ::handleDecrement)
+    // Intent 类型由各自的 handler 引用推断得出。
+    register(::handleIncrement)
+    register(::handleDecrement)
+    // 也可以显式传入类型（便于 Java 风格 API）：
+    // register(IncrementIntent::class.java, ::handleIncrement)
 }
 ```
 
@@ -763,19 +778,19 @@ viewModel.eventFlow.collectEvent(this) {
 K-MVI 为常见 UI 事件提供了便捷扩展：
 
 ```kotlin
-// 按钮点击
-button.doOnClick { MyIntent.ButtonClicked }
+// 按钮点击——在回调中用 trySend(...) 发射
+button.doOnClick { trySend(MyIntent.ButtonClicked) }
     .debounceLeading(500) // 防止快速重复点击
     .launchWithLifecycle(this) { viewModel.dispatch(it) }
 
 // 文本变化
 editText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
-    send(MyIntent.TextChanged(editable?.toString().orEmpty()))
+    trySend(MyIntent.TextChanged(editable?.toString().orEmpty()))
 }.launchWithLifecycle(this) { viewModel.dispatch(it) }
 
 // 复选框变化
 checkbox.doOnCheckedChange { isChecked ->
-    send(MyIntent.CheckboxToggled(isChecked))
+    trySend(MyIntent.CheckboxToggled(isChecked))
 }.launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
 
@@ -786,7 +801,7 @@ checkbox.doOnCheckedChange { isChecked ->
 响应**首次**事件，随后在时间窗口内忽略后续事件。适用于防止重复点击：
 
 ```kotlin
-button.doOnClick { SubmitIntent }
+button.doOnClick { trySend(SubmitIntent) }
     .debounceLeading(500) // 首次点击后 500ms 内忽略后续点击
     .launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
@@ -797,7 +812,7 @@ button.doOnClick { SubmitIntent }
 
 ```kotlin
 searchEditText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
-    send(SearchIntent(editable?.toString().orEmpty()))
+    trySend(SearchIntent(editable?.toString().orEmpty()))
 }.launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
 
@@ -914,19 +929,19 @@ val customLogger = Logger { priority, tag, error, message ->
 #### 在 Intent Handler 中
 
 ```kotlin
-private fun handleLoadData(intent: LoadDataIntent): Flow<IMain.PartialChange> = flow {
-    emit(IMain.PartialChange { it.updateState { copy(loading = true) } })
+private fun handleLoadData(intent: LoadDataIntent): Flow<MyPartialChange> = flow {
+    emit(MyPartialChange { it.updateState { copy(loading = true) } })
 
     try {
         val data = repository.loadData()
         emit(
-            IMain.PartialChange {
+            MyPartialChange {
                 it.updateState { copy(loading = false, data = data) }
             }
         )
     } catch (e: Exception) {
         emit(
-            IMain.PartialChange {
+            MyPartialChange {
                 it.updateState { copy(loading = false, error = e.message) }
                     .withEvent(MyEvent.ShowError(e.message))
             }
@@ -962,10 +977,10 @@ K-MVI 的清晰架构使测试变得简单：
 ```kotlin
 @Test
 fun `increment intent increases count`() = runTest {
-        val viewModel = MainViewModel()
+        val viewModel = MyViewModel()
         val initialState = viewModel.stateFlow.value
 
-        viewModel.dispatch(IMain.Intent.Increment)
+        viewModel.dispatch(MyIntent.Increment)
 
         advanceUntilIdle()
         assertEquals(initialState.count + 1, viewModel.stateFlow.value.count)
@@ -977,7 +992,7 @@ fun `increment intent increases count`() = runTest {
 ```kotlin
 @Test
 fun `loading state changes correctly`() = runTest {
-        val viewModel = MainViewModel()
+        val viewModel = MyViewModel()
         val states = mutableListOf<MyState>()
 
         val job = launch {
@@ -999,7 +1014,7 @@ fun `loading state changes correctly`() = runTest {
 ```kotlin
 @Test
 fun `error event is emitted on failure`() = runTest {
-        val viewModel = MainViewModel()
+        val viewModel = MyViewModel()
         val events = mutableListOf<MyEvent>()
 
         val job = launch {
