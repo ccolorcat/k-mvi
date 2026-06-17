@@ -2,13 +2,13 @@ package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentHandlerDelegate
+import cc.colorcat.mvi.IntentHandlerScope
 import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
-import cc.colorcat.mvi.register
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -129,7 +129,7 @@ class IntentHandlersTest {
     fun `single change register runs handler when returned flow is collected`() = runBlocking {
         var calls = 0
         val delegate = IntentHandlerDelegate<TestIntent, TestState, TestEvent>(defaultHandler = null)
-        delegate.register<TestIntent.Increment, TestState, TestEvent> {
+        IntentHandlerScope(delegate).register<TestIntent.Increment> {
             calls++
             Mvi.PartialChange { snapshot -> snapshot.updateState { copy(value = "collected") } }
         }

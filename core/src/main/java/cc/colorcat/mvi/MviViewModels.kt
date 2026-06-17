@@ -176,12 +176,13 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *                       and produce no state change. Supply a non-null handler to opt into the
  *                       centralized-dispatch pattern (unhandled Intents are silently routed to
  *                       it).
- * @param setup A lambda with receiver to register Intent handlers using [IntentHandlerRegistry]
+ * @param setup A lambda with [IntentHandlerScope] receiver to register Intent handlers; its
+ *              `reified` helpers take only the intent type (`register<MyIntent> { ... }`)
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
  * @see ReactiveContract
  * @see HandleStrategy
  * @see IntentHandler
- * @see IntentHandlerRegistry
+ * @see IntentHandlerScope
  */
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
@@ -191,7 +192,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     hybridStrategyConfig: HybridStrategyConfig = KMvi.hybridStrategyConfig,
     groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
     defaultHandler: IntentHandler<I, S, E>? = null,
-    setup: IntentHandlerRegistry<I, S, E>.() -> Unit = {},
+    setup: IntentHandlerScope<I, S, E>.() -> Unit = {},
 ): Lazy<ReactiveContract<I, S, E>> {
     return ReactiveContractLazy {
         StrategyReactiveContract(

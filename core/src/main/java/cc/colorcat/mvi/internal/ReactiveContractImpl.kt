@@ -7,6 +7,7 @@ import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentHandlerDelegate
 import cc.colorcat.mvi.IntentHandlerRegistry
+import cc.colorcat.mvi.IntentHandlerScope
 import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.Mvi
@@ -321,20 +322,20 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
  *
  * ```kotlin
  * contract.setupIntentHandlers {
- *     register(LoadDataIntent::class.java) { intent ->
- *         // Handle LoadDataIntent
+ *     // Single PartialChange — concise reified form
+ *     register<LoadDataIntent> { intent ->
  *         Mvi.PartialChange { snapshot ->
  *             snapshot.updateState { copy(loading = true) }
  *         }
  *     }
  *
- *     register(RefreshIntent::class.java, IntentHandler { intent ->
+ *     // Flow of changes — reified form, SAM-converted to IntentHandler
+ *     register<RefreshIntent> { intent ->
  *         flow {
- *             // Handle RefreshIntent with multiple state changes
  *             emit(Mvi.PartialChange { ... })
  *             emit(Mvi.PartialChange { ... })
  *         }
- *     })
+ *     }
  * }
  * ```
  *
@@ -412,32 +413,32 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
      * ```kotlin
      * contract.setupIntentHandlers {
      *     // Register simple handler
-     *     register(SimpleIntent::class.java) { intent ->
+     *     register<SimpleIntent> { intent ->
      *         Mvi.PartialChange { snapshot ->
      *             snapshot.updateState { copy(value = intent.value) }
      *         }
      *     }
      *
      *     // Register complex handler
-     *     register(ComplexIntent::class.java, IntentHandler { intent ->
+     *     register<ComplexIntent> { intent ->
      *         flow {
      *             emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
      *             val result = doSomething(intent)
      *             emit(Mvi.PartialChange { it.updateState { copy(loading = false, data = result) } })
      *         }
-     *     })
+     *     }
      *
      *     // Unregister if needed
-     *     unregister(OldIntent::class.java)
+     *     unregister<OldIntent>()
      * }
      * ```
      *
-     * @param setup A lambda with receiver that configures the intent handler registry
-     * @see IntentHandlerRegistry
-     * @see IntentHandlerRegistry.register
-     * @see IntentHandlerRegistry.unregister
+     * @param setup A lambda with [IntentHandlerScope] receiver that configures the intent handlers
+     * @see IntentHandlerScope
+     * @see IntentHandlerScope.register
+     * @see IntentHandlerScope.unregister
      */
-    internal fun setupIntentHandlers(setup: IntentHandlerRegistry<I, S, E>.() -> Unit) {
-        delegate.apply(setup)
+    internal fun setupIntentHandlers(setup: IntentHandlerScope<I, S, E>.() -> Unit) {
+        IntentHandlerScope(delegate).apply(setup)
     }
 }

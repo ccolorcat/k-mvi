@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.contract
-import cc.colorcat.mvi.register
 import cc.colorcat.mvi.sample.dashboard.DashboardContract.Event
 import cc.colorcat.mvi.sample.dashboard.DashboardContract.Intent
 import cc.colorcat.mvi.sample.dashboard.DashboardContract.PartialChange

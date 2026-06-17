@@ -3,7 +3,6 @@ package cc.colorcat.mvi.sample.count
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.contract
-import cc.colorcat.mvi.register
 import cc.colorcat.mvi.sample.count.CounterContract.Companion.COUNT_MAX
 import cc.colorcat.mvi.sample.count.CounterContract.Companion.COUNT_MIN
 import cc.colorcat.mvi.sample.count.CounterContract.Companion.randomCount
@@ -47,6 +46,26 @@ class CounterViewModel : ViewModel() {
         register(::handleIncrement)  // Pattern 1: Inline conditional
         register(::handleDecrement)  // Pattern 2: Early return branching
         register(::handleReset)      // Pattern 3: Flow-based async
+
+//        register<Intent.Increment> { intent ->
+//            PartialChange {
+//                if (it.state.count == COUNT_MAX) {
+//                    it.withEvent(Event.ShowToast("Already reached $COUNT_MAX"))
+//                } else {
+//                    it.updateState { copy(count = count + 1) }
+//                }
+//            }
+//        }
+
+//        register { intent: Intent.Increment ->
+//            PartialChange {
+//                if (it.state.count == COUNT_MAX) {
+//                    it.withEvent(Event.ShowToast("Already reached $COUNT_MAX"))
+//                } else {
+//                    it.updateState { copy(count = count + 1) }
+//                }
+//            }
+//        }
     }
 
     /**
