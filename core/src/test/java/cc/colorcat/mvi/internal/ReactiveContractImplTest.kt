@@ -6,7 +6,7 @@ import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentQueueConfig
-import cc.colorcat.mvi.IntentTransformer
+import cc.colorcat.mvi.strategyTransformer
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
@@ -108,7 +108,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -137,7 +137,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -164,7 +164,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -196,7 +196,7 @@ class ReactiveContractImplTest {
             initState = TestState(count = 99, data = "init"),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -216,7 +216,7 @@ class ReactiveContractImplTest {
                 initState = TestState(),
                 intentQueueConfig = IntentQueueConfig(capacity = -3),
                 retryPolicy = { _, _ -> false },
-                transformer = IntentTransformer(
+                transformer = strategyTransformer(
                     handleStrategy = HandleStrategy.CONCURRENT,
                     hybridStrategyConfig = HybridStrategyConfig(),
                     groupTagSelector = GroupTagSelector.byClass(),
@@ -237,7 +237,7 @@ class ReactiveContractImplTest {
                 initState = TestState(),
                 intentQueueConfig = IntentQueueConfig(capacity = 64),
                 retryPolicy = { _, _ -> false },
-                transformer = IntentTransformer(
+                transformer = strategyTransformer(
                     handleStrategy = HandleStrategy.CONCURRENT,
                     hybridStrategyConfig = HybridStrategyConfig(),
                     groupTagSelector = GroupTagSelector.byClass(),
@@ -265,7 +265,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -296,7 +296,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -326,7 +326,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -458,7 +458,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -485,7 +485,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 0),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -526,7 +526,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = Channel.RENDEZVOUS),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -583,7 +583,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = Channel.CONFLATED),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -633,7 +633,7 @@ class ReactiveContractImplTest {
                 onBufferOverflow = BufferOverflow.DROP_LATEST,
             ),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -683,7 +683,7 @@ class ReactiveContractImplTest {
                 onBufferOverflow = BufferOverflow.DROP_OLDEST,
             ),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
@@ -728,7 +728,7 @@ class ReactiveContractImplTest {
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = Channel.UNLIMITED),
             retryPolicy = { _, _ -> false },
-            transformer = IntentTransformer(
+            transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),

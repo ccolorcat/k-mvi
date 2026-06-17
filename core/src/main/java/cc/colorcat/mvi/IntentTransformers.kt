@@ -1,3 +1,5 @@
+@file:OptIn(FlowPreview::class)
+
 package cc.colorcat.mvi
 
 import cc.colorcat.mvi.internal.TAG
@@ -126,29 +128,27 @@ fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
      * @return A flow of partial state changes to be applied to the current state
      */
     fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>>
+}
 
-    companion object {
-        /**
-         * Creates an IntentTransformer with the specified strategy and configuration.
-         *
-         * This is an internal factory method used by the framework to create
-         * strategy-based transformers.
-         *
-         * @param handleStrategy The handling strategy to apply
-         * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
-         * @param groupTagSelector Selects fallback group tags for HYBRID strategy
-         * @param handler The intent handler to delegate to
-         * @return An IntentTransformer that applies the specified strategy
-         */
-        internal operator fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> invoke(
-            handleStrategy: HandleStrategy,
-            hybridStrategyConfig: HybridStrategyConfig,
-            groupTagSelector: GroupTagSelector<I>,
-            handler: IntentHandler<I, S, E>,
-        ): IntentTransformer<I, S, E> {
-            return StrategyIntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, handler)
-        }
-    }
+/**
+ * Creates a strategy-based [IntentTransformer].
+ *
+ * This is an internal factory used by the framework to build the default
+ * [StrategyIntentTransformer] from the configured strategy and runtime settings.
+ *
+ * @param handleStrategy The handling strategy to apply
+ * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
+ * @param groupTagSelector Selects fallback group tags for HYBRID strategy
+ * @param handler The intent handler to delegate to
+ * @return An IntentTransformer that applies the specified strategy
+ */
+internal fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> strategyTransformer(
+    handleStrategy: HandleStrategy,
+    hybridStrategyConfig: HybridStrategyConfig,
+    groupTagSelector: GroupTagSelector<I>,
+    handler: IntentHandler<I, S, E>,
+): IntentTransformer<I, S, E> {
+    return StrategyIntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, handler)
 }
 
 
@@ -265,7 +265,6 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
                 "Transforming intents using handleStrategy=$handleStrategy"
             }
         }
-        @OptIn(FlowPreview::class)
         return when (handleStrategy) {
             HandleStrategy.CONCURRENT -> intentFlow.flatMapMerge { handler.handle(it) }
             HandleStrategy.SEQUENTIAL -> intentFlow.flatMapConcat { handler.handle(it) }
@@ -303,7 +302,6 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @param tag The group tag assigned by [assignGroupTag]
      * @return A flow of partial changes for this group
      */
-    @OptIn(FlowPreview::class)
     private fun Flow<I>.handleByTag(tag: Any): Flow<Mvi.PartialChange<S, E>> {
         return if (tag === ConcurrentGroup) {
             flatMapMerge { handler.handle(it) }

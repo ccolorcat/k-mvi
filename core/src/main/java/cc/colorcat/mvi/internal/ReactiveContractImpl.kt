@@ -12,6 +12,7 @@ import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.RetryPolicy
+import cc.colorcat.mvi.strategyTransformer
 import cc.colorcat.mvi.toPartialChange
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -367,7 +368,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     initState = initState,
     intentQueueConfig = intentQueueConfig,
     retryPolicy = retryPolicy,
-    transformer = IntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, delegate),
+    transformer = strategyTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, delegate),
 ) {
     /**
      * Public constructor that creates the delegate internally.

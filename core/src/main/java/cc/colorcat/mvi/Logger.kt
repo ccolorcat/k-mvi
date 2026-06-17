@@ -92,7 +92,7 @@ fun interface Logger {
                     } else {
                         buildString {
                             appendLine(message())
-                            appendLine(error.getStackTraceString())
+                            append(error.getStackTraceString())
                         }
                     }
                     Log.println(priority, tag, msg)

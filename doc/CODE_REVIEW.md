@@ -51,22 +51,17 @@
 
 ## Style（Kotlin 风格 / 简洁性）
 
-- Style 1. 保留 `Mvi.` 作为核心类型聚合入口，但文档和样例应更明确推荐“业务侧短名封装”来减少重复书写：例如在每个 feature contract 中定义 `sealed interface Intent : Mvi.Intent`、`data class State(...) : Mvi.State`、`sealed interface Event : Mvi.Event`、`fun interface PartialChange : Mvi.PartialChange<State, Event>`。这样既保留 `Mvi.` 的 IDE 可发现性和 Android 命名避让，又让 ViewModel 里的签名保持短。
-- Style 2. KDoc 之间存在大量重复——"Intent → PartialChange → State → View" 流程图、HandleStrategy 对比表、HYBRID 三类 Intent 的解释，在 `Mvi.kt`、`Contracts.kt`、`HandleStrategies.kt`、`IntentHandlers.kt`、`IntentTransformers.kt`、`ReactiveContractImpl.kt` 各写了一遍。一次写在 `Mvi.kt` 或 README，其他位置用 `@see` 即可，避免说法漂移。
-- Style 3. `ReadOnlyContract`（`Contracts.kt:292`）写成：
-  ```kotlin
-  override val stateFlow: StateFlow<S> get() = source.stateFlow
-  override val eventFlow: Flow<E> get() = source.eventFlow
-  ```
-  既然 `source` 是不可变 `val`，对应 flow 也是不可变属性，去掉 `get()`、直接 `= source.stateFlow` 就行；最短写法是 `class ReadOnlyContract<...>(source: ReactiveContract<...>) : Contract<...> by source` 委托。
-- Style 4. `IntentTransformer.Companion.invoke(...)` 已经是 SAM-fun-interface，可以直接 `IntentTransformer { ... }` 构造；再写一个 `internal operator fun invoke(handleStrategy, config, handler)` 等于把 framework 内部工厂塞进公开 companion，污染对外类型。改成包内 `internal fun strategyTransformer(...)` 函数更合 Kotlin 习惯。
-- Style 5. `StrategyReactiveContract` 提供两个构造器，只为切换"传 `IntentHandlerDelegate`"还是"传 `IntentHandler` 后内部包一层 delegate"。可以删私构造，用 `init { ... }` 初始化 delegate；或者直接给公共构造，private 那条根本没人需要。
-- Style 6. `MviExtensions.doOnClick` 里 `this.block()`（`MviExtensions.kt:176, 207, 237`）的显式 `this.` 是冗余的，`block()` 即可。
-- Style 7. `Mvi.Snapshot.updateState` 和 `updateWith` 都先存中间局部变量再 `this.copy(...)`。两个 `this.` 都可去；`updateState` 一行：`copy(state = state.transform(), event = null)`。
-- Style 8. `Logger`（`Logger.kt:90-99`）默认实现用 `buildString { appendLine(message()); appendLine(error.getStackTraceString()) }`，两次 `appendLine` 留下一个尾随换行，再交给 `Log.println`——`Log.println` 自己也会换行，结果日志多一空行。换成 `appendLine(message()).append(error.getStackTraceString())` 或直接 `"${message()}\n${error.getStackTraceString()}"`。
-- Style 9. `IntentQueueConfig` 用具名实参调用 `requireSupportedChannelConfig(name = ..., capacity = ..., onBufferOverflow = ...)`，`HybridStrategyConfig` 却只 positional 两参。统一一种风格便于阅读。
-- Style 10. `@OptIn(FlowPreview::class)` 在 `StrategyIntentTransformer.transform`、`StrategyIntentTransformer.handleByTag`、`MviExtensions.doOnAfterTextChanged` 各写一次。这两个文件里其他位置也都用了 `flatMapMerge` / `debounce`，统一在文件头 `@file:OptIn(FlowPreview::class)` 一次说明更整齐，也防止后续新增方法漏写。
-- Style 11. `Snapshot.withEvent(event: E)` 和 `Snapshot.updateWith(event: E, transform)` 都强制 `event` 非 null。要想"清掉 event"只能调 `updateState`（连带强制改 state）。补一个 `Snapshot.clearEvent(): Snapshot<S, E> = copy(event = null)` 或者把 `withEvent` 参数改成 `E?`，对称性更好。
+- ⏸️ **Style 1（已基本满足，文档项待办）**. 样例已全面采用“业务侧短名封装”模式（见 `CounterContract.kt`：`data class State(...) : Mvi.State`、`sealed interface Event : Mvi.Event`、`sealed interface Intent : Mvi.Intent.Sequential`、`fun interface PartialChange : Mvi.PartialChange<State, Event>`）。剩余唯一动作是在 README 显式把它写成推荐范式，属独立文档任务，不并入本批代码清理。
+- ⏸️ **Style 2（暂缓，需保守处理）**. KDoc 跨文件重复确实存在，但不宜一刀切用 `@see` 替换：间接化会牺牲 IDE 悬浮 / Dokka 页面的本地自洽性。结论：以 `Mvi.kt` 为规范源，仅删除最逐字的重复段、其余留摘要+`@see`。属较大文档工程且易引入“说法漂移”，作为独立任务处理，不并入本批。
+- ✅ **Style 3（已修复）**. `ReadOnlyContract`（`Contracts.kt`）原先手写 `stateFlow`/`eventFlow` 两个 `get()` 转发，已改为 `: Contract<S, E> by source` 接口委托。`Contract` 只有两个只读属性，委托完全等价；且委托对象只实现 `Contract`，仍无法通过 cast 触达 `dispatch`，防穿透语义不变。
+- ✅ **Style 4（已修复）**. 删除了 `IntentTransformer` companion 里的 `internal operator fun invoke(...)`（它把框架内部工厂塞进公开类型的补全入口），改为包内顶层 `internal fun strategyTransformer(...)`。唯一调用点（`ReactiveContractImpl.kt`）及两个测试文件已同步更新。
+- ❌ **Style 5（不修改，已否决）**. `StrategyReactiveContract` 的双构造不是冗余：私有主构造接收 `delegate`，把同一实例**既传给 super 的 `transformer = strategyTransformer(..., delegate)`、又作为属性持有**供后续 `setupIntentHandlers` 变更。建议的 `init { ... }` 行不通——`init` 在 super 构造**之后**才运行，无法在 super 构造期提供 delegate。这是 Kotlin 共享“喂 super + 持有”实例的地道写法，保持现状。
+- ✅ **Style 6（已修复）**. 删除 `doOnClick` / `doOnLongClick` / `doOnCheckedChange` 中冗余的 `this.block(...)`。**保留** `doOnAfterTextChanged` 中的 `this@callbackFlow.block(s)`——它在匿名 `TextWatcher` 内部，`this` 指向 watcher，不限定 receiver 就会编译错误（原条目漏看了这点）。
+- ✅ **Style 7（已修复）**. `Snapshot.updateState` / `updateWith` 去掉中间局部变量与冗余 `this.`，压成一行 `copy(state = state.transform(), event = ...)`；`withEvent` 的 `this.copy` 同样去掉。
+- ✅ **Style 8（已修复）**. `Logger` 默认实现的第二个 `appendLine` 改为 `append`，消除尾随换行与 `Log.println` 自带换行叠加产生的空行。
+- ✅ **Style 9（已满足）**. 复核发现 `HybridStrategyConfig.init` 现已与 `IntentQueueConfig` 一致，均用具名实参调用 `requireSupportedChannelConfig(name = ..., capacity = ...)`。此条目过期，无需改动。
+- ✅ **Style 10（已修复）**. `IntentTransformers.kt`、`MviExtensions.kt` 各自的散落 `@OptIn(FlowPreview::class)`（共 3 处）已提升为文件头 `@file:OptIn(FlowPreview::class)`，避免后续新增方法漏写。
+- ❌ **Style 11（不修改，已否决）**. 帧模型下 event 仅存活一帧、随下一帧 `updateState` 自动清除，不存在“需单独清 event”的常见场景，`clearEvent()` 属 YAGNI；把 `withEvent` 改成 `E?` 则语义混乱（“with event null”读不通）。确需“保 state、丢 pending event”，`Snapshot` 是公开 data class，`it.copy(event = null)` 已是现成逃生口，不增设命名 API。
 - ✅ **Style 12（已修复）**. 独立函数 `collectTypedEvent` 已重命名为 `collectTyped`，与 `EventCollector.collectTyped` 成员同名（receiver 不同，永不冲突：`collectEvent { }` 块内解析到成员、裸 `eventFlow` 上解析到扩展）。这与状态侧 `collectProperty`（成员 supervised / 独立 one-off）是同一套模式：成员在 DSL 内共享 supervisor job，独立函数用于一次性收集。两者关系通过 KDoc 互链（`@see EventCollector.collectTyped` / `@see collectEvent`）说明，无需把任何一个降为 `internal`。同时去掉了 `eventFlow.collectTypedEvent`（event…Event）的叠词。
 
 ---

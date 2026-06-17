@@ -1,3 +1,5 @@
+@file:OptIn(FlowPreview::class)
+
 package cc.colorcat.mvi
 
 import android.text.Editable
@@ -177,7 +179,7 @@ internal fun <T> Flow<T>.debounceLeading(timeMillis: Long, nanoTimeSource: () ->
  */
 fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I> = callbackFlow {
     setOnClickListener {
-        this.block()
+        block()
     }
     awaitClose { setOnClickListener(null) }
 }
@@ -212,7 +214,7 @@ fun <I : Mvi.Intent> View.doOnLongClick(
     block: ProducerScope<I>.() -> Boolean,
 ): Flow<I> = callbackFlow {
     setOnLongClickListener {
-        this.block()
+        block()
     }
     awaitClose { setOnLongClickListener(null) }
 }
@@ -246,7 +248,7 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
     block: ProducerScope<I>.(isChecked: Boolean) -> Unit,
 ): Flow<I> = callbackFlow {
     setOnCheckedChangeListener { _, isChecked ->
-        this.block(isChecked)
+        block(isChecked)
     }
     awaitClose { setOnCheckedChangeListener(null) }
 }
@@ -295,7 +297,6 @@ fun <I : Mvi.Intent> TextView.doOnAfterTextChanged(
         awaitClose { removeTextChangedListener(watcher) }
     }
     return if (debounceMillis > 0L) {
-        @OptIn(FlowPreview::class)
         flow.debounce(debounceMillis)
     } else {
         flow

@@ -376,8 +376,7 @@ object Mvi {
          * @see withEvent
          */
         fun updateState(transform: S.() -> S): Snapshot<S, E> {
-            val newState = this.state.transform()
-            return this.copy(state = newState, event = null)
+            return copy(state = state.transform(), event = null)
         }
 
         /**
@@ -395,7 +394,7 @@ object Mvi {
          * @see updateState
          * @see updateWith
          */
-        fun withEvent(event: E): Snapshot<S, E> = this.copy(event = event)
+        fun withEvent(event: E): Snapshot<S, E> = copy(event = event)
 
         /**
          * Creates a new snapshot with an updated state and an attached event.
@@ -417,8 +416,7 @@ object Mvi {
          * @see withEvent
          */
         fun updateWith(event: E, transform: S.() -> S): Snapshot<S, E> {
-            val newState = this.state.transform()
-            return this.copy(state = newState, event = event)
+            return copy(state = state.transform(), event = event)
         }
     }
 }
