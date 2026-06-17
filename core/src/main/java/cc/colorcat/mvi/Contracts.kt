@@ -287,6 +287,6 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asC
  *
  * @param S The state type
  * @param E The event type
- * @param source The underlying [Contract] view to wrap
+ * @param delegate The underlying [Contract] whose read-only surface is re-exposed
  */
-private class ReadOnlyContract<S : Mvi.State, E : Mvi.Event>(source: Contract<S, E>) : Contract<S, E> by source
+private class ReadOnlyContract<S : Mvi.State, E : Mvi.Event>(delegate: Contract<S, E>) : Contract<S, E> by delegate
