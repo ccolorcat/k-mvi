@@ -63,9 +63,14 @@ class CounterViewModel : ViewModel() {
 
     /**
      * Dispatch user intents to the contract for processing.
-     * The contract will route the intent to the appropriate registered handler.
+     *
+     * The dispatch is non-blocking — the intent is enqueued via the contract's internal channel.
+     * Returns a [cc.colorcat.mvi.DispatchResult] indicating whether the intent was
+     * accepted, queued at capacity, or rejected because the scope is inactive.
      *
      * @param intent The user intent to process
+     * @return Result indicating submission status
+     * @see cc.colorcat.mvi.DispatchResult
      */
     fun dispatch(intent: Intent) = contract.dispatch(intent)
 

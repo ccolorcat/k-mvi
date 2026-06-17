@@ -79,8 +79,12 @@ sealed interface CounterContract {
     }
 
     /**
-     * One-time events that should be consumed by the UI layer.
-     * Events are not part of the state and should only be handled once.
+     * One-time, fire-and-forget side effects emitted to the UI layer.
+     *
+     * The counter feature defines a single event, [ShowToast], used to surface
+     * boundary feedback (e.g. when the value hits [State.COUNT_MIN]/[State.COUNT_MAX]).
+     * Events are delivered via the contract's `eventFlow` and consumed exactly once,
+     * unlike [State] which is observable and conflated.
      */
     sealed interface Event : Mvi.Event {
         /**
@@ -113,8 +117,12 @@ sealed interface CounterContract {
     }
 
     /**
-     * Functional interface for state transformations.
-     * A PartialChange takes the current state and returns a new state with optional events.
+     * State transformations for the counter feature.
+     *
+     * This contract uses the **inline lambda** pattern: [PartialChange] instances are
+     * created directly in the ViewModel handlers via `PartialChange { old -> ... }`,
+     * rather than sealed subtypes. Compare with [cc.colorcat.mvi.sample.login.LoginContract.PartialChange]
+     * for the centralized sealed-subtype pattern.
      */
     fun interface PartialChange : Mvi.PartialChange<State, Event>
 }

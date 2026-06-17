@@ -11,7 +11,7 @@ import cc.colorcat.mvi.sample.util.viewBinding
 
 /**
  * Main Activity of the sample app, responsible for managing Fragment display and navigation.
- * Defaults to showing [NavigationFragment], navigates to other pages via [navigateToFragment] method.
+ * Defaults to showing [NavigationFragment] and uses [NavController] for navigation.
  *
  * Author: ccolorcat
  * Date: 2025-11-15

@@ -395,25 +395,25 @@ class MyViewModel : ViewModel() {
     private val contract by contract(
         initState = MyState(),
         handleStrategy = HandleStrategy.HYBRID,
-        config = HybridStrategyConfig(
-            groupTagSelector = { intent ->
-                when (intent) {
-                    // Database operations - process sequentially within this group
-                    is MyIntent.SaveUser,
-                    is MyIntent.UpdateUser,
-                    is MyIntent.DeleteUser
-                        -> "database"
+        hybridStrategyConfig = HybridStrategyConfig(
+            groupChannelCapacity = Channel.BUFFERED,
+        ),
+        groupTagSelector = { intent ->
+            when (intent) {
+                // Database operations - process sequentially within this group
+                is MyIntent.SaveUser,
+                is MyIntent.UpdateUser,
+                is MyIntent.DeleteUser
+                    -> "database"
 
-                    // Network operations - process sequentially within this group
-                    is MyIntent.FetchData,
-                    is MyIntent.UploadData
-                        -> "network"
-                    // Default: return class name so same type intents execute sequentially
-                    else -> intent::class.java.name
-                }
-            },
-            groupChannelCapacity = Channel.BUFFERED
-        )
+                // Network operations - process sequentially within this group
+                is MyIntent.FetchData,
+                is MyIntent.UploadData
+                    -> "network"
+                // Default: return class name so same type intents execute sequentially
+                else -> intent::class.java.name
+            }
+        },
     ) {
         register(MyIntent.SaveUser::class.java, ::handleSaveUser)
         register(MyIntent.FetchData::class.java, ::handleFetchData)

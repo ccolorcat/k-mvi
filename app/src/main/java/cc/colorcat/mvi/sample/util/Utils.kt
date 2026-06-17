@@ -14,14 +14,24 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlin.random.Random
 
 /**
- * Author: ccolorcat
- * Date: 2025-11-14
- * GitHub: https://github.com/ccolorcat
+ * Shows a Toast with the given message.
+ *
+ * @param text The message to display
+ * @param duration Toast duration, defaults to [android.widget.Toast.LENGTH_SHORT]
  */
 fun Context.showToast(text: CharSequence, duration: Int = Toast.LENGTH_SHORT) {
     Toast.makeText(this, text, duration).show()
 }
 
+/**
+ * Suspends for a random duration between [min] and [max] milliseconds.
+ *
+ * Uses [kotlin.random.Random] for the delay duration. Useful for simulating
+ * network latency or async processing in sample/demo code.
+ *
+ * @param min Minimum delay in milliseconds (default: 1000)
+ * @param max Maximum delay in milliseconds (default: 3000)
+ */
 suspend fun randomDelay(min: Long = 1000, max: Long = 3000) =
     delay(Random.nextLong(max - min) + min)
 
