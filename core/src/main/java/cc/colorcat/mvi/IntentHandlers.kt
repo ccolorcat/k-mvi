@@ -77,9 +77,7 @@ import java.util.concurrent.ConcurrentHashMap
  * @see Mvi.PartialChange
  * @see IntentHandlerRegistry
  *
- * Author: ccolorcat
- * Date: 2024-12-24
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
     /**

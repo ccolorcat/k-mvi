@@ -15,9 +15,7 @@ import kotlinx.coroutines.flow.flow
  * - Intent type checking (Concurrent, Sequential, Fallback)
  * - Flow grouping and handling by tag for parallel processing
  *
- * Author: ccolorcat
- * Date: 2025-11-08
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 

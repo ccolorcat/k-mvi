@@ -12,9 +12,7 @@ import java.io.IOException
  * This file provides centralized configuration management for the MVI framework,
  * including Intent handling strategies, retry policies, and logging.
  *
- * Author: ccolorcat
- * Date: 2024-12-25
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**

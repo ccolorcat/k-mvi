@@ -113,9 +113,7 @@ import java.util.concurrent.ConcurrentHashMap
  * @see HybridStrategyConfig
  * @see toPartialChange
  *
- * Author: ccolorcat
- * Date: 2024-12-24
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
     /**

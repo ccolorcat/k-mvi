@@ -24,9 +24,7 @@ import kotlin.reflect.KProperty1
  * state and event flows with automatic lifecycle management. All collectors respect
  * the Android lifecycle and automatically start/stop collection based on lifecycle state.
  *
- * Author: ccolorcat
- * Date: 2024-05-10
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**

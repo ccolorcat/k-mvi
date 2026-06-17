@@ -23,9 +23,7 @@ import java.util.concurrent.TimeUnit
  * This file provides convenient extension functions to convert various Android UI events
  * (clicks, text changes, etc.) into reactive Flow streams that emit MVI Intents.
  *
- * Author: ccolorcat
- * Date: 2024-05-10
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**

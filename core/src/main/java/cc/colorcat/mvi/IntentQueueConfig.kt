@@ -23,9 +23,7 @@ import kotlinx.coroutines.channels.Channel
  *                    [Channel.RENDEZVOUS], or any positive Int including [Channel.UNLIMITED].
  * @property onBufferOverflow The overflow policy used when the queue has no free capacity.
  *
- * Author: ccolorcat
- * Date: 2026-06-15
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 data class IntentQueueConfig(
     val capacity: Int = DEFAULT_CAPACITY,

@@ -9,9 +9,7 @@ import cc.colorcat.mvi.Logger
  *
  * These functions provide convenient internal logging methods for the MVI framework.
  *
- * Author: ccolorcat
- * Date: 2025-11-08
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**

@@ -20,9 +20,7 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
  * Both APIs return a [Lazy] delegate for delayed initialization - the contract is only
  * created when first accessed.
  *
- * Author: ccolorcat
- * Date: 2024-08-01
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**
@@ -47,21 +45,24 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
  * class MyViewModel : ViewModel() {
  *     private val contract by contract(
  *         initState = MyState(),
- *         // Define your own PartialChange subtypes implementing Mvi.PartialChange
- *         transformer = { intent ->
- *             when (intent) {
- *                 is MyIntent.Load -> flow {
- *                     emit(PartialChange.Loading(true))
- *                     try {
- *                         val data = repository.loadData()
- *                         emit(PartialChange.DataLoaded(data))
- *                     } catch (e: Exception) {
- *                         emit(PartialChange.Error(e))
- *                     } finally {
- *                         emit(PartialChange.Loading(false))
+ *         // Define your own PartialChange subtypes implementing Mvi.PartialChange.
+ *         // The transformer receives a Flow<Intent>, not a single intent.
+ *         transformer = IntentTransformer { intentFlow ->
+ *             intentFlow.flatMapConcat { intent ->
+ *                 when (intent) {
+ *                     is MyIntent.Load -> flow {
+ *                         emit(PartialChange.Loading(true))
+ *                         try {
+ *                             val data = repository.loadData()
+ *                             emit(PartialChange.DataLoaded(data))
+ *                         } catch (e: Exception) {
+ *                             emit(PartialChange.Error(e))
+ *                         } finally {
+ *                             emit(PartialChange.Loading(false))
+ *                         }
  *                     }
+ *                     is MyIntent.Refresh -> refreshData()
  *                 }
- *                 is MyIntent.Refresh -> refreshData()
  *             }
  *         }
  *     )

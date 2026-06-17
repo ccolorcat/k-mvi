@@ -68,36 +68,19 @@
 
 ## Doc（文档准确性 / 完整性）
 
-- Doc 1. `Contracts.kt` 第 23-24 行示例：
-  ```kotlin
-  private val contract: Contract<MyIntent, MyState, MyEvent> by viewModels()
-  ```
-  `by viewModels()` 返回 `ViewModel`，不可能赋给 `Contract`。这段代码不可编译。
-- Doc 2. `ReactiveContract` KDoc 第 140-144 行示例调 `mviViewModel(scope = viewModelScope, initState = MyState(), defaultHandler = ::handleIntent)`——仓库里没有 `mviViewModel` 函数，工厂是 `ViewModel.contract(...)`。
-- Doc 3. `Contract.stateFlow` KDoc 说 "Conflated: Only the latest state is kept, intermediate states may be skipped"。`StateFlow` 的 conflation 行为是 *按 `equals` 去重*，"可能跳过中间值"成立但缺了 `equals` 这层关键约束；用户照字面读会误以为是按时间 conflate。
+- ✅ **Doc 1（已修复）**. `Contract` KDoc 的 Fragment 示例原写 `private val contract: Contract<MyState, MyEvent> by viewModels()`——`by viewModels()` 返回 `Lazy<VM : ViewModel>`，无法推断出 `Contract`，且不符合实际用法。已按样例范式重写：ViewModel 持有 `by contract(...)` 并暴露 `stateFlow`/`eventFlow`，Fragment 通过 `by viewModels()` 持有 **ViewModel** 再收集。
+- ✅ **Doc 2（已修复）**. 不存在的工厂 `mviViewModel(...)` 共有 **两处**（`Contracts.kt` 的 `ReactiveContract` 示例 + `HandleStrategies.kt` 的 HYBRID 配置示例），均改为真实工厂 `ViewModel.contract(...)` 的 `by contract(...)` 用法（无 `scope` 形参，自动用 `viewModelScope`）。
+- ✅ **Doc 3（已修复）**. `Contract.stateFlow` KDoc 的 "Conflated" 说明已补全：`StateFlow` 是 *按 [Any.equals] 去重*（新值与当前相等则不发射），并补充慢收集者可能跳过中间值，明确这是 value-based 而非 time-based conflation。
 - ✅ **Doc 4（已修复）**. `ReactiveContractImpl.kt` 的 `CoreReactiveContract` 长 KDoc 已紧贴 class 声明，Dokka / IDE 会把它归到类上。
 - ✅ **Doc 5（已修复）**. `Mvi.Snapshot.updateState` KDoc 已补"反例样板"：明确单个 apply 内 `withEvent(...).updateState { ... }` 会清掉刚设的 event（❌），正解为 `updateWith(...) { ... }`（✅），并说明这只发生在*单次 change 内*——跨 PartialChange 的 emit 是安全的（带 event 的帧会先投递再被下一帧清除）。同时 `State` / `Event` / `Snapshot` 的 KDoc 已用"帧模型"统一表述：State 跨帧持续，Event 只活一帧、有消费者则投递否则丢弃。参见 Bug 5。
 - ✅ **Doc 6（已修复）**. 业务分组入口已改为 `groupTagSelector = GroupTagSelector<MyIntent> { ... }`，`HybridStrategyConfig` 只保留业务无关运行参数；相关 KDoc 明确默认 `byClass()` 返回运行时 `Class`，自定义 tag 需要稳定且低基数。
 - ✅ **Doc 7（已修复）**. `MviExtensions.doOnClick` / `doOnLongClick` / `doOnCheckedChange` / `doOnAfterTextChanged` 的 KDoc 已补充主线程收集约束，并说明 `launchWithLifecycle` / `dispatchWithLifecycle` 的常规 lifecycle 用法满足该要求；样例 `doOnTextChanged` 也同步补充说明。
-- Doc 8. `Contract.eventFlow` KDoc 第 262 行示例：
-  ```kotlin
-  viewModel.eventFlow.collectEvent(viewLifecycleOwner) { ... }
-  ```
-  里面的 lambda 是 `EventCollector<E>.() -> Unit`，必须用 `collectAll { ... }` 或 `collectTyped<...> { ... }` 才能消费事件——直接 `it -> ...` 是无法编译的。示例需要补全 DSL 用法。
-- Doc 9. `MviViewModels.kt` 第 47-67 行示例：
-  ```kotlin
-  transformer = { intent ->
-      when (intent) {
-          is MyIntent.Load -> flow { ... }
-          ...
-      }
-  }
-  ```
-  但 `IntentTransformer.transform(intentFlow: Flow<I>): Flow<...>` 接受的是 *Flow* 而不是单个 intent。要么签名错，要么 lambda 错；现状无法编译。建议示例改为 `IntentTransformer { intentFlow -> intentFlow.flatMapConcat { ... } }`。
-- Doc 10. `IntentHandlerDelegate` KDoc 大段解释"为何对每个 intent 都打 INFO 日志"，并未提到"fallback to defaultHandler 那条 WARN 在集中式 handler 模式下会刷屏"的副作用——而集中式 handler 正是另一个样例 `LoginViewModel` 推荐的写法。两个文档加起来形成自相矛盾的指导。
+- ✅ **Doc 8（已失效，无需处理）**. 复核确认 `Contracts.kt` 中已不存在该 `viewModel.eventFlow.collectEvent(...) { it -> ... }` 裸 lambda 示例（grep 全文无 `collectEvent`/`collectTyped`）。该条目针对的旧示例早已移除，标记失效。
+- ✅ **Doc 9（已修复）**. `MviViewModels.kt` 的 transformer 示例原把 lambda 当作"单个 intent"处理，与 `IntentTransformer.transform(intentFlow: Flow<I>)` 不符、无法编译。已改为 `IntentTransformer { intentFlow -> intentFlow.flatMapConcat { intent -> when (intent) { ... } } }`，并加注"transformer 接收的是 `Flow<Intent>` 而非单个 intent"。
+- ✅ **Doc 10（已由 Design 2 解决）**. `IntentHandlerDelegate` KDoc 现已明确：fallback WARN **仅在未提供 `defaultHandler` 时**触发；提供非空 `defaultHandler`（集中式模式）时 fallback 静默，并直接引用样例 `LoginViewModel`。原"自相矛盾指导"已消除（见 Design 2）。剩余"为每个 intent 打 INFO 的大段说明"属冗长精简范畴（与总评#1 重叠），非文档准确性 Bug。
 - ✅ **Doc 11（已修复）**. `KMvi.configure` KDoc 写"NOT thread-safe，主线程调用"，但同一个文件里 `private @Volatile var config` 给读者错觉——以为安全只差临界区。KDoc 和字段注释已补充：`@Volatile` 仅保证后台读取者能看到最新发布的配置，不保证 `configure` 的读-改-写原子性，多线程并发调用仍可能丢更新。
-- Doc 12. `Mvi.Snapshot` 是 `public data class`，构造器对外可见但 KDoc 没说明"用户是否应该手动构造 Snapshot"。从用法上 Snapshot 只在 `apply` 内被读、在测试里被构造，建议在 KDoc 标明"主要用于框架内部 / 测试；业务代码应通过 `updateState` / `withEvent` / `updateWith` 派生"。
-- Doc 13. `Mvi` KDoc 顶部用 `Author / Date / GitHub:` 三行而非 KDoc 标准的 `@author`，全仓统一这种风格没问题，但 IDE / Dokka 不会把它识别为元数据；如果项目希望 Dokka 渲染出作者信息，改用 `@author ccolorcat` 才能生效。
+- ✅ **Doc 12（已修复）**. `Mvi.Snapshot` KDoc 的 `## Construction` 段已补说明：业务代码应通过传入 `apply` 的 `old` 快照用 `updateState` / `withEvent` / `updateWith` 派生下一帧；直接构造主要用于初始帧（框架由 initState 构造）和测试。
+- ✅ **Doc 13（已修复）**. 全仓 16 个文件 KDoc 末尾的 `Author / Date / GitHub:` 三行已统一替换为 Dokka 可识别的 `@author ccolorcat` 标准标签。`Date`（按文件创建日期、git 已有权威历史）与重复的 `GitHub` 仓库 URL（每个文件雷同）一并移除。
 
 ---
 

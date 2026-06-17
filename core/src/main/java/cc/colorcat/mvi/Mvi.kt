@@ -50,9 +50,7 @@ package cc.colorcat.mvi
  * @see PartialChange
  * @see Snapshot
  *
- * Author: ccolorcat
- * Date: 2025-11-08
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 object Mvi {
     /**
@@ -322,6 +320,11 @@ object Mvi {
      * - **Type-Safe**: Compiler ensures state and event types match
      *
      * ## Construction
+     *
+     * Business code rarely constructs a Snapshot directly. Derive the next frame from the `old`
+     * snapshot passed to [PartialChange.apply] via [updateState] / [withEvent] / [updateWith].
+     * Direct construction is mainly for the initial frame (built by the framework from the initial
+     * state) and for tests.
      *
      * ```kotlin
      * val snapshot = Mvi.Snapshot(MyState())

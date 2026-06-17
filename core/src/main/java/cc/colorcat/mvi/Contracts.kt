@@ -20,20 +20,27 @@ import kotlinx.coroutines.flow.StateFlow
  * ## Usage in UI Layer
  *
  * ```kotlin
+ * // The ViewModel owns the contract and exposes its read-only surface:
+ * class MyViewModel : ViewModel() {
+ *     private val contract by contract(initState = MyState(), defaultHandler = ::handleIntent)
+ *     val stateFlow: StateFlow<MyState> = contract.stateFlow
+ *     val eventFlow: Flow<MyEvent> = contract.eventFlow
+ * }
+ *
  * class MyFragment : Fragment() {
- *     private val contract: Contract<MyState, MyEvent> by viewModels()
+ *     private val viewModel: MyViewModel by viewModels()
  *
  *     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
  *         // Observe state changes
  *         viewLifecycleOwner.lifecycleScope.launch {
- *             contract.stateFlow.collect { state ->
+ *             viewModel.stateFlow.collect { state ->
  *                 updateUI(state)
  *             }
  *         }
  *
  *         // Observe one-time events
  *         viewLifecycleOwner.lifecycleScope.launch {
- *             contract.eventFlow.collect { event ->
+ *             viewModel.eventFlow.collect { event ->
  *                 handleEvent(event)
  *             }
  *         }
@@ -60,9 +67,7 @@ import kotlinx.coroutines.flow.StateFlow
  * @see StateFlow
  * @see Flow
  *
- * Author: ccolorcat
- * Date: 2024-05-10
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 interface Contract<S : Mvi.State, E : Mvi.Event> {
     /**
@@ -75,7 +80,9 @@ interface Contract<S : Mvi.State, E : Mvi.Event> {
      * - **Hot**: Emits values regardless of collectors
      * - **Stateful**: Always has a current value
      * - **Replay**: New collectors immediately receive the current state
-     * - **Conflated**: Only the latest state is kept, intermediate states may be skipped
+     * - **Conflated**: Deduplicates by [Any.equals] — no emission when the new state equals the
+     *   current one; additionally, slow collectors may skip intermediate values (this is value-based,
+     *   not time-based, conflation)
      *
      * ## Collection Pattern
      * ```kotlin
@@ -136,10 +143,9 @@ interface Contract<S : Mvi.State, E : Mvi.Event> {
  *
  * ```kotlin
  * class MyViewModel : ViewModel() {
- *     private val contract: ReactiveContract<MyIntent, MyState, MyEvent> = mviViewModel(
- *         scope = viewModelScope,
+ *     private val contract by contract(
  *         initState = MyState(),
- *         defaultHandler = ::handleIntent
+ *         defaultHandler = ::handleIntent,
  *     )
  *
  *     // Expose read-only contract to UI

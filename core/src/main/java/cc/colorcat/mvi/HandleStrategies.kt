@@ -41,9 +41,7 @@ import kotlinx.coroutines.channels.Channel
  * @see Mvi.Intent.Concurrent
  * @see Mvi.Intent.Sequential
  *
- * Author: ccolorcat
- * Date: 2024-12-24
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 enum class HandleStrategy {
     /**
@@ -180,10 +178,11 @@ enum class HandleStrategy {
      *     }
      * }
      *
-     * mviViewModel(
+     * // In your ViewModel:
+     * private val contract by contract(
      *     // ...
      *     handleStrategy = HandleStrategy.HYBRID,
-     *     groupTagSelector = groupTagSelector
+     *     groupTagSelector = groupTagSelector,
      * )
      * ```
      *
