@@ -53,27 +53,34 @@ dependencies {
 Create an interface that defines your Intent, State, and Event:
 
 ```kotlin
-sealed interface IMain {
-    // State represents the UI state
+sealed interface CounterContract {
+    companion object {
+        const val COUNT_MAX = 100
+        const val COUNT_MIN = 0
+    }
+
+    // State: the persistent description of the UI
     data class State(
         val count: Int = 0,
-        val loading: Boolean = false
-    ) : Mvi.State
+        val showLoading: Boolean = false,
+    ) : Mvi.State {
+        // Computed property — keeps presentation logic out of the UI layer
+        val countText: String get() = count.toString()
+    }
 
-    // Events are one-time side effects
+    // Event: one-time side effects, consumed exactly once
     sealed interface Event : Mvi.Event {
-        data class ShowToast(val message: String) : Event
-        data class NavigateToDetail(val id: String) : Event
+        data class ShowToast(val message: CharSequence) : Event
     }
 
-    // Intents represent user actions or system events
-    sealed interface Intent : Mvi.Intent {
-        data object Increment : Intent, Mvi.Intent.Concurrent
-        data object Decrement : Intent, Mvi.Intent.Sequential
-        data class LoadData(val id: String) : Intent, Mvi.Intent.Sequential
+    // Intent: user actions. Sequential = processed one-by-one, in order
+    sealed interface Intent : Mvi.Intent.Sequential {
+        data object Increment : Intent
+        data object Decrement : Intent
+        data object Reset : Intent
     }
 
-    // PartialChange updates state and emits events
+    // PartialChange: migrates one Snapshot (frame) to the next
     fun interface PartialChange : Mvi.PartialChange<State, Event>
 }
 ```
@@ -81,96 +88,91 @@ sealed interface IMain {
 ### 2. Create a ViewModel
 
 ```kotlin
-class MainViewModel : ViewModel() {
-    private val contract: ReactiveContract<IMain.Intent, IMain.State, IMain.Event> by contract(
-        initState = IMain.State(),
-        defaultHandler = ::handleIntent
-    )
+// CounterContract.State / Event / Intent / PartialChange (and the COUNT_* constants) are imported for brevity.
+class CounterViewModel : ViewModel() {
+    // Register one handler per intent type; the intent type is inferred from each reference.
+    private val contract by contract(initState = State()) {
+        register(::handleIncrement) // synchronous, single PartialChange
+        register(::handleDecrement) // synchronous, single PartialChange
+        register(::handleReset)     // asynchronous, Flow<PartialChange>
+    }
 
-    val stateFlow: StateFlow<IMain.State> = contract.stateFlow
-    val eventFlow: Flow<IMain.Event> = contract.eventFlow
+    val stateFlow: StateFlow<State> = contract.stateFlow
+    val eventFlow: Flow<Event> = contract.eventFlow
 
-    fun dispatch(intent: IMain.Intent) = contract.dispatch(intent)
+    fun dispatch(intent: Intent) = contract.dispatch(intent)
 
-    // Handle all intents in one method for better readability
-    private suspend fun handleIntent(intent: IMain.Intent): Flow<IMain.PartialChange> {
-        return when (intent) {
-            is IMain.Intent.Increment -> handleIncrement(intent)
-            is IMain.Intent.Decrement -> handleDecrement(intent)
-            is IMain.Intent.LoadData -> handleLoadData(intent)
+    // Decide INSIDE the change. Concise, and fine while the branch is a trivial guard.
+    private fun handleIncrement(intent: Intent.Increment) = PartialChange { old ->
+        if (old.state.count == COUNT_MAX) {
+            old.withEvent(Event.ShowToast("Already reached $COUNT_MAX"))
+        } else {
+            old.updateState { copy(count = count + 1) }
         }
     }
 
-    private fun handleIncrement(intent: IMain.Intent.Increment): Flow<IMain.PartialChange> {
-        return IMain.PartialChange { snapshot ->
-            snapshot.updateState { copy(count = count + 1) }
-        }.asSingleFlow()
+    // Decide IN THE HANDLER, so each PartialChange stays minimal — it only updates the snapshot.
+    private fun handleDecrement(intent: Intent.Decrement): PartialChange {
+        return if (stateFlow.value.count == COUNT_MIN) {
+            PartialChange { it.withEvent(Event.ShowToast("Already reached $COUNT_MIN")) }
+        } else {
+            PartialChange { it.updateState { copy(count = count - 1) } }
+        }
     }
 
-    private fun handleDecrement(intent: IMain.Intent.Decrement): Flow<IMain.PartialChange> {
-        return IMain.PartialChange { snapshot ->
-            if (snapshot.state.count > 0) {
-                snapshot.updateState { copy(count = count - 1) }
-            } else {
-                snapshot.withEvent(IMain.Event.ShowToast("Already at 0"))
-            }
-        }.asSingleFlow()
-    }
-
-    private fun handleLoadData(intent: IMain.Intent.LoadData): Flow<IMain.PartialChange> = flow {
-        emit(IMain.PartialChange { it.updateState { copy(loading = true) } })
-
+    // Async work belongs in a Flow: loading → success/error → done.
+    private fun handleReset(intent: Intent.Reset): Flow<PartialChange> = flow {
         try {
-            val data = repository.loadData(intent.id)
-            emit(IMain.PartialChange { it.updateState { copy(loading = false, data = data) } })
+            emit(PartialChange { it.updateState { copy(showLoading = true) } })
+            delay(1_000) // simulate async work (network/database, etc.)
+            emit(PartialChange {
+                it.updateWith(Event.ShowToast("Reset successfully")) { copy(count = 0) }
+            })
         } catch (e: Exception) {
-            emit(
-                IMain.PartialChange {
-                    it.updateState { copy(loading = false) }
-                        .withEvent(IMain.Event.ShowToast("Load failed: ${e.message}"))
-                }
-            )
+            emit(PartialChange { it.withEvent(Event.ShowToast("Reset failed")) })
+        } finally {
+            emit(PartialChange { it.updateState { copy(showLoading = false) } })
         }
     }
 }
 ```
 
+> The two synchronous handlers are written differently on purpose. A `PartialChange` runs inside the
+> state accumulator and should stay tiny — its only job is to update the snapshot. So as branching
+> grows, prefer deciding in the handler (`handleDecrement`) over branching inside the change
+> (`handleIncrement`). See `CounterViewModel` in the [`app`](app/) module for the fully-commented version.
+
 ### 3. Connect to UI (Activity/Fragment)
 
 ```kotlin
-class MainActivity : AppCompatActivity() {
-    private val viewModel: MainViewModel by viewModels()
+class CounterFragment : Fragment(R.layout.fragment_counter) {
+    private val viewModel: CounterViewModel by viewModels()
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        val binding = FragmentCounterBinding.bind(view)
 
-        // Collect state changes
-        viewModel.stateFlow.collectState(this) {
-            collectPartial(IMain.State::count) { count ->
-                countTextView.text = count.toString()
-            }
+        // Render state — collectProperty fires only when that specific property changes.
+        viewModel.stateFlow.collectState(viewLifecycleOwner) {
+            collectProperty(State::countText, binding.count::setText)
+            collectProperty(State::showLoading, binding.loadingBar::isVisible::set)
+        }
 
-            collectPartial(IMain.State::loading) { loading ->
-                progressBar.isVisible = loading
+        // Handle one-time events.
+        viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
+            collectTyped<Event.ShowToast> { event ->
+                Toast.makeText(requireContext(), event.message, Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Collect one-time events
-        viewModel.eventFlow.collectEvent(this) {
-            collectTyped<IMain.Event.ShowToast> { event ->
-                Toast.makeText(this@MainActivity, event.message, Toast.LENGTH_SHORT).show()
-            }
-
-            collectTyped<IMain.Event.NavigateToDetail> { event ->
-                // Navigate to detail screen
-            }
-        }
-
-        // Dispatch intents
-        incrementButton.doOnClick { IMain.Intent.Increment }
-            .debounceLeading(500)
-            .launchCollect(this) { viewModel.dispatch(it) }
+        // Merge user actions into one Intent stream and dispatch it (lifecycle-aware).
+        // debounceLeading emits the first click and ignores rapid follow-ups.
+        merge(
+            binding.increment.doOnClick { trySend(Intent.Increment) },
+            binding.decrement.doOnClick { trySend(Intent.Decrement) },
+            binding.reset.doOnClick { trySend(Intent.Reset) },
+        ).debounceLeading(300L)
+            .dispatchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
     }
 }
 ```
@@ -200,49 +202,147 @@ K-MVI follows the unidirectional data flow pattern:
 
 ### Key Components
 
+K-MVI describes the UI as a sequence of **frames**. Understanding the five core types below is mostly
+understanding this "frame model":
+
+- A **`Snapshot`** is one **frame** of the UI description: a persistent **`State`** plus an optional,
+  transient **`Event`**.
+- Each new frame is **derived from the previous one** by a **`PartialChange`** — conceptually
+  `frame N+1 = partialChange.apply(frame N)`. A frame is never rebuilt from scratch; it is migrated.
+- **`Intent`s** are what drive these transitions: a user action arrives, its handler emits one or more
+  `PartialChange`s, and each produces the next frame.
+
+```
+Intent ──handler──▶ PartialChange ──apply(old)──▶ Snapshot(State + Event?) ──▶ stateFlow / eventFlow
+                                         ▲                    │
+                                         └──── previous frame ┘
+```
+
 #### 1. Intent
 
-Represents user actions or system events. Can be marked as:
+A user action or system event — the **entry point** to the pipeline. You dispatch an `Intent`, the
+framework routes it to a handler, and the handler produces `PartialChange`s. Under the **HYBRID**
+strategy, marker sub-interfaces decide how an intent is scheduled relative to others:
 
-- `Mvi.Intent.Concurrent`: Processed in parallel
-- `Mvi.Intent.Sequential`: Processed sequentially (one at a time)
-- Neither: Uses the default strategy from configuration
+- `Mvi.Intent.Concurrent`: processed in parallel — for independent actions (a refresh, an analytics ping).
+- `Mvi.Intent.Sequential`: processed one-at-a-time in a single FIFO queue — for order-dependent
+  actions (incrementing a counter, submitting a form).
+- Neither marker: falls back to **group** scheduling — sequential within the same
+  `GroupTagSelector` tag, parallel across different tags (e.g. group all DB writes together).
+
+Take the counter from [Quick Start](#quick-start), and suppose it can also `Refresh` its value from a
+server. That one contract exercises all three modes:
+
+```kotlin
+sealed interface Intent : Mvi.Intent {
+    data object Increment : Intent, Mvi.Intent.Sequential  // order matters → strict FIFO
+    data object Decrement : Intent, Mvi.Intent.Sequential  // order matters → strict FIFO
+    data object Refresh : Intent, Mvi.Intent.Concurrent    // independent → runs in parallel
+    data object Reset : Intent                             // no marker → grouped by tag
+}
+```
 
 #### 2. State
 
-Represents the complete UI state at any point in time. Should be:
+The **persistent** part of a frame — it describes the elements that *stay on screen* (the current
+list, a loading flag, the input text) and carries across frames until something changes it. State is an
+**immutable** data class, updated only by producing a new copy via `copy()`. It has two kinds of
+property:
 
-- **Immutable**: Use data classes with `copy()`
-- **Serializable**: For process death handling
-- **Complete**: Contains all information needed to render UI
+- **Source state properties** — the stored constructor `val`s. They are the **single source of
+  truth** and the only things a `copy()` actually changes (e.g. `count`, `showLoading`).
+- **Computed properties** — derived `val`s with a custom getter, computed *from* the source
+  properties. They keep presentation/derivation logic out of the UI, are never stored or manually kept
+  in sync, and plug straight into `collectProperty(State::derived)` (they change exactly when their
+  inputs change).
+
+```kotlin
+// Same State as Quick Start, with one more computed property:
+data class State(
+    val count: Int = 0,               // source state property
+    val showLoading: Boolean = false, // source state property
+) : Mvi.State {
+    val countText: String get() = count.toString()  // computed
+    val isAtMax: Boolean get() = count >= 100        // computed
+}
+
+// In the UI, computed properties are collected like any other:
+viewModel.stateFlow.collectState(this) {
+    collectProperty(State::countText) { tv.text = it }
+}
+```
+
+> The real sample `CounterContract.State` (`app/src/main/java/cc/colorcat/mvi/sample/count/`) goes
+> further: `count` / `targetCount` / `showLoading` are source properties, while `countText` /
+> `countInfo` / `alpha255` are computed and collected directly in `CounterFragment`.
 
 #### 3. Event
 
-Represents one-time side effects that don't belong in state:
+The **transient** part of a frame — a one-time side effect that does **not** belong in State: showing
+a toast/snackbar, navigation, triggering an animation. An event is fleeting: it lives in **exactly one
+frame**, is delivered to an active collector (or dropped if none is listening), and is **cleared or
+replaced** the moment the next frame is produced.
 
-- Showing toasts or snackbars
-- Navigation actions
-- Triggering animations
-- Any action that should happen once
+```kotlin
+sealed interface Event : Mvi.Event {
+    // The counter surfaces a toast when it hits a limit or finishes a reset.
+    data class ShowToast(val message: CharSequence) : Event
+    // Add more one-shot effects here as the screen grows, e.g. NavigateToHistory.
+}
+```
 
-#### 4. PartialChange
+> Rule of thumb: if a signal should fire *once*, it's an Event; if it should *persist* on screen, it's
+> State. Don't put transient signals (like a one-shot toast message) into State.
 
-A function that takes the current `Snapshot` (state + event queue) and returns an updated `Snapshot`. It can:
+#### 4. Snapshot
 
-- Update state: `snapshot.updateState { copy(field = newValue) }`
-- Emit events: `snapshot.withEvent(MyEvent.SomeEvent)`
-- Chain updates: `snapshot.updateState { ... }.withEvent(...)`
+One immutable **frame**: `state: S` plus an optional `event: E?`. You never mutate a snapshot — you
+**derive the next frame** from the `old` one inside a `PartialChange`, using (shown with the counter's
+`State`/`Event`):
 
-#### 5. Contract
+- `updateState { copy(count = count + 1) }` — change some state, **clears** any pending event.
+- `withEvent(Event.ShowToast("Already at max"))` — attach an event, keep the state.
+- `updateWith(Event.ShowToast("Synced")) { copy(count = 0) }` — change state **and** attach an event
+  in the same frame.
 
-The read-only interface that exposes:
+`updateState` clearing the event is intentional and load-bearing: an event must live in only one
+frame, otherwise it would be re-delivered on every later frame.
+
+#### 5. PartialChange
+
+The function that performs **one frame migration**: `apply(old: Snapshot): Snapshot`. The word
+**"partial"** is relative to the *whole frame* — a change touches only **part** of the previous frame
+(one or a few **source state properties**, and/or the **event**, or both), and everything it doesn't
+touch carries over unchanged. Frames are continuous: each is migrated from the previous, never rebuilt.
+
+```kotlin
+// Handling the counter's Refresh: a two-step migration, each PartialChange produces one frame.
+flow {
+    // frame 1 — only the loading flag changes; count carries over untouched
+    emit(PartialChange { it.updateState { copy(showLoading = true) } })
+
+    val latest = repository.fetchCount()
+
+    // frame 2 — update count, clear loading, and attach a one-shot toast (state + event)
+    emit(PartialChange {
+        it.updateWith(Event.ShowToast("Synced")) { copy(count = latest, showLoading = false) }
+    })
+}
+```
+
+> Pitfall — don't chain `withEvent(...).updateState { ... }` inside a single change: `updateState`
+> clears the event you just set. Set both together with `updateWith(event) { copy(...) }` instead.
+
+#### 6. Contract
+
+The read-only interface exposed to the UI:
 
 - `stateFlow: StateFlow<S>`: Hot flow of state changes
-- `eventFlow: Flow<E>`: Cold flow of one-time events
+- `eventFlow: Flow<E>`: Flow of one-time events
 
-#### 6. ReactiveContract
+#### 7. ReactiveContract
 
-Extends Contract with the ability to dispatch intents:
+Extends `Contract` with the ability to dispatch intents:
 
 - `dispatch(intent: I)`: Send an intent for processing
 
@@ -255,7 +355,7 @@ K-MVI supports three strategies for processing intents:
 All intents are processed in parallel. Best for independent operations.
 
 ```kotlin
-KMvi.setup {
+KMvi.configure {
     copy(handleStrategy = HandleStrategy.CONCURRENT)
 }
 ```
@@ -265,7 +365,7 @@ KMvi.setup {
 All intents are processed one-by-one in order. Best for operations that must maintain strict ordering.
 
 ```kotlin
-KMvi.setup {
+KMvi.configure {
     copy(handleStrategy = HandleStrategy.SEQUENTIAL)
 }
 ```
@@ -283,19 +383,16 @@ Combines both approaches:
 Configure the strategy globally for all contracts:
 
 ```kotlin
-KMvi.setup {
+KMvi.configure {
     copy(
         handleStrategy = HandleStrategy.HYBRID,
-        hybridConfig = HybridConfig(
-            groupTagSelector = { intent ->
-                when (intent) {
-                    is LoadIntent -> "load_group"
-                    is SaveIntent -> "save_group"
-                    // Default: return class name so same type intents execute sequentially
-                    else -> intent::class.java.name
-                }
-            }
-        )
+        hybridStrategyConfig = HybridStrategyConfig(
+            groupChannelCapacity = Channel.BUFFERED,
+        ),
+        retryPolicy = { attempt, cause ->
+            attempt < 3 && cause is IOException
+        },
+        logger = Logger(Logger.DEBUG),
     )
 }
 ```
@@ -309,26 +406,26 @@ more flexibility:
 class MyViewModel : ViewModel() {
     private val contract by contract(
         initState = MyState(),
-        strategy = HandleStrategy.HYBRID,
-        config = HybridConfig(
-            groupTagSelector = { intent ->
-                when (intent) {
-                    // Database operations - process sequentially within this group
-                    is MyIntent.SaveUser,
-                    is MyIntent.UpdateUser,
-                    is MyIntent.DeleteUser
-                        -> "database"
+        handleStrategy = HandleStrategy.HYBRID,
+        hybridStrategyConfig = HybridStrategyConfig(
+            groupChannelCapacity = Channel.BUFFERED,
+        ),
+        groupTagSelector = { intent ->
+            when (intent) {
+                // Database operations - process sequentially within this group
+                is MyIntent.SaveUser,
+                is MyIntent.UpdateUser,
+                is MyIntent.DeleteUser
+                    -> "database"
 
-                    // Network operations - process sequentially within this group
-                    is MyIntent.FetchData,
-                    is MyIntent.UploadData
-                        -> "network"
-                    // Default: return class name so same type intents execute sequentially
-                    else -> intent::class.java.name
-                }
-            },
-            groupChannelCapacity = Channel.BUFFERED
-        )
+                // Network operations - process sequentially within this group
+                is MyIntent.FetchData,
+                is MyIntent.UploadData
+                    -> "network"
+                // Default: return class name so same type intents execute sequentially
+                else -> intent::class.java.name
+            }
+        },
     ) {
         register(MyIntent.SaveUser::class.java, ::handleSaveUser)
         register(MyIntent.FetchData::class.java, ::handleFetchData)
@@ -354,7 +451,7 @@ The **recommended approach** is to use `defaultHandler` to handle all intents in
 more readable as you can see all intent handling logic in one place:
 
 ```kotlin
-class MainViewModel : ViewModel() {
+class MyViewModel : ViewModel() {
     private val contract by contract(
         initState = MyState(),
         defaultHandler = ::handleIntent
@@ -425,7 +522,7 @@ class MainViewModel : ViewModel() {
 For even simpler code, you can make your Intent implement PartialChange directly:
 
 ```kotlin
-sealed interface IMain {
+sealed interface MyContract {
     data class State(val count: Int = 0) : Mvi.State
 
     sealed interface Event : Mvi.Event {
@@ -461,21 +558,21 @@ sealed interface IMain {
     data object Decrement : PartialChange(), Intent
 }
 
-class MainViewModel : ViewModel() {
+class MyViewModel : ViewModel() {
     private val contract by contract(
-        initState = IMain.State(),
+        initState = MyContract.State(),
         defaultHandler = ::handleIntent
     )
 
-    val stateFlow: StateFlow<IMain.State> = contract.stateFlow
-    val eventFlow: Flow<IMain.Event> = contract.eventFlow
+    val stateFlow: StateFlow<MyContract.State> = contract.stateFlow
+    val eventFlow: Flow<MyContract.Event> = contract.eventFlow
 
-    fun dispatch(intent: IMain.Intent) = contract.dispatch(intent)
+    fun dispatch(intent: MyContract.Intent) = contract.dispatch(intent)
 
     // Simple handler - just cast and return
-    private suspend fun handleIntent(intent: IMain.Intent): Flow<IMain.PartialChange> {
+    private suspend fun handleIntent(intent: MyContract.Intent): Flow<MyContract.PartialChange> {
         return when (intent) {
-            is IMain.PartialChange -> intent.asSingleFlow()
+            is MyContract.PartialChange -> intent.asSingleFlow()
         }
     }
 }
@@ -501,8 +598,11 @@ Alternative approach using explicit registration:
 private val contract by contract(
     initState = MyState()
 ) {
-    register(IncrementIntent::class.java, ::handleIncrement)
-    register(DecrementIntent::class.java, ::handleDecrement)
+    // The intent type is inferred from each handler reference.
+    register(::handleIncrement)
+    register(::handleDecrement)
+    // Or pass the type explicitly (handy for the Java-style API):
+    // register(IncrementIntent::class.java, ::handleIncrement)
 }
 ```
 
@@ -520,8 +620,8 @@ For more complex applications, you can configure the intent handling strategy an
 class UserViewModel : ViewModel() {
     private val contract by contract(
         initState = UserState(),
-        strategy = HandleStrategy.HYBRID,
-        config = HybridConfig(
+        handleStrategy = HandleStrategy.HYBRID,
+        config = HybridStrategyConfig(
             groupTagSelector = { intent ->
                 when (intent) {
                     // Group all database operations together
@@ -607,8 +707,8 @@ If you prefer the registration approach:
 class UserViewModel : ViewModel() {
     private val contract by contract(
         initState = UserState(),
-        strategy = HandleStrategy.HYBRID,
-        config = HybridConfig(
+        handleStrategy = HandleStrategy.HYBRID,
+        config = HybridStrategyConfig(
             groupTagSelector = { intent ->
                 when (intent) {
                     is UserIntent.Save,
@@ -668,11 +768,11 @@ More efficient - only triggers when the specific property changes:
 
 ```kotlin
 viewModel.stateFlow.collectState(this) {
-    collectPartial(MyState::loading) { isLoading ->
+    collectProperty(MyState::loading) { isLoading ->
         progressBar.isVisible = isLoading
     }
 
-    collectPartial(MyState::title) { title ->
+    collectProperty(MyState::title) { title ->
         titleTextView.text = title
     }
 }
@@ -712,20 +812,20 @@ viewModel.eventFlow.collectEvent(this) {
 K-MVI provides convenient extensions for common UI events:
 
 ```kotlin
-// Button clicks
-button.doOnClick { MyIntent.ButtonClicked }
+// Button clicks — use trySend(...) to emit from the callback
+button.doOnClick { trySend(MyIntent.ButtonClicked) }
     .debounceLeading(500) // Prevent rapid clicks
-    .launchCollect(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(this) { viewModel.dispatch(it) }
 
 // Text changes
 editText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
-    send(MyIntent.TextChanged(editable?.toString().orEmpty()))
-}.launchCollect(this) { viewModel.dispatch(it) }
+    trySend(MyIntent.TextChanged(editable?.toString().orEmpty()))
+}.launchWithLifecycle(this) { viewModel.dispatch(it) }
 
 // Checkbox changes
 checkbox.doOnCheckedChange { isChecked ->
-    send(MyIntent.CheckboxToggled(isChecked))
-}.launchCollect(this) { viewModel.dispatch(it) }
+    trySend(MyIntent.CheckboxToggled(isChecked))
+}.launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
 
 ### Debouncing and Throttling
@@ -736,9 +836,9 @@ Responds to the **first** event, then ignores subsequent events for a time windo
 double-clicks:
 
 ```kotlin
-button.doOnClick { SubmitIntent }
+button.doOnClick { trySend(SubmitIntent) }
     .debounceLeading(500) // Ignore clicks within 500ms of the first click
-    .launchCollect(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
 
 #### debounce (from Kotlin Flow)
@@ -747,8 +847,8 @@ Responds to the **last** event after a period of silence. Perfect for search as 
 
 ```kotlin
 searchEditText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
-    send(SearchIntent(editable?.toString().orEmpty()))
-}.launchCollect(this) { viewModel.dispatch(it) }
+    trySend(SearchIntent(editable?.toString().orEmpty()))
+}.launchWithLifecycle(this) { viewModel.dispatch(it) }
 ```
 
 ## Configuration
@@ -760,18 +860,18 @@ class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        KMvi.setup {
+        KMvi.configure {
             copy(
                 // Intent handling strategy
                 handleStrategy = HandleStrategy.HYBRID,
 
                 // Retry policy for failed intent processing
                 retryPolicy = { attempt, cause ->
-                    attempt < 3 && cause !is CancellationException // attempt is 0-based
+                    attempt < 3 && cause is IOException // attempt is 0-based
                 },
 
                 // Hybrid strategy configuration
-                hybridConfig = HybridConfig(
+                hybridStrategyConfig = HybridStrategyConfig(
                     groupTagSelector = { intent ->
                         // Return a group key for intents that should be grouped
                         when (intent) {
@@ -800,6 +900,34 @@ class MyApplication : Application() {
 - `SEQUENTIAL`: All intents process one-by-one
 - `HYBRID`: Mix of concurrent and sequential based on intent markers and grouping
 
+#### IntentQueueConfig
+
+`intentQueueConfig` configures the dispatch entry queue for each contract. The default is
+`IntentQueueConfig(capacity = 256, onBufferOverflow = BufferOverflow.SUSPEND)`.
+`dispatch(intent)` is non-blocking and returns a `DispatchResult`.
+
+Allowed capacities are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any
+positive `Int` (including `Channel.UNLIMITED`). The default `BufferOverflow.SUSPEND` is recommended
+for most business intents because it gives the clearest result semantics:
+
+- Bounded capacity or `Channel.BUFFERED` + `SUSPEND`: `Submitted` means the intent entered the queue
+  or was received by the pipeline; if the queue is full, dispatch returns `Full`.
+- `Channel.RENDEZVOUS` + `SUSPEND`: `Submitted` means a receiver was ready and took the intent;
+  otherwise dispatch returns `Full`.
+- `Channel.UNLIMITED` + `SUSPEND`: `Submitted` usually means the intent entered an unbounded queue;
+  it normally does not return `Full`, but can grow memory if producers outrun consumers.
+- `Channel.CONFLATED`: `Submitted` means the latest intent was submitted to the conflated queue.
+  Older pending intents may be replaced, and this submitted intent may also be replaced by a later
+  dispatch before it is processed.
+- `DROP_OLDEST`: `Submitted` means the queue policy accepted this dispatch. If the queue was full,
+  the oldest pending intent was dropped and will not be processed.
+- `DROP_LATEST`: `Submitted` means the queue policy handled this dispatch. If the queue was full,
+  this latest intent may have been dropped and may never be processed.
+
+In every mode, `DispatchResult.Submitted` only describes queue submission. It does not mean the
+handler has started, completed, changed state, or emitted an event. Use conflated/drop policies only
+for replaceable or discardable high-frequency UI intents.
+
 #### RetryPolicy
 
 A function `(attempt: Long, cause: Throwable) -> Boolean` that determines whether to retry after a failure.
@@ -809,14 +937,15 @@ Default policy:
 
 ```kotlin
 { attempt, cause ->
-    attempt < 3 && cause is Exception // Retries on attempt 0..2 (up to 3 retries)
+    attempt < 3 && cause is IOException // Retries transient I/O failures on attempt 0..2
 }
 ```
 
-> ⚠️ **Production warning**: `Exception` is broad and includes non-transient errors like
-> `IllegalStateException`. Override this in production with a more targeted policy.
+> The default policy does not retry programming errors such as `IllegalStateException`,
+> `IllegalArgumentException`, or `NullPointerException`. Override it if your app has
+> additional domain-specific transient failures.
 
-#### HybridConfig
+#### HybridStrategyConfig
 
 Configuration for HYBRID strategy:
 
@@ -858,19 +987,19 @@ val customLogger = Logger { priority, tag, error, message ->
 #### In Intent Handlers
 
 ```kotlin
-private fun handleLoadData(intent: LoadDataIntent): Flow<IMain.PartialChange> = flow {
-    emit(IMain.PartialChange { it.updateState { copy(loading = true) } })
+private fun handleLoadData(intent: LoadDataIntent): Flow<MyPartialChange> = flow {
+    emit(MyPartialChange { it.updateState { copy(loading = true) } })
 
     try {
         val data = repository.loadData()
         emit(
-            IMain.PartialChange {
+            MyPartialChange {
                 it.updateState { copy(loading = false, data = data) }
             }
         )
     } catch (e: Exception) {
         emit(
-            IMain.PartialChange {
+            MyPartialChange {
                 it.updateState { copy(loading = false, error = e.message) }
                     .withEvent(MyEvent.ShowError(e.message))
             }
@@ -886,7 +1015,7 @@ subsequent intents can still be processed. The failing intent is not replayed �
 intent-level error recovery:
 
 ```kotlin
-KMvi.setup {
+KMvi.configure {
     copy(
         retryPolicy = { attempt, cause ->
             when (cause) {
@@ -908,10 +1037,10 @@ K-MVI's clean architecture makes testing straightforward:
 ```kotlin
 @Test
 fun `increment intent increases count`() = runTest {
-        val viewModel = MainViewModel()
+        val viewModel = MyViewModel()
         val initialState = viewModel.stateFlow.value
 
-        viewModel.dispatch(IMain.Intent.Increment)
+        viewModel.dispatch(MyIntent.Increment)
 
         advanceUntilIdle()
         assertEquals(initialState.count + 1, viewModel.stateFlow.value.count)
@@ -923,7 +1052,7 @@ fun `increment intent increases count`() = runTest {
 ```kotlin
 @Test
 fun `loading state changes correctly`() = runTest {
-        val viewModel = MainViewModel()
+        val viewModel = MyViewModel()
         val states = mutableListOf<MyState>()
 
         val job = launch {
@@ -945,7 +1074,7 @@ fun `loading state changes correctly`() = runTest {
 ```kotlin
 @Test
 fun `error event is emitted on failure`() = runTest {
-        val viewModel = MainViewModel()
+        val viewModel = MyViewModel()
         val events = mutableListOf<MyEvent>()
 
         val job = launch {
@@ -967,7 +1096,7 @@ fun `error event is emitted on failure`() = runTest {
 
 ```kotlin
 // Option 1: threshold-based default logger (uses Android Log)
-KMvi.setup {
+KMvi.configure {
     copy(logger = Logger(Logger.DEBUG))  // Log DEBUG and above
 }
 
@@ -987,7 +1116,7 @@ val customLogger = Logger { priority, tag, error, message ->
     }
 }
 
-KMvi.setup {
+KMvi.configure {
     copy(logger = customLogger)
 }
 ```
@@ -1085,7 +1214,7 @@ Collect only what you need:
 
 ```kotlin
 // ✅ Good - only updates when count changes
-collectPartial(MyState::count) { count ->
+collectProperty(MyState::count) { count ->
     countTextView.text = count.toString()
 }
 

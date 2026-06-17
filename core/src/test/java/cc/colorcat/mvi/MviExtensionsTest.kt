@@ -1,7 +1,6 @@
 package cc.colorcat.mvi
 
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
@@ -11,62 +10,54 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestRule
+import java.util.concurrent.TimeUnit
 
 class MviExtensionsTest {
+    private data class TestState(val value: Int = 0) : Mvi.State
+    private sealed interface TestEvent : Mvi.Event {
+        data object Done : TestEvent
+    }
+
+    private sealed interface TestIntent : Mvi.Intent
+
+    private fun interface TestChange : Mvi.PartialChange<TestState, TestEvent>
+
+    private object Clear : TestIntent, TestChange {
+        override fun apply(old: Mvi.Snapshot<TestState, TestEvent>): Mvi.Snapshot<TestState, TestEvent> {
+            return old.updateState { copy(value = 0) }
+        }
+    }
 
     @Rule @JvmField val testLog: TestRule = TestLogger()
 
     @Test
-    fun `asSingleFlow emits the value`() = runBlocking {
-        val result = "hello".asSingleFlow().single()
-        assertEquals("hello", result)
+    fun `asSingleFlow emits the partial change`() = runBlocking {
+        val change = Mvi.PartialChange<TestState, TestEvent> { snapshot ->
+            snapshot.updateState { copy(value = value + 1) }
+        }
+
+        val result = change.asSingleFlow().single()
+
+        assertTrue(result === change)
     }
 
     @Test
-    fun `asSingleFlow for integer`() = runBlocking {
-        val result = 42.asSingleFlow().first()
-        assertEquals(42, result)
-    }
+    fun `asSingleFlow emits exactly one partial change`() = runBlocking {
+        val change = TestChange { snapshot ->
+            snapshot.withEvent(TestEvent.Done)
+        }
 
-    @Test
-    fun `asSingleFlow emits exactly one item`() = runBlocking {
-        val results = "single".asSingleFlow().toList()
+        val results = change.asSingleFlow().toList()
+
         assertEquals(1, results.size)
+        assertTrue(results.single() === change)
     }
 
     @Test
-    fun `asSingleFlow for Mvi Intent`() = runBlocking {
-        val intent = object : Mvi.Intent {}
-        val result = intent.asSingleFlow().single()
-        assertTrue(result === intent)
-    }
+    fun `asSingleFlow supports intent that is also partial change`() = runBlocking {
+        val result = Clear.asSingleFlow().single()
 
-    @Test
-    fun `asSingleFlow for null value`() = runBlocking {
-        val result = null.asSingleFlow().single()
-        assertEquals(null, result)
-    }
-
-    @Test
-    fun `asSingleFlow for data class`() = runBlocking {
-        data class TestData(val x: Int, val y: String)
-        val data = TestData(1, "test")
-        val result = data.asSingleFlow().single()
-        assertEquals(TestData(1, "test"), result)
-    }
-
-    @Test
-    fun `asSingleFlow for list`() = runBlocking {
-        val list = listOf(1, 2, 3)
-        val result = list.asSingleFlow().single()
-        assertEquals(listOf(1, 2, 3), result)
-    }
-
-    @Test
-    fun `asSingleFlow flow completes after emission`() = runBlocking {
-        val results = mutableListOf<Int>()
-        99.asSingleFlow().collect { results.add(it) }
-        assertEquals(listOf(99), results)
+        assertTrue(result === Clear)
     }
 }
 
@@ -116,6 +107,23 @@ class DebounceLeadingTest {
             emit(3)            // suppressed — immediately follows 2
         }.debounceLeading(windowMs).collect { results.add(it) }
         assertEquals(listOf(1, 2), results)
+    }
+
+    @Test
+    fun `debounceLeading uses monotonic nanosecond clock`() = runBlocking {
+        val timestamps = listOf(
+            0L,
+            TimeUnit.MILLISECONDS.toNanos(10L),
+            TimeUnit.MILLISECONDS.toNanos(70L),
+        ).iterator()
+
+        val results = flow {
+            emit(1)
+            emit(2)
+            emit(3)
+        }.debounceLeading(windowMs) { timestamps.next() }.toList()
+
+        assertEquals(listOf(1, 3), results)
     }
 
     @Test(expected = IllegalArgumentException::class)

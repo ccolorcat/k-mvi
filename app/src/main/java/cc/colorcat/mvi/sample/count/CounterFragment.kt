@@ -8,10 +8,10 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
 import cc.colorcat.mvi.collectEvent
 import cc.colorcat.mvi.collectState
 import cc.colorcat.mvi.debounceLeading
+import cc.colorcat.mvi.dispatchWithLifecycle
 import cc.colorcat.mvi.doOnClick
 import cc.colorcat.mvi.sample.R
 import cc.colorcat.mvi.sample.count.CounterContract.Event
@@ -21,9 +21,7 @@ import cc.colorcat.mvi.sample.databinding.FragmentCounterBinding
 import cc.colorcat.mvi.sample.util.showToast
 import cc.colorcat.mvi.sample.util.viewBinding
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.flow.onEach
 
 /**
  * Fragment demonstrating MVI pattern usage with [CounterViewModel].
@@ -44,7 +42,7 @@ import kotlinx.coroutines.flow.onEach
  *
  * **Efficient State Observation:**
  * - Use [collectState] with lifecycle awareness (automatically handles lifecycle)
- * - Use `collectPartial` to observe only specific state properties (e.g., `State::countText`)
+ * - Use `collectProperty` to observe only specific state properties (e.g., `State::countText`)
  * - Only update UI when the observed property actually changes (efficient rendering)
  *
  * **Type-Safe Event Handling:**
@@ -78,14 +76,14 @@ class CounterFragment : Fragment() {
     private val binding: FragmentCounterBinding by viewBinding()
 
     /**
-     * Lazy property that creates a merged Flow of all user intents.
-     * This creates a reactive stream of user actions that will be dispatched to the ViewModel.
-     * The flow is recreated when accessed, ensuring it uses the current binding instance.
+     * Merged stream of every user intent, dispatched to the ViewModel in [setupViewModel].
      *
-     * **Debouncing Strategy:**
-     * - Increment/Decrement intents are debounced with 300ms to prevent rapid clicks
-     * - Reset intent is also debounced to prevent accidental double-clicks during async operation
-     * - Uses [debounceLeading] to emit the first click and ignore subsequent clicks within the time window
+     * Evaluated through a `get()` so it always reads the current [binding] instance.
+     *
+     * **Debouncing strategy** (via [debounceLeading], which emits the first click and ignores
+     * rapid follow-ups within the window):
+     * - Increment/Decrement: 300 ms — prevents accidental rapid taps.
+     * - Reset: 600 ms — longer, since it kicks off an async operation.
      */
     private val intents: Flow<Intent>
         get() = merge(
@@ -125,40 +123,31 @@ class CounterFragment : Fragment() {
     }
 
     /**
-     * Setup ViewModel connection by subscribing to the merged intent flow.
-     *
-     * **Pattern: Reactive Intent Dispatch**
-     * - Subscribe to the merged intent flow from [intents] property
-     * - Dispatch each emitted intent to the ViewModel for processing
-     * - Launch in lifecycleScope to automatically cancel when Fragment is destroyed
+     * Wires the view to the ViewModel: render state, handle events, and dispatch intents.
      *
      * **Flow:**
-     * 1. User clicks button → doOnClick emits intent → debounced → merged flow emits intent
-     * 2. onEach receives intent → dispatch to ViewModel
-     * 3. ViewModel processes intent → updates state or emits event
-     * 4. State/Event flows notify observers → UI updates
+     * 1. User clicks a button → `doOnClick` emits an intent → debounced → merged into [intents]
+     * 2. [dispatchWithLifecycle] forwards each intent to the ViewModel
+     * 3. The ViewModel processes the intent → updates state and/or emits an event
+     * 4. State/Event flows notify the collectors below → UI updates
      *
-     * **Debouncing:**
-     * - Increment/Decrement intents are debounced (600ms) to prevent rapid firing
-     * - Reset intent is also debounced to prevent accidental double-clicks
-     * - This improves UX and reduces unnecessary ViewModel processing
-     *
-     * This creates a complete unidirectional data flow cycle with rate limiting.
+     * All three collectors are bound to [viewLifecycleOwner], so they start/stop with the view's
+     * lifecycle (not the Fragment's) and never touch a destroyed [binding].
      */
     private fun setupViewModel() {
         // **Pattern 1: Efficient Partial State Collection**
         // collectState: Lifecycle-aware state collection (automatically starts/stops with lifecycle)
-        // collectPartial: Observe only specific state properties, update UI only when they change
+        // collectProperty: Observe only specific state properties, update UI only when they change
         // Benefits:
         // - Efficient: Only triggers when State::countText actually changes (not on every state emission)
         // - Concise: Direct method reference (binding.count::setText) for clean UI binding
         // - Type-safe: Compiler ensures State::countText returns String compatible with TextView.setText
         // - Computed property: countText is derived from count, providing presentation logic separation
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
-            collectPartial(State::countText, binding.count::setText)
-            collectPartial(State::countInfo, binding.counterInfo::setText)
-            collectPartial(State::showLoading, binding.loadingBar::isVisible::set)
-            collectPartial(State::alpha255, Lifecycle.State.RESUMED) {
+            collectProperty(State::countText, binding.count::setText)
+            collectProperty(State::countInfo, binding.counterInfo::setText)
+            collectProperty(State::showLoading, binding.loadingBar::isVisible::set)
+            collectProperty(State::alpha255, Lifecycle.State.RESUMED) {
                 binding.root.background?.alpha = it
             }
         }
@@ -170,13 +159,13 @@ class CounterFragment : Fragment() {
         // - Type-safe: Only Event.ShowToast events are handled here
         // - Exhaustive: Compiler helps ensure all event types are handled somewhere
         // - Lifecycle-aware: Automatically stops collecting when Fragment is destroyed
-        viewModel.eventFlow.collectEvent(this) {
+        viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
             collectTyped<Event.ShowToast> { event ->
                 context?.showToast(event.message)
             }
         }
 
-        intents.onEach { viewModel.dispatch(it) }.launchIn(lifecycleScope)
+        intents.dispatchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
     }
 }
 

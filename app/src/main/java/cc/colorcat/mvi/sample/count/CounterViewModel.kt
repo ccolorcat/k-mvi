@@ -3,7 +3,6 @@ package cc.colorcat.mvi.sample.count
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import cc.colorcat.mvi.contract
-import cc.colorcat.mvi.register
 import cc.colorcat.mvi.sample.count.CounterContract.Companion.COUNT_MAX
 import cc.colorcat.mvi.sample.count.CounterContract.Companion.COUNT_MIN
 import cc.colorcat.mvi.sample.count.CounterContract.Companion.randomCount
@@ -18,18 +17,28 @@ import kotlinx.coroutines.flow.flow
 import kotlin.random.Random
 
 /**
- * ViewModel demonstrating three different approaches to return PartialChange in MVI pattern.
+ * ViewModel demonstrating how an intent handler produces a [PartialChange] — and the discipline a
+ * [PartialChange] itself should follow.
  *
- * This sample showcases how to use the `register` function to handle intents with different
- * return patterns:
- * 1. **Inline conditional** ([handleIncrement]): Single PartialChange with internal branching
- * 2. **Early return branching** ([handleDecrement]): Multiple return paths with separate PartialChange instances
- * 3. **Flow-based async** ([handleReset]): Flow<PartialChange> for complex/async operations
+ * ## Core principle: keep a [PartialChange] minimal
  *
- * Each approach is suitable for different scenarios:
- * - Use inline conditional for simple, synchronous logic with minimal branching
- * - Use early return for clearer separation of different execution paths
- * - Use Flow for async operations, multiple emissions, or complex state transformations
+ * A [PartialChange] runs synchronously inside the `scan` accumulator, so it should do exactly **one
+ * thing**: migrate the snapshot (update state and/or attach an event). Keep it tiny and lightweight
+ * — no business branching, no I/O, no heavy computation. Decide *what* the change should be in the
+ * handler; let the change only *apply* that decision.
+ *
+ * Handlers are registered per intent type via the `register` DSL (the distributed style; compare
+ * with [cc.colorcat.mvi.sample.login.LoginViewModel], which uses a single centralized
+ * `defaultHandler`). The three handlers below are written to make the principle concrete:
+ *
+ * 1. [handleIncrement] — decides **inside** the change. The most concise form, acceptable here only
+ *    because the branch is a trivial one-line guard.
+ * 2. [handleDecrement] — decides **in the handler**, so each resulting [PartialChange] collapses to
+ *    a single snapshot update with no logic inside. This is the form to prefer as branching grows,
+ *    because it best honors the principle above. The two synchronous handlers are intentionally
+ *    written differently to highlight this contrast.
+ * 3. [handleReset] — returns an asynchronous [Flow] of changes (loading → success/error → done),
+ *    for async work, multiple emissions, or cancellable operations.
  *
  * Author: ccolorcat
  * Date: 2025-11-14
@@ -37,16 +46,18 @@ import kotlin.random.Random
  */
 class CounterViewModel : ViewModel() {
     /**
-     * MVI contract instance initialized with default state.
-     * The contract builder registers intent handlers using the `register` function.
-     * Each handler can return either PartialChange or Flow<PartialChange>.
+     * MVI contract initialized with the default [State].
+     *
+     * Each handler is registered against its concrete intent type. `register` infers that type
+     * from the handler reference, so a plain method reference is enough; the synchronous handlers
+     * return a [PartialChange] and the async one returns `Flow<PartialChange>`.
      */
     private val contract by contract(
         initState = State(),
     ) {
-        register(::handleIncrement)  // Pattern 1: Inline conditional
-        register(::handleDecrement)  // Pattern 2: Early return branching
-        register(::handleReset)      // Pattern 3: Flow-based async
+        register(::handleIncrement) // synchronous, single PartialChange
+        register(::handleDecrement) // synchronous, single PartialChange
+        register(::handleReset)     // asynchronous, Flow<PartialChange>
     }
 
     /**
@@ -63,154 +74,93 @@ class CounterViewModel : ViewModel() {
 
     /**
      * Dispatch user intents to the contract for processing.
-     * The contract will route the intent to the appropriate registered handler.
+     *
+     * The dispatch is non-blocking — the intent is enqueued via the contract's internal channel.
+     * Returns a [cc.colorcat.mvi.DispatchResult] indicating whether the intent was
+     * accepted, queued at capacity, or rejected because the scope is inactive.
      *
      * @param intent The user intent to process
+     * @return Result indicating submission status
+     * @see cc.colorcat.mvi.DispatchResult
      */
     fun dispatch(intent: Intent) = contract.dispatch(intent)
 
     /**
-     * Pattern 1: Inline conditional - Single PartialChange with internal branching.
+     * Synchronous handler: increment the counter, or warn when it is already at [COUNT_MAX].
      *
-     * This approach returns a single PartialChange that contains all branching logic inside.
-     * The PartialChange lambda receives a snapshot of the current state via `it.state` and
-     * decides what to do based on that state.
+     * This handler keeps the decision **inside** the change: a single [PartialChange] branches on
+     * `old.state` (the snapshot passed in at the exact moment the change is applied by the `scan`
+     * accumulator). It is the most concise form and is acceptable here precisely because the branch
+     * is a trivial one-line guard — the lambda still does nothing but pick one snapshot update.
      *
-     * **Advantages:**
-     * - Compact and readable for simple logic
-     * - All logic is contained in one place
-     * - Uses state snapshot from PartialChange context (thread-safe)
+     * Even so, a [PartialChange] must never grow beyond this: as soon as a decision needs more than
+     * a tiny guard, push it out into the handler so the change stays minimal — see [handleDecrement],
+     * which is deliberately written the other way to illustrate the preferred shape. Heavy or async
+     * work never belongs inside `apply`; use a [Flow]-returning handler (see [handleReset]) instead.
      *
-     * **Best for:**
-     * - Simple synchronous operations with 2-3 branches
-     * - When all branches are similar in complexity
-     *
-     * **Important Note:**
-     * While this pattern appears more concise than [handleDecrement], it is **NOT recommended**
-     * to put complex logic and decision-making inside the PartialChange lambda, especially when
-     * the logic becomes complicated. PartialChange should focus on **updating the snapshot**
-     * (state and event) and remain simple and clear. Complex business logic should be handled
-     * outside the PartialChange, with the PartialChange itself only responsible for applying
-     * the determined state transformation. See [handleDecrement] for the preferred approach
-     * when dealing with conditional logic.
-     *
-     * @param intent The increment intent (unused but required by register signature)
-     * @return A PartialChange that either increments count or emits a toast event
+     * @param intent The increment intent (unused; its type selects this handler)
+     * @return A change that either increments the count or emits a "limit reached" toast
      */
-    private fun handleIncrement(intent: Intent.Increment): PartialChange {
-        return PartialChange {
-            if (it.state.count == COUNT_MAX) {
-                it.withEvent(Event.ShowToast("Already reached $COUNT_MAX"))
-            } else {
-                it.updateState { copy(count = count + 1) }
-            }
+    private fun handleIncrement(intent: Intent.Increment) = PartialChange { old ->
+        // The branch is a trivial one-liner, so deciding inside the change is acceptable here.
+        if (old.state.count == COUNT_MAX) {
+            old.withEvent(Event.ShowToast("Already reached $COUNT_MAX"))
+        } else {
+            old.updateState { copy(count = count + 1) }
         }
     }
 
     /**
-     * Pattern 2: Early return branching - Multiple return paths with separate PartialChange instances.
+     * Synchronous handler: decrement the counter, or warn when it is already at [COUNT_MIN].
      *
-     * This approach evaluates the current state **before** constructing a PartialChange and
-     * returns a different PartialChange for each execution path. This makes coarse-grained
-     * branching visible at the handler level rather than buried inside a single lambda.
+     * Deliberately written differently from [handleIncrement] to demonstrate the preferred shape:
+     * the boundary check happens **in the handler**, and each branch returns a [PartialChange] that
+     * does nothing but apply a single snapshot update — there is no `if` inside the change. This is
+     * the form to reach for in general, because it honors the core discipline of this sample:
+     * **a [PartialChange] should be tiny and only update the snapshot**, while all decision-making
+     * stays in the handler. The closer your changes stay to "just update the snapshot", the easier
+     * they are to read, test, and reason about.
      *
-     * **Advantages:**
-     * - Clear separation between different execution paths at handler level
-     * - Each branch returns a focused, single-purpose PartialChange
-     * - Natural fit for guard clauses that must run before async work starts
-     *   (e.g., validating inputs and returning `emptyFlow()` on failure)
+     * ## Trade-off to be aware of
      *
-     * ## ⚠️ State Access: Prefer `old.state` over `stateFlow.value`
+     * Deciding in the handler reads [stateFlow]`.value`, a snapshot captured at *handler-invocation*
+     * time. Under the CONCURRENT/HYBRID strategies (where handlers may interleave) that value can be
+     * stale by the moment the change is applied. When a decision must see the very latest accumulated
+     * state, make it inside the change via `old.state` instead — as [handleIncrement] does. Choose
+     * the placement that fits: handler-level to keep the change minimal, inside-the-change when
+     * freshness is critical.
      *
-     * This example intentionally reads `stateFlow.value` to showcase the pattern,
-     * but this is **generally not the recommended approach** when branching depends
-     * on the current state. Prefer placing the condition **inside** the [PartialChange]
-     * lambda (as in [handleIncrement]), where `old.state` reflects the most-recent
-     * accumulated state at the exact moment of application:
-     *
-     * ```kotlin
-     * // ✅ Recommended: decide inside PartialChange using old.state
-     * return PartialChange { old ->
-     *     if (old.state.count == COUNT_MIN) {
-     *         old.withEvent(Event.ShowToast("Already reached $COUNT_MIN"))
-     *     } else {
-     *         old.updateState { copy(count = count - 1) }
-     *     }
-     * }
-     *
-     * // ⚠️ Acceptable only when pre-handler logic is required
-     * //    (e.g., early exit with emptyFlow, or suspend pre-validation)
-     * if (stateFlow.value.count == COUNT_MIN) return emptyFlow()
-     * ```
-     *
-     * In HYBRID/CONCURRENT strategies, multiple handlers can run in parallel.
-     * `stateFlow.value` captures a snapshot at handler invocation time, which may
-     * already be stale by the time the [PartialChange] is applied by the `scan`
-     * accumulator. `old.state` inside [PartialChange] is always up-to-date.
-     *
-     * ## General PartialChange guideline
-     *
-     * Keep [PartialChange] lambdas **as simple as possible** — ideally just a call to
-     * `updateState`, `withEvent`, or `updateWith` on the received snapshot.
-     * When state-based branching is needed, the inline-conditional pattern shown in
-     * [handleIncrement] (a single [PartialChange] with `if/else` over `old.state`) is
-     * preferred. Reserve this multi-return pattern for cases that require handler-level
-     * decisions, such as pre-flight validation or early-exit via `emptyFlow()`.
-     *
-     * @param intent The decrement intent (unused but required by register signature)
-     * @return A PartialChange that either decrements count or emits a toast event
+     * @param intent The decrement intent (unused; its type selects this handler)
+     * @return A change that either decrements the count or emits a "limit reached" toast
      */
     private fun handleDecrement(intent: Intent.Decrement): PartialChange {
+        // Decide here, in the handler, so each PartialChange stays minimal: every branch returns a
+        // change that only applies one snapshot update and contains no branching logic of its own.
         return if (stateFlow.value.count == COUNT_MIN) {
-            PartialChange {
-                it.withEvent(Event.ShowToast("Already reached $COUNT_MIN"))
-            }
+            PartialChange { it.withEvent(Event.ShowToast("Already reached $COUNT_MIN")) }
         } else {
-            PartialChange {
-                it.updateState { copy(count = count - 1) }
-            }
+            PartialChange { it.updateState { copy(count = count - 1) } }
         }
     }
 
     /**
-     * Pattern 3: Flow-based async - Returns Flow<PartialChange> for complex/async operations.
+     * Asynchronous handler: reset to a fresh random count/target, with a loading indicator.
      *
-     * This approach returns a Flow of PartialChanges, which is ideal for:
-     * - Asynchronous operations (network calls, database queries)
-     * - Multiple state emissions over time
-     * - Operations that can be cancelled
-     * - Complex state transformations with intermediate states
+     * Returning a [Flow] lets one intent drive several changes over time, which is the right tool
+     * for async work, cancellable operations, or any multi-step (loading → success/error → done)
+     * transition. The handler stays lightweight — all suspending work happens inside `flow { }` so
+     * the configured handle strategy controls the intent's lifecycle.
      *
-     * **Advantages:**
-     * - Supports reactive/async operations naturally
-     * - Can emit multiple PartialChanges over time (loading, success, error)
-     * - Integrates seamlessly with other Flow-based APIs
-     * - Supports cancellation and backpressure
+     * Lifecycle modeled here:
+     * 1. Emit a loading change (`showLoading = true`).
+     * 2. Simulate async work via [randomDelay].
+     * 3. Fail ~10% of the time to exercise the error path.
+     * 4. On success, emit the new count/target together with a toast (via `updateWith`).
+     * 5. On failure, emit a toast-only change.
+     * 6. Always clear the loading flag in `finally`.
      *
-     * **Implementation Pattern:**
-     * This example demonstrates a complete async operation lifecycle:
-     * 1. **Loading phase**: Emit loading state (`showLoading = true`)
-     * 2. **Async work**: Perform simulated async operation with [randomDelay]
-     * 3. **Error simulation**: 10% chance of failure to demonstrate error handling
-     * 4. **Success phase**: Generate random count/target and emit success state with toast
-     * 5. **Error phase**: Catch exceptions and emit failure event
-     * 6. **Completion**: Always hide loading state in finally block
-     *
-     * **Flow creation options:**
-     * - `flow { emit(...) }`: Build custom Flow for complex scenarios (used here)
-     * - `asSingleFlow()`: Convert single PartialChange to Flow
-     * - `flowOf(...)`: Create Flow from multiple PartialChanges
-     * - Use suspend functions with `flow { ... }` for async work
-     *
-     * **Best for:**
-     * - Async operations (API calls, DB queries, file I/O)
-     * - Multi-step state transformations (loading → success/error → complete)
-     * - Operations that need cancellation support
-     * - Integrating with existing Flow-based data sources
-     * - Error handling with try-catch-finally pattern
-     *
-     * @param intent The reset intent (unused but required by register signature)
-     * @return A Flow emitting multiple PartialChanges representing the complete operation lifecycle
+     * @param intent The reset intent (unused; its type selects this handler)
+     * @return A flow of changes describing the full reset lifecycle
      */
     private fun handleReset(intent: Intent.Reset): Flow<PartialChange> = flow {
         try {
@@ -218,18 +168,20 @@ class CounterViewModel : ViewModel() {
 
             randomDelay()
 
-            if (Random.nextInt(0, 101) > 90) {
-                throw RuntimeException("test exception")
+            // Simulate an occasional failure (~10%) to demonstrate the error path.
+            if (Random.nextInt(100) < 10) {
+                throw RuntimeException("Simulated reset failure")
             }
 
             val count = randomCount()
             val target = randomCount()
-            val partialChange = PartialChange {
-                it.updateWith(Event.ShowToast("Reset Successfully")) {
-                    copy(count = count, targetCount = target)
-                }
-            }
-            emit(partialChange)
+            emit(
+                PartialChange {
+                    it.updateWith(Event.ShowToast("Reset Successfully")) {
+                        copy(count = count, targetCount = target)
+                    }
+                },
+            )
         } catch (e: Exception) {
             Log.w("k-mvi", "handleReset failed", e)
             emit(PartialChange { it.withEvent(Event.ShowToast("Reset Failure")) })

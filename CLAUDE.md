@@ -55,7 +55,7 @@ The processing pipeline:
 |------------------------------------|----------------------------------------------------------------------------------------------|
 | `Mvi.kt`                           | Core types: `Intent`, `State`, `Event`, `PartialChange`, `Snapshot`                          |
 | `Contracts.kt`                     | `Contract` (read-only) and `ReactiveContract` (read-write) interfaces                        |
-| `KMvi.kt`                          | Global config singleton: handleStrategy, retryPolicy, logger, hybridConfig                   |
+| `KMvi.kt`                          | Global config singleton: handleStrategy, retryPolicy, logger, hybridStrategyConfig           |
 | `HandleStrategies.kt`              | `HandleStrategy` enum (CONCURRENT/SEQUENTIAL/HYBRID) + `HybridConfig`                        |
 | `IntentHandlers.kt`                | `IntentHandler`, `IntentHandlerRegistry`, `IntentHandlerDelegate` (ConcurrentHashMap-backed) |
 | `IntentTransformers.kt`            | `IntentTransformer` + `StrategyIntentTransformer` (per-strategy implementation)              |
@@ -103,7 +103,7 @@ UI layer uses `collectState` and `collectEvent` DSL builders:
 
 ```kotlin
 viewModel.stateFlow.collectState(this) {
-    collectPartial(State::loading) { /* triggered only when loading changes */ }
+    collectProperty(State::loading) { /* triggered only when loading changes */ }
     collectWhole { state -> /* triggered on any state change */ }
 }
 viewModel.eventFlow.collectEvent(this) {

@@ -4,8 +4,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
@@ -26,9 +24,7 @@ import kotlin.reflect.KProperty1
  * state and event flows with automatic lifecycle management. All collectors respect
  * the Android lifecycle and automatically start/stop collection based on lifecycle state.
  *
- * Author: ccolorcat
- * Date: 2024-05-10
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**
@@ -47,11 +43,11 @@ import kotlin.reflect.KProperty1
  *     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
  *         viewModel.stateFlow.collectState(viewLifecycleOwner) {
  *             // Collect individual properties
- *             collectPartial(MyState::loading) { isLoading ->
+ *             collectProperty(MyState::loading) { isLoading ->
  *                 progressBar.isVisible = isLoading
  *             }
  *
- *             collectPartial(MyState::data) { data ->
+ *             collectProperty(MyState::data) { data ->
  *                 adapter.submitList(data)
  *             }
  *
@@ -76,7 +72,7 @@ import kotlin.reflect.KProperty1
  * @param collector A lambda with receiver to configure state collectors
  * @return A Job that manages all collectors. Cancelling this job will cancel all collectors at once.
  * @see StateCollector
- * @see StateCollector.collectPartial
+ * @see StateCollector.collectProperty
  * @see StateCollector.collectWhole
  */
 fun <S : Mvi.State> Flow<S>.collectState(
@@ -94,7 +90,7 @@ fun <S : Mvi.State> Flow<S>.collectState(
  * ## Key Features
  *
  * - **Lifecycle aware**: Automatically starts/stops based on lifecycle
- * - **Property-level collection**: Collect individual state properties with [collectPartial]
+ * - **Property-level collection**: Collect individual state properties with [collectProperty]
  * - **Whole state collection**: Collect entire state with [collectWhole]
  * - **Deduplication**: Automatically filters duplicate values using [distinctUntilChanged]
  * - **Supervised**: One collector's failure doesn't affect others
@@ -103,11 +99,11 @@ fun <S : Mvi.State> Flow<S>.collectState(
  *
  * ```kotlin
  * stateFlow.collectState(viewLifecycleOwner) {
- *     collectPartial(MyState::isLoading) { loading ->
+ *     collectProperty(MyState::isLoading) { loading ->
  *         showLoadingIndicator(loading)
  *     }
  *
- *     collectPartial(MyState::errorMessage) { message ->
+ *     collectProperty(MyState::errorMessage) { message ->
  *         message?.let { showError(it) }
  *     }
  *
@@ -120,7 +116,7 @@ fun <S : Mvi.State> Flow<S>.collectState(
  *
  * @param S The state type
  * @see collectState
- * @see StateCollector.collectPartial
+ * @see StateCollector.collectProperty
  * @see StateCollector.collectWhole
  */
 class StateCollector<S : Mvi.State> internal constructor(
@@ -133,7 +129,7 @@ class StateCollector<S : Mvi.State> internal constructor(
      *
      * This job is a child of [owner]'s lifecycleScope, ensuring automatic cleanup
      * when the lifecycle is destroyed. Cancelling this job will cancel all collectors
-     * created by [collectPartial] and [collectWhole].
+     * created by [collectProperty] and [collectWhole].
      * This job is returned by [collectState] and can be used to cancel all collectors at once.
      */
     internal val job: Job = SupervisorJob(owner.lifecycleScope.coroutineContext[Job])
@@ -149,10 +145,10 @@ class StateCollector<S : Mvi.State> internal constructor(
      * @param block The suspend function to call with each distinct property value
      * @return A Job for this specific collector
      */
-    fun <A> collectPartial(
+    fun <A> collectProperty(
         property: KProperty1<S, A>,
         block: suspend (A) -> Unit,
-    ): Job = collectPartial(property, state, block)
+    ): Job = collectProperty(property, state, block)
 
     /**
      * Collects a single property of the state with a specific lifecycle state.
@@ -164,7 +160,7 @@ class StateCollector<S : Mvi.State> internal constructor(
      * ```kotlin
      * stateFlow.collectState(viewLifecycleOwner) {
      *     // Collect only when RESUMED
-     *     collectPartial(MyState::sensitiveData, Lifecycle.State.RESUMED) { data ->
+     *     collectProperty(MyState::sensitiveData, Lifecycle.State.RESUMED) { data ->
      *         displaySensitiveInfo(data)
      *     }
      * }
@@ -176,7 +172,7 @@ class StateCollector<S : Mvi.State> internal constructor(
      * @param block The suspend function to call with each distinct property value
      * @return A Job for this specific collector
      */
-    fun <A> collectPartial(
+    fun <A> collectProperty(
         property: KProperty1<S, A>,
         state: Lifecycle.State,
         block: suspend (A) -> Unit,
@@ -217,12 +213,15 @@ class StateCollector<S : Mvi.State> internal constructor(
  * Collects a single property of the state flow with lifecycle awareness.
  *
  * This is a standalone function (not part of [StateCollector]) for simple cases
- * where you only need to collect one property.
+ * where you only need to collect one property. It is the free-function counterpart of
+ * [StateCollector.collectProperty]: same behavior, but you pass [owner] explicitly instead
+ * of collecting inside a [collectState] block. When collecting several properties, prefer the
+ * [collectState] DSL and its [StateCollector.collectProperty] member.
  *
  * ## Usage Example
  *
  * ```kotlin
- * stateFlow.collectPartialState(
+ * stateFlow.collectProperty(
  *     property = MyState::loading,
  *     owner = viewLifecycleOwner
  * ) { isLoading ->
@@ -238,8 +237,10 @@ class StateCollector<S : Mvi.State> internal constructor(
  * @param context Additional coroutine context
  * @param block The suspend function to call with each distinct property value
  * @return A Job that can be cancelled
+ * @see StateCollector.collectProperty
+ * @see collectState
  */
-fun <S : Mvi.State, A> Flow<S>.collectPartialState(
+fun <S : Mvi.State, A> Flow<S>.collectProperty(
     property: KProperty1<S, A>,
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
@@ -266,11 +267,11 @@ fun <S : Mvi.State, A> Flow<S>.collectPartialState(
  *
  *     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
  *         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
-*             collectTyped<ShowToast> { event ->
+ *             collectTyped<ShowToast> { event ->
  *                 Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
  *             }
  *
-*             collectTyped<Navigate> { event ->
+ *             collectTyped<Navigate> { event ->
  *                 findNavController().navigate(event.destination)
  *             }
  *
@@ -356,7 +357,7 @@ class EventCollector<E : Mvi.Event> internal constructor(
      *
      * ```kotlin
      * eventFlow.collectEvent(viewLifecycleOwner) {
- *     collectTyped<ShowToast> { event ->
+     *     collectTyped<ShowToast> { event ->
      *         showToast(event.message)
      *     }
      * }
@@ -402,8 +403,9 @@ class EventCollector<E : Mvi.Event> internal constructor(
         state: Lifecycle.State,
         block: suspend (A) -> Unit,
     ): Job {
-        @Suppress("UNCHECKED_CAST")
-        return (flow.filter { clazz.isInstance(it) } as Flow<A>)
+        return flow
+            .filter { clazz.isInstance(it) }
+            .map { clazz.java.cast(it) as A }
             .launchWithLifecycle(owner, state, job, block)
     }
 
@@ -432,14 +434,17 @@ class EventCollector<E : Mvi.Event> internal constructor(
 /**
  * Collects events of a specific type with lifecycle awareness.
  *
- * This is a standalone function for collecting a specific event type without
- * using [EventCollector]. Useful for simple cases where you only need to
- * collect one event type.
+ * This is a standalone function (not part of [EventCollector]) for simple cases where you only
+ * need to collect one event type. It is the free-function counterpart of
+ * [EventCollector.collectTyped]: same behavior, but you pass [owner] explicitly instead of
+ * collecting inside a [collectEvent] block. When collecting several event types, prefer the
+ * [collectEvent] DSL and its [EventCollector.collectTyped] member (collectors then share one
+ * supervisor job).
  *
  * ## Usage Example
  *
  * ```kotlin
- * eventFlow.collectTypedEvent<ShowToast>(
+ * eventFlow.collectTyped<ShowToast>(
  *     owner = viewLifecycleOwner
  * ) { event ->
  *     showToast(event.message)
@@ -452,8 +457,10 @@ class EventCollector<E : Mvi.Event> internal constructor(
  * @param context Additional coroutine context
  * @param block The suspend function to call with each event of type E
  * @return A Job that can be cancelled
+ * @see EventCollector.collectTyped
+ * @see collectEvent
  */
-inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTypedEvent(
+inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTyped(
     owner: LifecycleOwner,
     state: Lifecycle.State = Lifecycle.State.STARTED,
     context: CoroutineContext = EmptyCoroutineContext,
@@ -462,96 +469,12 @@ inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTypedEvent(
 
 
 /**
- * Launches collection of a flow with lifecycle awareness.
- *
- * This is a lower-level function for cases where you need fine-grained control
- * over the collection process. For collecting MVI state and events, prefer using
- * [collectState] or [collectEvent] which provide more convenient DSL features.
- *
- * Collection starts when the lifecycle reaches the specified state and stops
- * when it falls below that state. Collection automatically resumes when the
- * lifecycle returns to the required state.
- *
- * ## When to use this
- *
- * - When you need to collect a generic Flow (not MVI state/event)
- * - When you need custom [CoroutineStart] behavior (e.g., ATOMIC, LAZY)
- * - When you don't need the DSL features of [StateCollector] or [EventCollector]
- *
- * ## Usage Example
- *
- * ```kotlin
- * someFlow.launchCollect(
- *     owner = viewLifecycleOwner,
- *     state = Lifecycle.State.STARTED
- * ) { value ->
- *     processValue(value)
- * }
- * ```
- *
- * @param T The flow value type
- * @param owner The lifecycle owner
- * @param state The minimum lifecycle state (default: STARTED)
- * @param context Additional coroutine context
- * @param start The coroutine start mode (default: DEFAULT, suitable for most cases)
- * @param block The suspend function to call with each value
- * @return A Job that can be cancelled
- * @see collectState
- * @see collectEvent
- * @see launchWithLifecycle
- */
-fun <T> Flow<T>.launchCollect(
-    owner: LifecycleOwner,
-    state: Lifecycle.State = Lifecycle.State.STARTED,
-    context: CoroutineContext = EmptyCoroutineContext,
-    start: CoroutineStart = CoroutineStart.DEFAULT,
-    block: suspend (T) -> Unit,
-): Job = owner.lifecycleScope.launch(context, start) {
-    owner.repeatOnLifecycle(state) {
-        this@launchCollect.collect(block)
-    }
-}
-
-/**
- * Launches collection of a flow in a coroutine scope.
- *
- * This version doesn't have lifecycle awareness - collection continues until
- * the scope is cancelled.
- *
- * ## Usage Example
- *
- * ```kotlin
- * someFlow.launchCollect(
- *     scope = viewModelScope
- * ) { value ->
- *     processValue(value)
- * }
- * ```
- *
- * @param T The flow value type
- * @param scope The coroutine scope
- * @param context Additional coroutine context
- * @param start The coroutine start mode (default: DEFAULT)
- * @param block The suspend function to call with each value
- * @return A Job that can be cancelled
- */
-fun <T> Flow<T>.launchCollect(
-    scope: CoroutineScope,
-    context: CoroutineContext = EmptyCoroutineContext,
-    start: CoroutineStart = CoroutineStart.DEFAULT,
-    block: suspend (T) -> Unit,
-): Job = scope.launch(context, start) {
-    this@launchCollect.collect(block)
-}
-
-
-/**
  * Dispatches intents with full lifecycle awareness using [repeatOnLifecycle].
  *
  * Collection starts when the lifecycle reaches [state] and **stops** when the
  * lifecycle drops below that state. Collection automatically restarts when the
  * lifecycle returns to the required state. This matches the behavior of
- * [launchCollect] and [collectState] / [collectEvent].
+ * [launchWithLifecycle] and [collectState] / [collectEvent].
  *
  * ## Usage Example
  *
@@ -559,7 +482,7 @@ fun <T> Flow<T>.launchCollect(
  * intentFlow.dispatchWithLifecycle(
  *     owner = viewLifecycleOwner,
  *     state = Lifecycle.State.STARTED,
- *     dispatch = viewModel::dispatch
+ *     dispatch = { intent -> viewModel.dispatch(intent) }
  * )
  * ```
  *
@@ -572,9 +495,9 @@ fun <T> Flow<T>.launchCollect(
  * @param I The intent type
  * @param owner The lifecycle owner
  * @param state The minimum lifecycle state required for collection (default: STARTED)
- * @param dispatch The function to dispatch each intent
+ * @param dispatch The function to dispatch each intent.
  * @return A Job that can be cancelled
- * @see launchCollect
+ * @see launchWithLifecycle
  */
 fun <I : Mvi.Intent> Flow<I>.dispatchWithLifecycle(
     owner: LifecycleOwner,

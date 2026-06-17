@@ -50,9 +50,7 @@ package cc.colorcat.mvi
  * @see PartialChange
  * @see Snapshot
  *
- * Author: ccolorcat
- * Date: 2025-11-08
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 object Mvi {
     /**
@@ -100,7 +98,8 @@ object Mvi {
          *
          * **Do not implement both [Concurrent] and [Sequential] on the same intent.**
          * The two markers are mutually exclusive. Doing so is treated as a conflict:
-         * a warning is logged and the intent is routed to the fallback group instead.
+         * a warning is logged once per intent class and the intent is routed to the
+         * fallback group instead.
          */
         interface Concurrent : Intent
 
@@ -119,16 +118,24 @@ object Mvi {
          *
          * **Do not implement both [Sequential] and [Concurrent] on the same intent.**
          * The two markers are mutually exclusive. Doing so is treated as a conflict:
-         * a warning is logged and the intent is routed to the fallback group instead.
+         * a warning is logged once per intent class and the intent is routed to the
+         * fallback group instead.
          */
         interface Sequential : Intent
     }
 
     /**
-     * Represents the immutable state of the application at a given point in time.
+     * Represents the immutable, **persistent** description of the UI.
+     *
+     * In the frame model (see [PartialChange]), State is the part of a frame that
+     * **persists across frames**: it describes the elements that remain on screen,
+     * such as the current list, loading flag, or input text. Each new frame carries
+     * the previous State forward unless a [PartialChange] migrates some of it.
      *
      * State should be a data class that contains all the information needed to
      * render the UI. It should be immutable - any changes create a new instance.
+     *
+     * Contrast with [Event], which is transient and lives in exactly one frame.
      *
      * Example:
      * ```
@@ -142,12 +149,18 @@ object Mvi {
     interface State
 
     /**
-     * Represents a one-time side effect or event.
+     * Represents a one-time side effect — a **transient** part of a single frame.
      *
-     * Events are used for actions that should happen once and not be retained in state,
-     * such as showing a toast, navigating to another screen, or playing a sound.
+     * In the frame model (see [PartialChange]), an Event is the **fleeting** part of a
+     * frame: it exists in **exactly one frame** and is cleared or replaced the moment the
+     * next frame is produced (any [Snapshot.updateState] drops it). While it is present it
+     * is delivered to whatever consumer is currently subscribed; if there is no consumer,
+     * it is simply dropped — events are never retained or replayed.
      *
-     * Unlike State, Events are consumed after being handled and don't persist.
+     * Use Events for actions that should happen once and not be retained in state, such as
+     * showing a toast, navigating to another screen, or playing a sound.
+     *
+     * Contrast with [State], which is the persistent part that carries across frames.
      *
      * Example:
      * ```
@@ -161,27 +174,35 @@ object Mvi {
 
 
     /**
-     * A function that applies a partial change to a state snapshot.
+     * A partial migration of one UI "frame" to the next.
      *
      * ## What is "Partial"?
      *
-     * "Partial" means you typically update **only some properties** of the state
-     * (using Kotlin's `copy()` method), rather than replacing the entire state object.
-     * This encourages immutable updates and fine-grained state control.
+     * A [Snapshot] is one complete "frame" of the UI description: the current [State]
+     * plus an optional, one-shot [Event]. Every frame is **derived from the previous
+     * frame** rather than rebuilt from scratch. A `PartialChange` *is* that derivation:
+     * it receives the previous frame (`old`) and updates **only part** of it — some
+     * state properties, and/or the attached event — while everything it does not touch
+     * carries over from the previous frame.
      *
-     * For example, when loading data, you might only change the `loading` property:
+     * "Partial" is therefore relative to the **whole frame ([Snapshot])**, not to the
+     * state alone: you almost never replace an entire frame outright, you migrate it
+     * incrementally into the next one.
+     *
+     * For example, when loading data, you might only change the `loading` property and
+     * let every other field carry over:
      * ```
      * snapshot.updateState { copy(loading = true) }  // Other properties unchanged
      * ```
      *
      * ## What Can Be Changed?
      *
-     * A PartialChange can perform one or more of the following:
-     * - **Update state properties** (partial or complete)
-     * - **Attach an event** to the snapshot
-     * - **Do both** in one operation
+     * A single PartialChange can perform any one of the following:
+     * - **Update state only** (some or all properties)
+     * - **Attach an event only**, leaving the state untouched ([Snapshot.withEvent])
+     * - **Do both** in one operation ([Snapshot.updateWith])
      *
-     * It represents a transformation: `Snapshot → Snapshot`
+     * It represents a transformation of the frame: `Snapshot → Snapshot`.
      *
      * ## Typical Flow: Intent → Flow<PartialChange>
      *
@@ -283,19 +304,27 @@ object Mvi {
 
 
     /**
-     * An immutable snapshot of the current state and optional event.
+     * An immutable snapshot — one "frame" of the UI description.
      *
-     * A Snapshot pairs a [State] with an optional [Event]. It represents a moment
-     * in time in your application's state evolution. The snapshot provides methods
-     * to create new snapshots with updated state and/or events.
+     * A Snapshot pairs a persistent [State] with an optional, transient [Event]. It is one
+     * frame in your application's state evolution (see [PartialChange] for the frame model).
+     * The snapshot provides methods to derive the next frame with updated state and/or event.
      *
      * ## Key Characteristics
      *
      * - **Immutable**: All methods return new instances; the original is never modified
-     * - **Event Lifecycle**: Events are typically cleared when state is updated
+     * - **Event Lifecycle**: The [event] lives in exactly one frame. It is delivered to the
+     *   current subscriber (if any) and must be cleared when the next frame is produced —
+     *   that is why [updateState] drops it. Letting an event carry into a later frame would
+     *   re-deliver it, so a non-null [event] is meant to survive only a single frame.
      * - **Type-Safe**: Compiler ensures state and event types match
      *
      * ## Construction
+     *
+     * Business code rarely constructs a Snapshot directly. Derive the next frame from the `old`
+     * snapshot passed to [PartialChange.apply] via [updateState] / [withEvent] / [updateWith].
+     * Direct construction is mainly for the initial frame (built by the framework from the initial
+     * state) and for tests.
      *
      * ```kotlin
      * val snapshot = Mvi.Snapshot(MyState())
@@ -320,13 +349,29 @@ object Mvi {
          * The [transform] function receives the current state and should return
          * a new state instance. Any pending event is cleared in the new snapshot.
          *
-         * **Note**: This method clears any pending event. If you need to update
-         * state while preserving or setting an event, use [updateWith] instead.
+         * **Note**: This method clears any pending event by design — an event lives in
+         * exactly one frame (see [Snapshot]). If you need to update state while also
+         * setting an event in the same frame, use [updateWith] instead.
          *
          * Example:
          * ```
          * snapshot.updateState { copy(loading = true, error = null) }
          * ```
+         *
+         * ### Pitfall: don't chain [withEvent] then [updateState] in one change
+         *
+         * Within a single [PartialChange], setting an event and then calling
+         * [updateState] silently drops the event, because [updateState] clears it:
+         * ```
+         * // ❌ The toast is lost: updateState clears the event just set
+         * Mvi.PartialChange { it.withEvent(MyEvent.ShowToast).updateState { copy(loading = false) } }
+         *
+         * // ✅ Set state and event together in the same frame
+         * Mvi.PartialChange { it.updateWith(MyEvent.ShowToast) { copy(loading = false) } }
+         * ```
+         * Note this only applies *within one change*. Emitting an event in one
+         * [PartialChange] and updating state in a later one is safe: the event-carrying
+         * frame is delivered before the next frame clears it.
          *
          * @param transform A function that transforms the current state to a new state
          * @return A new snapshot with the updated state and no event
@@ -334,8 +379,7 @@ object Mvi {
          * @see withEvent
          */
         fun updateState(transform: S.() -> S): Snapshot<S, E> {
-            val newState = this.state.transform()
-            return this.copy(state = newState, event = null)
+            return copy(state = state.transform(), event = null)
         }
 
         /**
@@ -353,7 +397,7 @@ object Mvi {
          * @see updateState
          * @see updateWith
          */
-        fun withEvent(event: E): Snapshot<S, E> = this.copy(event = event)
+        fun withEvent(event: E): Snapshot<S, E> = copy(event = event)
 
         /**
          * Creates a new snapshot with an updated state and an attached event.
@@ -375,8 +419,7 @@ object Mvi {
          * @see withEvent
          */
         fun updateWith(event: E, transform: S.() -> S): Snapshot<S, E> {
-            val newState = this.state.transform()
-            return this.copy(state = newState, event = event)
+            return copy(state = state.transform(), event = event)
         }
     }
 }

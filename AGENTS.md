@@ -171,7 +171,7 @@ value.asSingleFlow()              // wraps a PartialChange in Flow<PartialChange
 ```kotlin
 collectState(contract) { state -> /* render */ }
 collectEvent(contract) { event -> /* handle */ }
-collectPartialState(contract, selector) { part -> /* render subset */ }
+stateFlow.collectProperty(MyState::loading, owner) { value -> /* render one property */ }
 dispatchWithLifecycle(lifecycleOwner, contract) { MyIntent.Foo }
 launchWithLifecycle(lifecycleOwner) { /* coroutine */ }
 ```
@@ -191,7 +191,7 @@ KMvi.setup {
 
 ### Error handling / retry
 
-`RetryPolicy` is `typealias (Throwable, Int) -> Flow<*>` — defaults to no retry. Set via `KMvi.Configuration.retryPolicy` or per-contract.
+`RetryPolicy` is `typealias (attempt: Long, cause: Throwable) -> Boolean` — defaults to retrying `IOException` on attempts `0..2`. Set via `KMvi.Configuration.retryPolicy` or per-contract.
 
 ### No DI framework
 

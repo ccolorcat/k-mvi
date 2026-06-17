@@ -188,7 +188,7 @@ class MviTest {
         val reactive = object : ReactiveContract<Mvi.Intent, TestState, TestEvent> {
             override val stateFlow: StateFlow<TestState> = MutableStateFlow(TestState(1))
             override val eventFlow: Flow<TestEvent> = emptyFlow()
-            override fun dispatch(intent: Mvi.Intent) {}
+            override fun dispatch(intent: Mvi.Intent): DispatchResult = DispatchResult.Submitted
         }
 
         val readOnly = reactive.asContract()
@@ -204,8 +204,9 @@ class MviTest {
         val reactive = object : ReactiveContract<Mvi.Intent, TestState, TestEvent> {
             override val stateFlow: StateFlow<TestState> = state
             override val eventFlow: Flow<TestEvent> = emptyFlow()
-            override fun dispatch(intent: Mvi.Intent) {
+            override fun dispatch(intent: Mvi.Intent): DispatchResult {
                 state.value = TestState(2)
+                return DispatchResult.Submitted
             }
         }
 

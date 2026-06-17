@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cc.colorcat.mvi.internal.CoreReactiveContract
 import cc.colorcat.mvi.internal.StrategyReactiveContract
-import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * ViewModel extensions for creating ReactiveContract instances.
@@ -21,9 +20,7 @@ import kotlinx.coroutines.flow.emptyFlow
  * Both APIs return a [Lazy] delegate for delayed initialization - the contract is only
  * created when first accessed.
  *
- * Author: ccolorcat
- * Date: 2024-08-01
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**
@@ -48,21 +45,24 @@ import kotlinx.coroutines.flow.emptyFlow
  * class MyViewModel : ViewModel() {
  *     private val contract by contract(
  *         initState = MyState(),
- *         // Define your own PartialChange subtypes implementing Mvi.PartialChange
- *         transformer = { intent ->
- *             when (intent) {
- *                 is MyIntent.Load -> flow {
- *                     emit(PartialChange.Loading(true))
- *                     try {
- *                         val data = repository.loadData()
- *                         emit(PartialChange.DataLoaded(data))
- *                     } catch (e: Exception) {
- *                         emit(PartialChange.Error(e))
- *                     } finally {
- *                         emit(PartialChange.Loading(false))
+ *         // Define your own PartialChange subtypes implementing Mvi.PartialChange.
+ *         // The transformer receives a Flow<Intent>, not a single intent.
+ *         transformer = IntentTransformer { intentFlow ->
+ *             intentFlow.flatMapConcat { intent ->
+ *                 when (intent) {
+ *                     is MyIntent.Load -> flow {
+ *                         emit(PartialChange.Loading(true))
+ *                         try {
+ *                             val data = repository.loadData()
+ *                             emit(PartialChange.DataLoaded(data))
+ *                         } catch (e: Exception) {
+ *                             emit(PartialChange.Error(e))
+ *                         } finally {
+ *                             emit(PartialChange.Loading(false))
+ *                         }
  *                     }
+ *                     is MyIntent.Refresh -> refreshData()
  *                 }
- *                 is MyIntent.Refresh -> refreshData()
  *             }
  *         }
  *     )
@@ -78,10 +78,8 @@ import kotlinx.coroutines.flow.emptyFlow
  * @param S The State type that extends [Mvi.State]
  * @param E The Event type that extends [Mvi.Event]
  * @param initState The initial state of the contract
- * @param intentQueueCapacity The dispatch queue buffer size. Allowed values:
- *                            [kotlinx.coroutines.channels.Channel.BUFFERED], [kotlinx.coroutines.channels.Channel.CONFLATED],
- *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int.
- *                            Defaults to global config [KMvi.intentQueueCapacity]
+ * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
+ *                          [KMvi.intentQueueConfig]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
  * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
@@ -91,7 +89,7 @@ import kotlinx.coroutines.flow.emptyFlow
  */
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
-    intentQueueCapacity: Int = KMvi.intentQueueCapacity,
+    intentQueueConfig: IntentQueueConfig = KMvi.intentQueueConfig,
     retryPolicy: RetryPolicy = KMvi.retryPolicy,
     transformer: IntentTransformer<I, S, E>,
 ): Lazy<ReactiveContract<I, S, E>> {
@@ -99,7 +97,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
         CoreReactiveContract(
             scope = viewModelScope,
             initState = initState,
-            intentQueueCapacity = intentQueueCapacity,
+            intentQueueConfig = intentQueueConfig,
             retryPolicy = retryPolicy,
             transformer = transformer,
         )
@@ -136,17 +134,17 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *     private val contract by contract(
  *         initState = MyState(),
  *         // Define your own PartialChange subtypes implementing Mvi.PartialChange
- *         strategy = HandleStrategy.HYBRID
+ *         handleStrategy = HandleStrategy.HYBRID
  *     ) {
  *         // Register handlers for different Intent types
- *         register<LoadIntent> { intent ->
+ *         register<LoadIntent>(IntentHandler { intent ->
  *             flow {
  *                 emit(PartialChange.Loading(true))
  *                 val data = repository.loadData(intent.id)
  *                 emit(PartialChange.DataLoaded(data))
  *                 emit(PartialChange.Loading(false))
  *             }
- *         }
+ *         })
  *
  *         // Register a handler returning a single PartialChange
  *         register<RefreshIntent> { intent ->
@@ -165,38 +163,46 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param S The State type that extends [Mvi.State]
  * @param E The Event type that extends [Mvi.Event]
  * @param initState The initial state of the contract
- * @param intentQueueCapacity The dispatch queue buffer size. Allowed values:
- *                            [kotlinx.coroutines.channels.Channel.BUFFERED], [kotlinx.coroutines.channels.Channel.CONFLATED],
- *                            [kotlinx.coroutines.channels.Channel.RENDEZVOUS], or any positive Int.
- *                            Defaults to global config [KMvi.intentQueueCapacity]
+ * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
+ *                          [KMvi.intentQueueConfig]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
- * @param strategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
- * @param config The hybrid configuration when using HYBRID strategy. Defaults to global config [KMvi.hybridConfig]
- * @param defaultHandler The fallback handler for Intents without registered handlers. Defaults to empty flow.
- * @param setup A lambda with receiver to register Intent handlers using [IntentHandlerRegistry]
+ * @param handleStrategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
+ * @param hybridStrategyConfig The runtime configuration when using HYBRID strategy.
+ *                     Defaults to [KMvi.hybridStrategyConfig].
+ * @param groupTagSelector Selects fallback group tags when using HYBRID strategy.
+ *                         Defaults to [GroupTagSelector.byClass].
+ * @param defaultHandler The fallback handler for Intents without a registered handler.
+ *                       Defaults to `null`, in which case unhandled Intents are logged at WARN
+ *                       and produce no state change. Supply a non-null handler to opt into the
+ *                       centralized-dispatch pattern (unhandled Intents are silently routed to
+ *                       it).
+ * @param setup A lambda with [IntentHandlerScope] receiver to register Intent handlers; its
+ *              `reified` helpers take only the intent type (`register<MyIntent> { ... }`)
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
  * @see ReactiveContract
  * @see HandleStrategy
  * @see IntentHandler
- * @see IntentHandlerRegistry
+ * @see IntentHandlerScope
  */
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
-    intentQueueCapacity: Int = KMvi.intentQueueCapacity,
+    intentQueueConfig: IntentQueueConfig = KMvi.intentQueueConfig,
     retryPolicy: RetryPolicy = KMvi.retryPolicy,
-    strategy: HandleStrategy = KMvi.handleStrategy,
-    config: HybridConfig<I> = KMvi.hybridConfig,
-    defaultHandler: IntentHandler<I, S, E> = IntentHandler { emptyFlow() },
-    setup: IntentHandlerRegistry<I, S, E>.() -> Unit = {},
+    handleStrategy: HandleStrategy = KMvi.handleStrategy,
+    hybridStrategyConfig: HybridStrategyConfig = KMvi.hybridStrategyConfig,
+    groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
+    defaultHandler: IntentHandler<I, S, E>? = null,
+    setup: IntentHandlerScope<I, S, E>.() -> Unit = {},
 ): Lazy<ReactiveContract<I, S, E>> {
     return ReactiveContractLazy {
         StrategyReactiveContract(
             scope = viewModelScope,
             initState = initState,
-            intentQueueCapacity = intentQueueCapacity,
+            intentQueueConfig = intentQueueConfig,
             retryPolicy = retryPolicy,
-            strategy = strategy,
-            config = config,
+            handleStrategy = handleStrategy,
+            hybridStrategyConfig = hybridStrategyConfig,
+            groupTagSelector = groupTagSelector,
             defaultHandler = defaultHandler,
         ).also { it.setupIntentHandlers(setup) }
     }
@@ -226,7 +232,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
 internal class ReactiveContractLazy<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val create: () -> ReactiveContract<I, S, E>,
 ) : Lazy<ReactiveContract<I, S, E>> {
-    @Volatile private var cached: ReactiveContract<I, S, E>? = null
+    @Volatile
+    private var cached: ReactiveContract<I, S, E>? = null
 
     override val value: ReactiveContract<I, S, E>
         get() = cached ?: create().also { cached = it }

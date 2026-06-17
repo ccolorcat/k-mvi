@@ -9,9 +9,7 @@ import cc.colorcat.mvi.Logger
  *
  * These functions provide convenient internal logging methods for the MVI framework.
  *
- * Author: ccolorcat
- * Date: 2025-11-08
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**
@@ -32,8 +30,8 @@ internal const val TAG = "k-mvi"
  *
  * Example:
  * ```kotlin
- * // Configure custom logger via KMvi.setup
- * KMvi.setup { copy(logger = Logger(Logger.DEBUG)) }
+ * // Configure custom logger via KMvi.configure
+ * KMvi.configure { copy(logger = Logger(Logger.DEBUG)) }
  *
  * // All internal framework logs will use this logger
  * ```

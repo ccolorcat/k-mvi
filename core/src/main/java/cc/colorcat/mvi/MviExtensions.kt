@@ -1,3 +1,5 @@
+@file:OptIn(FlowPreview::class)
+
 package cc.colorcat.mvi
 
 import android.text.Editable
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import java.util.concurrent.TimeUnit
 
 /**
  * MVI Extension functions for converting Android View events to Flow<Intent>.
@@ -20,27 +23,25 @@ import kotlinx.coroutines.flow.flowOf
  * This file provides convenient extension functions to convert various Android UI events
  * (clicks, text changes, etc.) into reactive Flow streams that emit MVI Intents.
  *
- * Author: ccolorcat
- * Date: 2024-05-10
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**
- * Converts a single value into a Flow that emits this value.
+ * Converts a single [Mvi.PartialChange] into a Flow that emits it.
  *
  * This is a convenience extension that wraps [flowOf].
  *
  * ## Usage Example
  *
  * ```kotlin
- * val intent = LoginIntent.Initialize
- * intent.asSingleFlow()
- *     .launchCollect(this) { viewModel.dispatch(it) }
+ * LoginChange.ClearError
+ *     .asSingleFlow()
+ *     .collect { change -> ... }
  * ```
  *
- * @return A Flow that emits this single value
+ * @return A Flow that emits this single partial change
  */
-fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
+fun <S : Mvi.State, E : Mvi.Event, C : Mvi.PartialChange<S, E>> C.asSingleFlow(): Flow<C> = flowOf(this)
 
 /**
  * Debounces the flow with a leading edge trigger and sliding timeout window.
@@ -52,6 +53,7 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  * **Key behavior:** Each event (whether emitted or ignored) updates the internal timestamp.
  * This creates a sliding timeout window where rapid continuous events will only trigger once,
  * no matter how long they continue, as long as the gap between consecutive events is less than [timeMillis].
+ * The timeout is measured with [System.nanoTime], a monotonic clock that is unaffected by wall-clock changes.
  *
  * ## Behavior Comparison
  *
@@ -108,12 +110,12 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  * // User's first click is processed immediately, subsequent rapid clicks are ignored
  * button.doOnClick { trySend(SubmitIntent) }
  *     .debounceLeading(500L)  // 500ms sliding window
- *     .launchCollect(viewLifecycleOwner) { viewModel.dispatch(it) }
+ *     .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
  *
  * // Compare with standard debounce (waits for user to stop, then responds)
  * searchEditText.afterTextChanged()
  *     .debounce(500L)  // Waits for user to stop typing
- *     .launchCollect(viewLifecycleOwner) { viewModel.dispatch(SearchIntent(it)) }
+ *     .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(SearchIntent(it)) }
  * ```
  *
  * ## Use Cases
@@ -133,13 +135,16 @@ fun <T> T.asSingleFlow(): Flow<T> = flowOf(this)
  *         if at least [timeMillis] has passed since the **last event** (not last emission)
  * @see kotlinx.coroutines.flow.debounce
  */
-fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = flow {
+fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = debounceLeading(timeMillis, System::nanoTime)
+
+internal fun <T> Flow<T>.debounceLeading(timeMillis: Long, nanoTimeSource: () -> Long): Flow<T> = flow {
     require(timeMillis > 0L) { "timeMillis must be positive" }
-    var time = -timeMillis
+    val windowNanos = TimeUnit.MILLISECONDS.toNanos(timeMillis)
+    var time = -windowNanos
     collect { value ->
         val prev = time
-        time = System.currentTimeMillis()
-        if (time - prev >= timeMillis) {
+        time = nanoTimeSource()
+        if (time - prev >= windowNanos) {
             emit(value)
         }
     }
@@ -151,12 +156,16 @@ fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = flow {
  *
  * The Flow will emit an Intent each time the View is clicked.
  * The click listener is automatically removed when the Flow is cancelled.
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The lifecycle helpers in this library
+ * ([launchWithLifecycle] and [dispatchWithLifecycle]) collect from
+ * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *
  * ```kotlin
  * button.doOnClick { trySend(LoginIntent.ClickLoginButton) }
- *     .launchCollect(viewLifecycleOwner) { intent ->
+ *     .launchWithLifecycle(viewLifecycleOwner) { intent ->
  *         viewModel.dispatch(intent)
  *     }
  * ```
@@ -168,7 +177,7 @@ fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = flow {
  */
 fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I> = callbackFlow {
     setOnClickListener {
-        this.block()
+        block()
     }
     awaitClose { setOnClickListener(null) }
 }
@@ -178,6 +187,10 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  *
  * The Flow will emit an Intent each time the View is long-clicked.
  * The long click listener is automatically removed when the Flow is cancelled.
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The lifecycle helpers in this library
+ * ([launchWithLifecycle] and [dispatchWithLifecycle]) collect from
+ * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *
@@ -185,7 +198,7 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  * button.doOnLongClick {
  *     trySend(EditIntent.ShowContextMenu)
  *     true  // Consume the event
- * }.launchCollect(viewLifecycleOwner) { intent ->
+ * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
  * ```
@@ -199,7 +212,7 @@ fun <I : Mvi.Intent> View.doOnLongClick(
     block: ProducerScope<I>.() -> Boolean,
 ): Flow<I> = callbackFlow {
     setOnLongClickListener {
-        this.block()
+        block()
     }
     awaitClose { setOnLongClickListener(null) }
 }
@@ -209,13 +222,17 @@ fun <I : Mvi.Intent> View.doOnLongClick(
  *
  * The Flow will emit an Intent each time the checked state changes.
  * The checked change listener is automatically removed when the Flow is cancelled.
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The lifecycle helpers in this library
+ * ([launchWithLifecycle] and [dispatchWithLifecycle]) collect from
+ * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *
  * ```kotlin
  * switchButton.doOnCheckedChange { isChecked ->
  *     trySend(SettingsIntent.ToggleNotification(isChecked))
- * }.launchCollect(viewLifecycleOwner) { intent ->
+ * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
  * ```
@@ -229,7 +246,7 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
     block: ProducerScope<I>.(isChecked: Boolean) -> Unit,
 ): Flow<I> = callbackFlow {
     setOnCheckedChangeListener { _, isChecked ->
-        this.block(isChecked)
+        block(isChecked)
     }
     awaitClose { setOnCheckedChangeListener(null) }
 }
@@ -241,13 +258,17 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  * The Flow will emit an Intent after the text changes (after the user finishes editing).
  * Debouncing helps reduce unnecessary emissions during rapid typing.
  * The text watcher is automatically removed when the Flow is cancelled.
+ * This Flow must be collected on the main thread because it registers and
+ * removes Android View listeners. The lifecycle helpers in this library
+ * ([launchWithLifecycle] and [dispatchWithLifecycle]) collect from
+ * `LifecycleOwner.lifecycleScope`, so normal Fragment/View usage satisfies this requirement.
  *
  * ## Usage Example
  *
  * ```kotlin
  * searchEditText.doOnAfterTextChanged(debounceMillis = 500L) { editable ->
  *     trySend(SearchIntent.QueryChanged(editable?.toString().orEmpty()))
- * }.launchCollect(viewLifecycleOwner) { intent ->
+ * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
  * ```
@@ -274,7 +295,6 @@ fun <I : Mvi.Intent> TextView.doOnAfterTextChanged(
         awaitClose { removeTextChangedListener(watcher) }
     }
     return if (debounceMillis > 0L) {
-        @OptIn(FlowPreview::class)
         flow.debounce(debounceMillis)
     } else {
         flow

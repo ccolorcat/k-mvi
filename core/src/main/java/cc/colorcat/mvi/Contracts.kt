@@ -20,20 +20,27 @@ import kotlinx.coroutines.flow.StateFlow
  * ## Usage in UI Layer
  *
  * ```kotlin
+ * // The ViewModel owns the contract and exposes its read-only surface:
+ * class MyViewModel : ViewModel() {
+ *     private val contract by contract(initState = MyState(), defaultHandler = ::handleIntent)
+ *     val stateFlow: StateFlow<MyState> = contract.stateFlow
+ *     val eventFlow: Flow<MyEvent> = contract.eventFlow
+ * }
+ *
  * class MyFragment : Fragment() {
- *     private val contract: Contract<MyIntent, MyState, MyEvent> by viewModels()
+ *     private val viewModel: MyViewModel by viewModels()
  *
  *     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
  *         // Observe state changes
  *         viewLifecycleOwner.lifecycleScope.launch {
- *             contract.stateFlow.collect { state ->
+ *             viewModel.stateFlow.collect { state ->
  *                 updateUI(state)
  *             }
  *         }
  *
  *         // Observe one-time events
  *         viewLifecycleOwner.lifecycleScope.launch {
- *             contract.eventFlow.collect { event ->
+ *             viewModel.eventFlow.collect { event ->
  *                 handleEvent(event)
  *             }
  *         }
@@ -54,18 +61,15 @@ import kotlinx.coroutines.flow.StateFlow
  * [Contract] is the read-only interface of [ReactiveContract]. If you need to dispatch
  * intents, use [ReactiveContract] instead.
  *
- * @param I The intent type
  * @param S The state type
  * @param E The event type
  * @see ReactiveContract
  * @see StateFlow
  * @see Flow
  *
- * Author: ccolorcat
- * Date: 2024-05-10
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
-interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
+interface Contract<S : Mvi.State, E : Mvi.Event> {
     /**
      * A hot flow that emits the current state and all subsequent state changes.
      *
@@ -76,7 +80,9 @@ interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
      * - **Hot**: Emits values regardless of collectors
      * - **Stateful**: Always has a current value
      * - **Replay**: New collectors immediately receive the current state
-     * - **Conflated**: Only the latest state is kept, intermediate states may be skipped
+     * - **Conflated**: Deduplicates by [Any.equals] — no emission when the new state equals the
+     *   current one; additionally, slow collectors may skip intermediate values (this is value-based,
+     *   not time-based, conflation)
      *
      * ## Collection Pattern
      * ```kotlin
@@ -137,10 +143,9 @@ interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *
  * ```kotlin
  * class MyViewModel : ViewModel() {
- *     private val contract: ReactiveContract<MyIntent, MyState, MyEvent> = mviViewModel(
- *         scope = viewModelScope,
+ *     private val contract by contract(
  *         initState = MyState(),
- *         defaultHandler = ::handleIntent
+ *         defaultHandler = ::handleIntent,
  *     )
  *
  *     // Expose read-only contract to UI
@@ -170,7 +175,7 @@ interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *
  * Use [asContract] extension to expose only the read-only interface:
  * ```kotlin
- * val readOnlyContract: Contract<I, S, E> = reactiveContract.asContract()
+ * val readOnlyContract: Contract<S, E> = reactiveContract.asContract()
  * ```
  *
  * @param I The intent type
@@ -180,7 +185,7 @@ interface Contract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @see dispatch
  * @see asContract
  */
-interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contract<I, S, E> {
+interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contract<S, E> {
     /**
      * Dispatches an intent to be processed.
      *
@@ -190,14 +195,20 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
      *
      * ## Processing Behavior
      *
-     * - Intent is enqueued into a dispatch queue (buffer capacity configurable, default: 256)
-     * - If the queue is full, the intent is discarded with a warning log
-     * - If the coroutine scope is inactive, the intent is discarded with a warning log
+     * - Intent is enqueued into the dispatch entry queue (capacity configurable, default: 256)
+     * - With the default [IntentQueueConfig] overflow policy, if the queue is full, the intent is
+     *   discarded with a warning log and [DispatchResult.Full] is returned
+     * - With conflated or dropping queue policies, [DispatchResult.Submitted] does not guarantee
+     *   every individual intent will be processed; see [DispatchResult.Submitted]
+     * - If the contract is no longer available (its coroutine scope has completed, which also
+     *   closes the entry queue), the intent is discarded with a warning log and
+     *   [DispatchResult.Unavailable] is returned
      *
      * ## Thread Safety
      *
-     * This method is thread-safe and can be called from any thread. The actual
-     * processing happens on configured dispatchers (typically IO and Default).
+     * This method is thread-safe and can be called from any thread. Intent processing and
+     * state accumulation run off the caller thread on the framework processing dispatcher
+     * ([kotlinx.coroutines.Dispatchers.Default] by default).
      *
      * ## Example
      *
@@ -215,11 +226,13 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
      * ```
      *
      * @param intent The intent to dispatch
+     * @return The enqueue result. It does not indicate whether intent handling has completed.
+     * @see DispatchResult
      * @see Mvi.Intent
      * @see HandleStrategy
      * @see KMvi.Configuration
      */
-    fun dispatch(intent: I)
+    fun dispatch(intent: I): DispatchResult
 }
 
 /**
@@ -238,7 +251,7 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
  *     private val reactiveContract: ReactiveContract<MyIntent, MyState, MyEvent> = ...
  *
  *     // Expose read-only contract to UI
- *     val contract: Contract<MyIntent, MyState, MyEvent> = reactiveContract.asContract()
+ *     val contract: Contract<MyState, MyEvent> = reactiveContract.asContract()
  *
  *     // ViewModel can dispatch, UI cannot
  *     fun onUserAction() {
@@ -268,7 +281,7 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
  * @see Contract
  * @see ReactiveContract
  */
-fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asContract(): Contract<I, S, E> {
+fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asContract(): Contract<S, E> {
     return ReadOnlyContract(this)
 }
 
@@ -278,17 +291,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asC
  * This internal class ensures that the [ReactiveContract.dispatch] method cannot be accessed even through
  * type casting, providing true encapsulation for read-only access.
  *
- * @param I The intent type
  * @param S The state type
  * @param E The event type
- * @param source The underlying [ReactiveContract] to wrap
+ * @param delegate The underlying [Contract] whose read-only surface is re-exposed
  */
-private class ReadOnlyContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val source: ReactiveContract<I, S, E>,
-) : Contract<I, S, E> {
-    override val stateFlow: StateFlow<S>
-        get() = source.stateFlow
-
-    override val eventFlow: Flow<E>
-        get() = source.eventFlow
-}
+private class ReadOnlyContract<S : Mvi.State, E : Mvi.Event>(delegate: Contract<S, E>) : Contract<S, E> by delegate

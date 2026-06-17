@@ -33,15 +33,18 @@ sealed interface CounterContract {
     /**
      * Represents the current state of the counter.
      *
-     * @property count The current counter value (raw data)
-     * @property countText Computed property for UI presentation - converts count to String
+     * Constructor properties hold the raw data; the rest of the class exposes **computed**
+     * properties ([countText], [countInfo], [alpha], [alpha255]) derived from that data.
      *
      * **Design Note:**
-     * Using computed properties like [countText] separates business logic (count as Int)
-     * from presentation logic (formatted string). This allows:
-     * - Easy formatting changes without touching ViewModel
-     * - Type-safe binding with TextView (String → setText)
-     * - Reusability of presentation logic across multiple UI components
+     * Keeping presentation values (e.g. [countText], [alpha]) as computed properties separates
+     * business data (count as `Int`) from how it is rendered. This allows formatting changes
+     * without touching the ViewModel, enables type-safe binding (`String` → `TextView.setText`),
+     * and keeps the presentation logic reusable across UI components.
+     *
+     * @property count The current counter value
+     * @property targetCount The randomly chosen target the user is aiming for
+     * @property showLoading Whether an async operation (e.g. reset) is in progress
      */
     data class State(
         val count: Int = 0,
@@ -79,8 +82,12 @@ sealed interface CounterContract {
     }
 
     /**
-     * One-time events that should be consumed by the UI layer.
-     * Events are not part of the state and should only be handled once.
+     * One-time, fire-and-forget side effects emitted to the UI layer.
+     *
+     * The counter feature defines a single event, [ShowToast], used to surface
+     * boundary feedback (e.g. when the value hits [State.COUNT_MIN]/[State.COUNT_MAX]).
+     * Events are delivered via the contract's `eventFlow` and consumed exactly once,
+     * unlike [State] which is observable and conflated.
      */
     sealed interface Event : Mvi.Event {
         /**
@@ -113,8 +120,19 @@ sealed interface CounterContract {
     }
 
     /**
-     * Functional interface for state transformations.
-     * A PartialChange takes the current state and returns a new state with optional events.
+     * State transformations for the counter feature.
+     *
+     * This contract uses the **inline lambda** pattern: [PartialChange] instances are
+     * created directly in the ViewModel handlers via `PartialChange { old -> ... }`,
+     * rather than sealed subtypes. Compare with [cc.colorcat.mvi.sample.login.LoginContract.PartialChange]
+     * for the centralized sealed-subtype pattern.
+     *
+     * **Principle:** a [PartialChange] runs synchronously inside the state accumulator, so it must
+     * stay minimal — its single job is to migrate the snapshot (update state and/or attach an
+     * event). Keep decision-making, branching, and any heavy or async work in the handler, not
+     * inside the change. See [cc.colorcat.mvi.sample.count.CounterViewModel.handleDecrement] for the
+     * preferred shape and [cc.colorcat.mvi.sample.count.CounterViewModel.handleIncrement] for the
+     * concise inline form that is only acceptable when the branch is trivial.
      */
     fun interface PartialChange : Mvi.PartialChange<State, Event>
 }

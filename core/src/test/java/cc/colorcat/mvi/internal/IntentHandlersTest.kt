@@ -2,10 +2,12 @@ package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentHandlerDelegate
+import cc.colorcat.mvi.IntentHandlerScope
+import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
-import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.Mvi
+import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.toList
@@ -23,9 +25,9 @@ class IntentHandlersTest {
 
     @Before
     fun setUp() {
-        KMvi.setup {
+        KMvi.configure {
             copy(
-                intentQueueCapacity = 64,
+                intentQueueConfig = IntentQueueConfig(capacity = 64),
                 logger = Logger { _, _, _, _ -> },
             )
         }
@@ -83,6 +85,61 @@ class IntentHandlersTest {
         val result = delegate.handle(TestIntent.Increment)
         val changes = result.toList()
         assertEquals("always-default", changes[0].apply(Mvi.Snapshot(TestState())).state.value)
+    }
+
+    @Test
+    fun `null defaultHandler produces empty flow and logs WARN for unregistered intent`() = runBlocking {
+        val warns = mutableListOf<String>()
+        KMvi.configure {
+            copy(logger = Logger { priority, _, _, message ->
+                if (priority == Logger.WARN) warns.add(message())
+            })
+        }
+
+        val delegate = IntentHandlerDelegate<TestIntent, TestState, TestEvent>(defaultHandler = null)
+
+        val changes = delegate.handle(TestIntent.Increment).toList()
+        assertTrue("emptyFlow expected when no handler and no default", changes.isEmpty())
+        assertEquals(1, warns.size)
+        assertTrue("warn must mention diagnostic name", warns.single().contains("Increment"))
+        assertTrue("warn must mention missing default handler", warns.single().contains("default handler"))
+    }
+
+    @Test
+    fun `null defaultHandler is silent for intents with registered handler`() = runBlocking {
+        val warns = mutableListOf<String>()
+        KMvi.configure {
+            copy(logger = Logger { priority, _, _, message ->
+                if (priority == Logger.WARN) warns.add(message())
+            })
+        }
+
+        val delegate = IntentHandlerDelegate<TestIntent, TestState, TestEvent>(defaultHandler = null)
+        delegate.register(TestIntent.Increment::class.java, IntentHandler {
+            Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(value = "handled") } }
+                .asSingleFlow()
+        })
+
+        val changes = delegate.handle(TestIntent.Increment).toList()
+        assertEquals("handled", changes.single().apply(Mvi.Snapshot(TestState())).state.value)
+        assertTrue("no WARN expected for handled intent", warns.isEmpty())
+    }
+
+    @Test
+    fun `single change register runs handler when returned flow is collected`() = runBlocking {
+        var calls = 0
+        val delegate = IntentHandlerDelegate<TestIntent, TestState, TestEvent>(defaultHandler = null)
+        IntentHandlerScope(delegate).register<TestIntent.Increment> {
+            calls++
+            Mvi.PartialChange { snapshot -> snapshot.updateState { copy(value = "collected") } }
+        }
+
+        val changes = delegate.handle(TestIntent.Increment)
+        assertEquals("handler should not run while only creating the Flow", 0, calls)
+
+        val result = changes.toList()
+        assertEquals(1, calls)
+        assertEquals("collected", result.single().apply(Mvi.Snapshot(TestState())).state.value)
     }
 
     @Test

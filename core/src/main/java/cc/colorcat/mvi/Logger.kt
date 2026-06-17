@@ -37,9 +37,7 @@ import cc.colorcat.mvi.internal.getStackTraceString
  * }
  * ```
  *
- * Author: ccolorcat
- * Date: 2025-11-08
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 fun interface Logger {
     /**
@@ -92,7 +90,7 @@ fun interface Logger {
                     } else {
                         buildString {
                             appendLine(message())
-                            appendLine(error.getStackTraceString())
+                            append(error.getStackTraceString())
                         }
                     }
                     Log.println(priority, tag, msg)

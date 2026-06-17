@@ -3,8 +3,8 @@ package cc.colorcat.mvi
 import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.d
 import cc.colorcat.mvi.internal.e
-import cc.colorcat.mvi.internal.requireSupportedCapacity
 import cc.colorcat.mvi.internal.w
+import java.io.IOException
 
 /**
  * Global configuration and entry point for the K-MVI framework.
@@ -12,9 +12,7 @@ import cc.colorcat.mvi.internal.w
  * This file provides centralized configuration management for the MVI framework,
  * including Intent handling strategies, retry policies, and logging.
  *
- * Author: ccolorcat
- * Date: 2024-12-25
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 
 /**
@@ -44,7 +42,7 @@ import cc.colorcat.mvi.internal.w
  *     }
  * }
  *
- * KMvi.setup {
+ * KMvi.configure {
  *     copy(retryPolicy = customRetryPolicy)
  * }
  * ```
@@ -61,14 +59,14 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  *
  * ## Configuration
  *
- * Configure the framework by calling [setup] early in your application lifecycle,
+ * Configure the framework by calling [configure] early in your application lifecycle,
  * typically in `Application.onCreate()`:
  *
  * ```kotlin
  * class MyApplication : Application() {
  *     override fun onCreate() {
  *         super.onCreate()
- *         KMvi.setup {
+ *         KMvi.configure {
  *             copy(
  *                 handleStrategy = HandleStrategy.CONCURRENT,
  *                 logger = Logger(Logger.DEBUG)
@@ -84,13 +82,17 @@ typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
  *
  * ## Thread Safety
  *
- * The [setup] method is NOT thread-safe and should only be called once during
- * application initialization on the main thread.
+ * The [configure] method is NOT thread-safe and should only be called once during
+ * application initialization on the main thread. The internal configuration reference is
+ * volatile only so background readers can observe the latest published configuration; it
+ * does not make concurrent [configure] calls atomic.
  *
  * @see Configuration
- * @see setup
+ * @see configure
  */
 object KMvi {
+    // Volatile provides cross-thread visibility for readers in Flow pipelines. configure() still
+    // performs a non-atomic read-modify-write and must not be called concurrently.
     @Volatile
     private var config: Configuration = Configuration()
 
@@ -111,14 +113,6 @@ object KMvi {
         get() = config.handleStrategy
 
     /**
-     * The global hybrid configuration for Intent grouping.
-     *
-     * Used when [handleStrategy] is HYBRID to determine how to group Intents.
-     */
-    internal val hybridConfig: HybridConfig<Mvi.Intent>
-        get() = config.hybridConfig
-
-    /**
      * The global retry policy for unhandled exceptions during intent processing.
      *
      * Determines whether to restart the pipeline subscription after a failure.
@@ -127,14 +121,21 @@ object KMvi {
         get() = config.retryPolicy
 
     /**
-     * The global dispatch queue capacity.
+     * The global dispatch queue configuration.
      *
-     * Controls the size of the dispatch queue buffer for each contract.
-     * When the buffer is full, [ReactiveContract.dispatch] discards the intent
-     * and logs a warning.
+     * Controls the dispatch queue buffer for each contract.
+     * With the default [IntentQueueConfig] overflow policy, a full buffer makes
+     * [ReactiveContract.dispatch] return [DispatchResult.Full] after logging a warning.
+     * Dropping and conflated policies follow [DispatchResult.Submitted] semantics.
      */
-    internal val intentQueueCapacity: Int
-        get() = config.intentQueueCapacity
+    internal val intentQueueConfig: IntentQueueConfig
+        get() = config.intentQueueConfig
+
+    /**
+     * The global HYBRID runtime configuration.
+     */
+    internal val hybridStrategyConfig: HybridStrategyConfig
+        get() = config.hybridStrategyConfig
 
     /**
      * Configures the global K-MVI framework settings.
@@ -149,10 +150,12 @@ object KMvi {
      * class MyApplication : Application() {
      *     override fun onCreate() {
      *         super.onCreate()
-     *         KMvi.setup {
+     *         KMvi.configure {
      *             copy(
      *                 handleStrategy = HandleStrategy.CONCURRENT,
-     *                 retryPolicy = { attempt, _ -> attempt < 3 }, // 0-based attempt from retryWhen
+     *                 retryPolicy = { attempt, cause ->
+     *                     attempt < 3 && cause is IOException // 0-based attempt from retryWhen
+     *                 },
      *                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
      *             )
      *         }
@@ -163,38 +166,37 @@ object KMvi {
      * ## Thread Safety
      *
      * This method is NOT thread-safe. It should only be called from the main thread
-     * during application initialization.
+     * during application initialization. The backing configuration reference is volatile for
+     * reader visibility, but concurrent calls can still lose updates because this method performs
+     * a non-atomic read-modify-write.
      *
      * @param transform A lambda with receiver that transforms the current configuration.
      *                  Use `copy()` to create a modified configuration.
      */
-    fun setup(transform: Configuration.() -> Configuration) {
+    fun configure(transform: Configuration.() -> Configuration) {
         config = config.transform()
-        logger.d(TAG) { "setup config: $config" }
+        logger.d(TAG) { "configure: $config" }
     }
 
     /**
      * The default retry policy implementation.
      *
      * This policy:
-     * - Retries all [Exception]s (runtime errors that may be transient)
+     * - Retries [IOException]s, which commonly represent transient I/O or network failures
+     * - Does NOT retry programming errors such as [IllegalStateException] or [IllegalArgumentException]
      * - Does NOT retry [Error]s (serious problems that should not be retried)
      * - Limits retries to a maximum of 3 retries (`attempt` = 0..2)
      * - Logs each retry attempt with the exception details
      *
-     * ## ⚠️ Production Warning
+     * ## Production Guidance
      *
-     * `Exception` is a broad category that includes non-transient errors
-     * (e.g., [IllegalStateException], [IllegalArgumentException]). Retrying
-     * these unconditionally can mask bugs or cause unexpected side effects.
-     *
-     * **Recommendation**: Override this in production with a more targeted policy:
+     * Override this when your app has additional domain-specific transient failures:
      *
      * ```kotlin
-     * KMvi.setup {
+     * KMvi.configure {
      *     copy(
      *         retryPolicy = { attempt, cause ->
-     *             attempt < 3 && (cause is IOException || cause is HttpException)
+     *             attempt < 3 && (cause is IOException || cause is MyTransientException)
      *         }
      *     )
      * }
@@ -202,10 +204,10 @@ object KMvi {
      *
      * @param attempt The retry attempt index from `retryWhen` (0 for first retry, 1 for second, etc.)
      * @param cause The throwable that caused the failure
-     * @return `true` if should retry (attempt < 3 and cause is Exception), `false` otherwise
+     * @return `true` if should retry (attempt < 3 and cause is [IOException]), `false` otherwise
      */
     private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
-        if (attempt < 3 && cause is Exception) {
+        if (attempt < 3 && cause is IOException) {
             logger.w(TAG, cause) { "retry count: $attempt" }
             return true
         }
@@ -217,19 +219,19 @@ object KMvi {
      * Global configuration for the K-MVI framework.
      *
      * This data class holds all configurable settings for the framework.
-     * Use [setup] to modify the configuration.
+     * Use [configure] to modify the configuration.
      *
      * ## Properties
      *
      * - **handleStrategy**: How Intents are processed (CONCURRENT, SEQUENTIAL, or HYBRID)
-     * - **hybridConfig**: Configuration for Intent grouping when using HYBRID strategy
+     * - **hybridStrategyConfig**: Runtime configuration for HYBRID fallback groups
      * - **retryPolicy**: Determines whether to retry failed Intent processing
      * - **logger**: The logger instance used throughout the framework
      *
      * ## Usage Example
      *
      * ```kotlin
-     * KMvi.setup {
+     * KMvi.configure {
      *     copy(
      *         handleStrategy = HandleStrategy.SEQUENTIAL,
      *         retryPolicy = { attempt, cause ->
@@ -239,29 +241,25 @@ object KMvi {
      * }
      * ```
      *
-     * @property intentQueueCapacity The dispatch queue buffer size per contract. Allowed values:
-     *                               [Channel.BUFFERED], [Channel.CONFLATED], [Channel.RENDEZVOUS], or any positive Int.
-     *                               Default: 256
+     * @property intentQueueConfig The dispatch entry queue configuration per contract.
+     *                             Default: [IntentQueueConfig] with capacity 256 and
+     *                             [kotlinx.coroutines.channels.BufferOverflow.SUSPEND].
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
-     * @property hybridConfig The hybrid grouping configuration. Default: class-name based grouping
+     * @property hybridStrategyConfig Runtime configuration for [HandleStrategy.HYBRID].
      * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
-     *                       Default: retry on Exception when `attempt < 3` (up to 3 retries)
+     *                       Default: retry on [IOException] when `attempt < 3` (up to 3 retries)
      * @property logger The logger instance. Default: Logger with WARN level
      *
      * @see HandleStrategy
-     * @see HybridConfig
+     * @see HybridStrategyConfig
      * @see RetryPolicy
      * @see Logger
      */
     data class Configuration(
-        val intentQueueCapacity: Int = 256,
+        val intentQueueConfig: IntentQueueConfig = IntentQueueConfig(),
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
-        val hybridConfig: HybridConfig<Mvi.Intent> = HybridConfig(),
+        val hybridStrategyConfig: HybridStrategyConfig = HybridStrategyConfig(),
         val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
         val logger: Logger = Logger(),
-    ) {
-        init {
-            requireSupportedCapacity("intentQueueCapacity", intentQueueCapacity)
-        }
-    }
+    )
 }

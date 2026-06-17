@@ -6,6 +6,8 @@ import cc.colorcat.mvi.internal.i
 import cc.colorcat.mvi.internal.logger
 import cc.colorcat.mvi.internal.w
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -16,8 +18,9 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * ## Key Characteristics
  *
- * - **Suspend Function**: Can perform async operations (network calls, database queries, etc.)
- * - **Flow Return**: Supports multiple state updates over time for a single intent
+ * - **Flow Boundary**: Async work, cancellation, and emissions happen inside the returned [Flow]
+ * - **Synchronous Construction**: [handle] should only build and return the Flow, not do expensive work first
+ * - **Multiple Emissions**: Supports multiple state updates over time for a single intent
  * - **Type-Safe**: Strongly typed with Intent, State, and Event generics
  *
  * ## Typical Pattern
@@ -47,6 +50,7 @@ import java.util.concurrent.ConcurrentHashMap
  *         emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
  *
  *         try {
+ *             // Suspend work belongs inside the Flow, so strategy operators control its lifecycle.
  *             val data = repository.loadData(intent.id)
  *             // Second: Update with loaded data
  *             emit(Mvi.PartialChange { snapshot ->
@@ -73,23 +77,25 @@ import java.util.concurrent.ConcurrentHashMap
  * @see Mvi.PartialChange
  * @see IntentHandlerRegistry
  *
- * Author: ccolorcat
- * Date: 2024-12-24
- * GitHub: https://github.com/ccolorcat
+ * @author ccolorcat
  */
 fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
     /**
      * Handles the given intent and produces a flow of partial state changes.
      *
      * This method is called when an intent needs to be processed. It can:
-     * - Perform async operations (network, database, etc.)
-     * - Emit multiple state changes over time
-     * - Emit events alongside state changes
+     * - Build a Flow that performs async operations (network, database, etc.)
+     * - Build a Flow that emits multiple state changes over time
+     * - Build a Flow that emits events alongside state changes
+     *
+     * Keep this method synchronous and lightweight. Expensive or suspend work must be
+     * placed inside the returned Flow so [HandleStrategy] operators can control the
+     * complete lifecycle of each intent.
      *
      * @param intent The intent to handle
      * @return A flow of partial changes to be applied to the current state
      */
-    suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>>
+    fun handle(intent: I): Flow<Mvi.PartialChange<S, E>>
 }
 
 
@@ -108,7 +114,7 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * // Register a simple handler (single state change) - Kotlin style with extension
  * registry.register<LoadDataIntent> { intent ->
  *     Mvi.PartialChange { snapshot ->
- *         snapshot.updateState { copy(data = loadData(intent.id)) }
+ *         snapshot.updateState { copy(selectedId = intent.id) }
  *     }
  * }
  *
@@ -175,7 +181,10 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *
  * - Uses [java.util.concurrent.ConcurrentHashMap] for thread-safe handler storage
  * - Provides fallback mechanism via [defaultHandler]
- * - Logs warnings when falling back to default handler
+ * - Logs a warning only when no handler is registered for an intent **and** no
+ *   [defaultHandler] is supplied (the framework treats this as a likely misconfiguration).
+ *   When a non-null [defaultHandler] is supplied (the centralized-handler pattern),
+ *   fallback dispatch is silent — see `LoginViewModel` in the sample app.
  * - Logs all intent handling (INFO level) to help users track processing state
  *
  * ## Why Log Every Intent?
@@ -223,13 +232,16 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @param I The base intent type
  * @param S The state type
  * @param E The event type
- * @param defaultHandler The fallback handler used when no specific handler is registered
+ * @param defaultHandler The fallback handler used when no specific handler is registered for an
+ *   intent's exact class. Pass `null` to indicate "no fallback": unhandled intents are then
+ *   logged at WARN and produce no state change. Pass a non-null handler for the centralized
+ *   dispatch pattern — unhandled intents are silently routed to it.
  * @see HandleStrategy
  * @see Mvi.Intent.Concurrent
  * @see Mvi.Intent.Sequential
  */
 internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val defaultHandler: IntentHandler<I, S, E>,
+    private val defaultHandler: IntentHandler<I, S, E>?,
 ) : IntentHandlerRegistry<I, S, E>, IntentHandler<I, S, E> {
     private val handlers = ConcurrentHashMap<Class<*>, IntentHandler<*, S, E>>()
 
@@ -241,85 +253,159 @@ internal class IntentHandlerDelegate<I : Mvi.Intent, S : Mvi.State, E : Mvi.Even
         handlers.remove(intentType)
     }
 
-    override suspend fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
+    override fun handle(intent: I): Flow<Mvi.PartialChange<S, E>> {
         @Suppress("UNCHECKED_CAST")
         // Exact class match only — see IntentHandlerRegistry.register KDoc.
-        val handler = handlers[intent.javaClass] as IntentHandler<I, S, E>? ?: run {
-            logger.w(TAG) {
-                "No handler registered for ${intent.diagnosticName}, fallback to defaultHandler"
+        val registered = handlers[intent.javaClass] as IntentHandler<I, S, E>?
+        val handler = registered ?: defaultHandler
+        if (handler != null) {
+            logger.i(TAG) {
+                if (registered != null) {
+                    "Handling intent with registered handler: ${intent.diagnosticName}"
+                } else {
+                    "Handling intent with default handler: ${intent.diagnosticName}"
+                }
             }
-            defaultHandler
+            return handler.handle(intent)
         }
-        logger.i(TAG) { "Handling intent: ${intent.diagnosticName}" }
-        return handler.handle(intent)
+
+        logger.w(TAG) {
+            "Ignoring unhandled intent: ${intent.diagnosticName} (no matching registered handler, no default handler)"
+        }
+        return emptyFlow()
     }
 }
 
 
-// Kotlin-style extension functions for convenient registry usage
-
 /**
- * Registers a simple handler using reified type parameter.
+ * A typed DSL scope for registering intent handlers with single-type-parameter ergonomics.
  *
- * This is a Kotlin-friendly convenience method that allows type-safe registration
- * without explicitly passing the class object.
+ * This scope wraps an [IntentHandlerRegistry] and exposes `reified` [register]/[unregister]
+ * helpers that take **only** the intent type as an explicit type argument. The state ([S]) and
+ * event ([E]) types are fixed by the scope itself, so they never have to be repeated at the call
+ * site:
  *
- * Example:
  * ```kotlin
- * registry.register<LoadDataIntent> { intent ->
- *     Mvi.PartialChange { snapshot ->
- *         snapshot.updateState { copy(data = loadData(intent.id)) }
- *     }
- * }
+ * register<Intent.Increment> { intent -> /* ... */ }   // ✅ one type argument
  * ```
  *
- * @param I The specific intent type to handle
- * @param handler A suspend function that transforms the intent into a single partial change
- */
-inline fun <reified I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in I, S, E>.register(
-    noinline handler: suspend (intent: I) -> Mvi.PartialChange<S, E>,
-) {
-    register(I::class.java) { handler(it).asSingleFlow() }
-}
-
-/**
- * Registers an intent handler using reified type parameter.
+ * ## Why a scope instead of plain extensions
  *
- * This is a Kotlin-friendly convenience method that allows type-safe registration
- * without explicitly passing the class object.
+ * A `reified` extension on [IntentHandlerRegistry] must declare `S` and `E` as its own type
+ * parameters, because the receiver type `IntentHandlerRegistry<in I, S, E>` mentions them. Kotlin
+ * requires explicit type arguments to be **all-or-nothing**, so the natural
+ * `register<Intent.Increment> { ... }` would not compile — callers were forced to either spell out
+ * all three types (`register<Intent.Increment, State, Event> { ... }`) or fall back to lambda
+ * parameter inference (`register { intent: Intent.Increment -> ... }`). Binding `S`/`E` to this
+ * scope leaves the intent type as the only free type parameter, restoring the intuitive form.
  *
- * Example:
+ * ## Usage
+ *
  * ```kotlin
- * registry.register<LoadDataIntent>(IntentHandler { intent ->
+ * // Single PartialChange — concise reified form
+ * register<Intent.Increment> { intent ->
+ *     Mvi.PartialChange { it.updateState { copy(count = count + 1) } }
+ * }
+ *
+ * // Flow of PartialChange — reified form, SAM-converted to IntentHandler
+ * register<Intent.Refresh> { intent ->
  *     flow {
  *         emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
  *         // ... more changes
  *     }
- * })
+ * }
+ *
+ * // Java-style / explicit Class form is also available
+ * register(Intent.Reset::class.java, IntentHandler { /* ... */ })
+ *
+ * unregister<Intent.Increment>()
  * ```
  *
- * @param I The specific intent type to handle
- * @param handler The handler that will process intents of this type
+ * @param I The base intent type accepted by the underlying registry
+ * @param S The state type
+ * @param E The event type
+ * @see IntentHandlerRegistry
+ * @see IntentHandler
  */
-inline fun <reified I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in I, S, E>.register(
-    handler: IntentHandler<I, S, E>,
+@JvmInline
+value class IntentHandlerScope<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
+    @PublishedApi internal val registry: IntentHandlerRegistry<I, S, E>,
 ) {
-    register(I::class.java, handler)
-}
+    /**
+     * Registers a simple handler that maps an intent to a single [Mvi.PartialChange].
+     *
+     * The change is wrapped in a cold, single-emission [Flow], so [handler] runs only when the
+     * intent is actually processed (when the flow is collected), not at registration time.
+     *
+     * ```kotlin
+     * register<LoadDataIntent> { intent ->
+     *     Mvi.PartialChange { it.updateState { copy(selectedId = intent.id) } }
+     * }
+     * ```
+     *
+     * @param T The concrete intent type to handle (a subtype of [I])
+     * @param handler Maps the intent to a single partial change
+     */
+    inline fun <reified T : I> register(noinline handler: (intent: T) -> Mvi.PartialChange<S, E>) {
+        registry.register(T::class.java) { intent ->
+            flow { emit(handler(intent)) }
+        }
+    }
 
-/**
- * Unregisters the handler using reified type parameter.
- *
- * This is a Kotlin-friendly convenience method that allows type-safe unregistration
- * without explicitly passing the class object.
- *
- * Example:
- * ```kotlin
- * registry.unregister<LoadDataIntent>()
- * ```
- *
- * @param I The intent type to unregister
- */
-inline fun <reified I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> IntentHandlerRegistry<in I, S, E>.unregister() {
-    unregister(I::class.java)
+    /**
+     * Registers a handler that produces a [Flow] of [Mvi.PartialChange] for an intent type.
+     *
+     * Use this form when an intent yields multiple state changes over time or performs async work.
+     *
+     * ```kotlin
+     * register<RefreshIntent>(IntentHandler { intent ->
+     *     flow {
+     *         emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
+     *         // ... more changes
+     *     }
+     * })
+     * ```
+     *
+     * @param T The concrete intent type to handle (a subtype of [I])
+     * @param handler The handler producing a flow of partial changes
+     */
+    inline fun <reified T : I> register(handler: IntentHandler<T, S, E>) {
+        registry.register(T::class.java, handler)
+    }
+
+    /**
+     * Registers a handler for an explicitly provided intent [Class].
+     *
+     * This is the Java-friendly / non-`reified` form, delegating to
+     * [IntentHandlerRegistry.register].
+     *
+     * @param T The concrete intent type to handle (a subtype of [I])
+     * @param intentType The class of the intent type to register
+     * @param handler The handler that will process intents of this type
+     */
+    fun <T : I> register(intentType: Class<T>, handler: IntentHandler<T, S, E>) {
+        registry.register(intentType, handler)
+    }
+
+    /**
+     * Unregisters the handler for the reified intent type [T].
+     *
+     * ```kotlin
+     * unregister<LoadDataIntent>()
+     * ```
+     *
+     * @param T The intent type to unregister
+     */
+    inline fun <reified T : I> unregister() {
+        registry.unregister(T::class.java)
+    }
+
+    /**
+     * Unregisters the handler for an explicitly provided intent [Class].
+     *
+     * @param intentType The class of the intent type to unregister
+     */
+    fun unregister(intentType: Class<out I>) {
+        registry.unregister(intentType)
+    }
 }

@@ -24,6 +24,17 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
 
+/**
+ * Fragment demonstrating login authentication with centralized intent handling.
+ *
+ * Uses [LoginViewModel] with a centralized dispatch pattern (defaultHandler + when expression)
+ * and emits [LoginContract.Intent.Login]/[LoginContract.Intent.Logout] from button clicks. Text-change events
+ * dispatch [LoginContract.ClearError] to dismiss errors as the user types.
+ *
+ * Debounces each intent stream independently:
+ * - Input intents (text changes): 500 ms
+ * - Auth intents (login/logout): 600 ms
+ */
 class LoginFragment : Fragment() {
     private val binding by viewBinding<FragmentLoginBinding>()
     private val viewModel: LoginViewModel by viewModels()
@@ -71,13 +82,13 @@ class LoginFragment : Fragment() {
 
     private fun setupViewModel() {
         viewModel.stateFlow.collectState(viewLifecycleOwner) {
-            collectPartial(State::statusText, binding.statusText::setText)
-            collectPartial(State::isLoading, binding.loadingBar::isVisible::set)
-            collectPartial(State::isLoginEnabled, binding.loginButton::setEnabled)
-            collectPartial(State::isLogoutEnabled, binding.logoutButton::setEnabled)
-            collectPartial(State::errorMessage, binding.errorText::setText)
-            collectPartial(State::hasError, binding.errorText::isVisible::set)
-            collectPartial(State::shouldShowLoginForm, binding.loginCard::isVisible::set)
+            collectProperty(State::statusText, binding.statusText::setText)
+            collectProperty(State::isLoading, binding.loadingBar::isVisible::set)
+            collectProperty(State::isLoginEnabled, binding.loginButton::setEnabled)
+            collectProperty(State::isLogoutEnabled, binding.logoutButton::setEnabled)
+            collectProperty(State::errorMessage, binding.errorText::setText)
+            collectProperty(State::hasError, binding.errorText::isVisible::set)
+            collectProperty(State::shouldShowLoginForm, binding.loginCard::isVisible::set)
         }
 
         viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
