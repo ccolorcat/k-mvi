@@ -1,5 +1,6 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.KMvi.configure
 import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.d
 import cc.colorcat.mvi.internal.e
@@ -259,7 +260,11 @@ object KMvi {
         val intentQueueConfig: IntentQueueConfig = IntentQueueConfig(),
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
         val hybridStrategyConfig: HybridStrategyConfig = HybridStrategyConfig(),
-        val retryPolicy: RetryPolicy = ::defaultRetryPolicy,
+        val retryPolicy: RetryPolicy = { attempt: Long, cause: Throwable -> defaultRetryPolicy(attempt, cause) },
         val logger: Logger = Logger(),
-    )
+    ) {
+        override fun toString(): String {
+            return "Configuration(intentQueueConfig=$intentQueueConfig, handleStrategy=$handleStrategy, hybridStrategyConfig=$hybridStrategyConfig, logger=$logger)"
+        }
+    }
 }
