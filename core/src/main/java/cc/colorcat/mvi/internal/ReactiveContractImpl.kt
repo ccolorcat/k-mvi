@@ -290,6 +290,13 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         if (result.isSuccess) {
             return DispatchResult.Submitted
         }
+
+        // Re-check: scope may have been cancelled between our check and trySend,
+        // in which case Unavailable is more accurate than Full.
+        if (!scope.isActive) {
+            logger.w(TAG) { "Scope became inactive, intent discarded: ${intent.diagnosticName}" }
+            return DispatchResult.Unavailable
+        }
         return if (result.exceptionOrNull() != null) {
             logger.w(TAG) { "Intent queue closed, intent discarded: ${intent.diagnosticName}" }
             DispatchResult.Unavailable

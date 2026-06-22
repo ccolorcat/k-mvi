@@ -38,7 +38,7 @@
 
 - **Bug-3**: `eventFlow` 使用 `WhileSubscribed(5000)` + `shareIn`，5 秒的 stop timeout 意味着 Fragment 进入后台后最多 5 秒内 event 仍可见，然后才停掉上游。这可能导致短暂的重复订阅和少量丢 event。设计上接受这个 trade-off，但在高实时性场景需注意。
 
-- **Bug-4**（边缘情况）: `dispatch()` 中有 TOCTOU 竞争：先检查 `scopeJob.isActive` 再调用 `channel.trySend`，两者之间 scope 可能被取消。但结果只是将 `Unavailable` 误报告为 `Full`，或者将 `Full` 误报告为 `Submitted`。系统行为正确（不重复处理、不丢失 intent），只是返回结果不精确。这在实践中影响极小，因为 `dispatch` 返回值仅用于监控，不用于业务逻辑。
+- **Bug-4**（边缘情况，6月23日已修复）: `dispatch()` 中有 TOCTOU 竞争：先检查 `scopeJob.isActive` 再调用 `channel.trySend`，两者之间 scope 可能被取消。但结果只是将 `Unavailable` 误报告为 `Full`，或者将 `Full` 误报告为 `Submitted`。系统行为正确（不重复处理、不丢失 intent），只是返回结果不精确。这在实践中影响极小，因为 `dispatch` 返回值仅用于监控，不用于业务逻辑。**修复方式**：保留前置 `isActive` 检查以保证 scope 取消时正确返回 `Unavailable`，在 `trySend` 失败后补充二次 `isActive` 检查以缩窄 TOCTOU 窗口——将因竞争导致的误报 `Full` 修正为 `Unavailable`。
 
 - **Bug-5**（非 Bug 但需注意）: `groupHandle` 中 `activeChannels` 使用 `linkedMapOf`，但在 `openChannel` 内先写入 map 再 `emit`。如果 `emit` 因下游 `flattenMerge` 的回压而挂起，map 中已有一个未消费的 channel。`emit` 恢复后下游订阅 channel，在此之前不会有数据到达。这个顺序设计正确，但如果 review 不够仔细可能会被误解为竞态。
 
