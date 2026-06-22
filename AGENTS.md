@@ -1,101 +1,38 @@
-# Repository Guidelines
+# K-MVI Agent Guide
 
 ## Response Language
 
 - Reply language follows the primary language of the user's current message.
 - When the user mixes Chinese and English, default to Simplified Chinese.
-- Code, comments, commands, config keys, API names, and error messages are kept verbatim.
+- Code, comments, commands, config keys, API names, and error messages kept verbatim.
 
 ## Project Overview
 
-K-MVI is a lightweight, type-safe Android MVI (Model-View-Intent) library built on Kotlin Coroutines and Flow. The core artifact is `cc.colorcat.mvi:core` (current: `1.2.6-SNAPSHOT`), published to GitHub Packages. The repo has two modules: `core` (the library) and `app` (XML/ViewBinding sample app).
+K-MVI is a lightweight, type-safe Android MVI library built on Kotlin Coroutines and Flow.
+Artifact: `cc.colorcat.mvi:core` (current: `1.4.1`), published to GitHub Packages and Maven Central.
+Two modules: `core` (library) and `app` (XML/ViewBinding sample app with Navigation Component).
 
 ---
 
-## Architecture & Data Flow
+## Build / Test / Lint
 
-### Intent dispatch pipeline
-
-```
-UI (View/Fragment)
-  → dispatch(intent)
-  → Channel (dispatchQueue)
-  → IntentTransformer (strategy routing)
-  → retryWhen (RetryPolicy)
-  → IntentHandler.handle(intent): Flow<PartialChange>
-  → scan(PartialChange::apply)
-  → Mvi.Snapshot
-  → stateFlow (StateFlow) / eventFlow (SharedFlow, one-shot)
-```
-
-### Handle strategies (`HandleStrategy` enum)
-
-| Strategy | Operator | When to use |
-|---|---|---|
-| `CONCURRENT` | `flatMapMerge` | Independent intents that can interleave |
-| `SEQUENTIAL` | `flatMapConcat` | Ordered intents that must not interleave |
-| `HYBRID` | `groupHandle` + `flattenMerge` | Mix — classify per intent type via `HybridConfig.groupTagSelector` |
-
-Default is `HYBRID`. Intents that implement neither `Mvi.Intent.Concurrent` nor `Mvi.Intent.Sequential` fall back to `HybridConfig`'s ungrouped channel.
-
-### Key public types (`cc.colorcat.mvi`)
-
-| Type | Role |
-|---|---|
-| `Mvi.Intent` / `.Concurrent` / `.Sequential` | Marker interfaces for intents |
-| `Mvi.State` | Marker for state types |
-| `Mvi.Event` | Marker for one-shot side-effect events |
-| `Mvi.PartialChange<S,E>` | `fun interface`; `apply(snapshot)` returns new snapshot — must be pure and non-throwing |
-| `Mvi.Snapshot<S,E>` | Immutable carrier of `(state, event?)`; `updateState`, `withEvent`, `updateWith` helpers |
-| `Contract<S,E>` | Read-only view exposed to UI: `stateFlow`, `eventFlow`, `dispatch` |
-| `ReactiveContract<S,E>` | Mutable runtime; obtained via `ViewModel.contract(...)` |
-| `IntentHandler<I,S,E>` | `fun interface`; maps one intent to `Flow<PartialChange>` |
-| `IntentHandlerRegistry` | Registers per-class `IntentHandler`s via `register<MyIntent> { ... }` |
-| `IntentTransformer<I,S,E>` | `fun interface`; transforms `Flow<I>` into `Flow<PartialChange>`; used for custom strategy wiring |
-| `KMvi` | Global config singleton; call `KMvi.setup { copy(...) }` once (e.g., in `Application.onCreate`) |
-| `HandleStrategy` / `HybridConfig` | Strategy config; set globally or per-contract |
-| `Logger` | `fun interface`; `Logger(threshold)` factory backed by `android.util.Log` |
-
-### Coroutine / Flow primitives used
-
-`Channel`, `callbackFlow`/`awaitClose`, `scan`, `stateIn`, `shareIn`, `buffer`, `flatMapMerge`, `flatMapConcat`, `flattenMerge`, `retryWhen`, `flowOn(Dispatchers.IO/Default)`, `repeatOnLifecycle`.
-
----
-
-## Key Directories
-
-```
-core/src/main/java/cc/colorcat/mvi/          # Public API surface (14 files)
-core/src/main/java/cc/colorcat/mvi/internal/ # Runtime implementation; not part of public API
-core/src/test/java/cc/colorcat/mvi/         # JVM unit tests (well-covered)
-core/src/androidTest/java/cc/colorcat/mvi/  # Instrumented tests (only template stubs currently)
-app/src/main/java/cc/colorcat/mvi/sample/   # Sample app, organized by feature package
-  count/     # Counter demo — sequential intents, derived state
-  login/     # Login demo — hybrid strategy, async flows, asSingleFlow
-  dashboard/ # Dashboard demo — concurrent + sequential + grouped intents
-  util/      # showToast, randomDelay, ViewBindingDelegate, doOnTextChanged
-app/src/main/res/navigation/nav_graph.xml   # Navigation Component graph
-gradle/libs.versions.toml                   # Central version catalog
-```
-
----
-
-## Development Commands
-
-All commands use the Gradle wrapper from the repo root.
+All commands from repo root using Gradle wrapper.
 
 ```bash
 # Build
-./gradlew :core:assemble                    # library AAR
-./gradlew :app:assembleDebug                # sample debug APK
+./gradlew :core:assemble                              # library AAR
+./gradlew :app:assembleDebug                          # sample debug APK
 
-# Test
-./gradlew :core:test                        # core JVM unit tests
-./gradlew :app:testDebugUnitTest            # app JVM unit tests
-./gradlew :core:connectedAndroidTest        # instrumented tests (needs device/emulator)
-
+# Run core JVM unit tests (primary test suite)
+./gradlew :core:test
 # Single test class
 ./gradlew :core:test --tests "cc.colorcat.mvi.internal.ReactiveContractImplTest"
+
+# App unit tests (stub only)
+./gradlew :app:testDebugUnitTest
+
+# Instrumented tests (needs device/emulator, template stubs only)
+./gradlew :core:connectedAndroidTest
 
 # Lint
 ./gradlew lint
@@ -108,98 +45,90 @@ All commands use the Gradle wrapper from the repo root.
 
 ---
 
-## Code Conventions & Common Patterns
+## Architecture & Data Flow
 
-### Formatting (`.editorconfig`)
+### Pipeline
 
-- 4-space indentation; continuation indent 4 spaces
-- Max line length 120 characters
-- LF line endings, UTF-8, insert final newline
-- Trailing commas enabled at both declaration and call site (`ij_kotlin_allow_trailing_comma = true`)
-- `kotlin.code.style=official`
-
-### Naming
-
-- Types: `PascalCase` — e.g., `DashboardViewModel`, `CounterContract`
-- Functions / properties: `camelCase` — e.g., `handleLoadCategory`, `collectState`
-- Constants: `UPPER_SNAKE_CASE`
-- Packages: `cc.colorcat.mvi[.sample][.internal]`
-- Files named after their primary class/interface
-
-### Defining an MVI contract (consumer pattern)
-
-```kotlin
-// 1. Domain types
-sealed interface CounterIntent : Mvi.Intent {
-    data object Increment : CounterIntent, Mvi.Intent.Sequential
-    data object Decrement : CounterIntent, Mvi.Intent.Sequential
-}
-data class CounterState(val count: Int = 0) : Mvi.State
-sealed interface CounterEvent : Mvi.Event { data class ShowToast(val msg: String) : CounterEvent }
-// PartialChange — must be pure and non-throwing
-fun interface CounterChange : Mvi.PartialChange<CounterState, CounterEvent>
-
-// 2. ViewModel — handler-based style
-class CounterViewModel : ViewModel() {
-    val contract: Contract<CounterState, CounterEvent> = contract(
-        defaultHandler = IntentHandlerDelegate { ... }
-    ) {
-        register<CounterIntent.Increment> { _ -> flow { emit(CounterChange { s, _ -> s.copy(count = s.count + 1) }) } }
-        register<CounterIntent.Decrement> { _ -> flow { emit(CounterChange { s, _ -> s.copy(count = s.count - 1) }) } }
-    }
-}
-
-// 3. Fragment — collect state/events, dispatch intents
-viewLifecycleOwner.collectState(viewModel.contract) { state -> binding.countText.text = "${state.count}" }
-viewLifecycleOwner.collectEvent(viewModel.contract) { event -> if (event is CounterEvent.ShowToast) showToast(event.msg) }
-binding.btnIncrement.doOnClick().dispatchWithLifecycle(viewLifecycleOwner, viewModel.contract) { CounterIntent.Increment }
+```
+UI → dispatch(intent) → Channel (intentsChannel)
+  → retryWhen (RetryPolicy)
+  → IntentTransformer (strategy routing)
+  → IntentHandler.handle(intent): Flow<PartialChange>
+  → scan(PartialChange::apply) → Mvi.Snapshot
+  → flowOn(Default) + buffer(64, DROP_OLDEST)  ┄ fused into one channel
+  → shareIn (Eagerly) → stateFlow / eventFlow
 ```
 
-### UI → Flow helpers (`MviExtensions.kt`)
+- **intentsChannel**: dispatch entry queue, configurable via `IntentQueueConfig` (default: capacity 256, BufferOverflow.SUSPEND)
+- **snapshot buffer**: capacity 64, DROP_OLDEST — stale snapshots (including events) discarded if downstream is slow
+- `PartialChange.apply()` runs inside `scan` on `Dispatchers.Default` — **must be pure**, non-throwing, no I/O
 
-```kotlin
-view.doOnClick()                  // Flow<Unit>
-view.doOnLongClick()              // Flow<Unit>
-checkbox.doOnCheckedChange()      // Flow<Boolean>
-editText.doOnAfterTextChanged()   // Flow<String>
-someFlow.debounceLeading(300)     // debounce keeping first emission
-value.asSingleFlow()              // wraps a PartialChange in Flow<PartialChange>
+### DispatchResult
+
+`ReactiveContract.dispatch()` returns a sealed class:
+- `Submitted` — accepted by entry queue (not a guarantee of processing)
+- `Unavailable` — contract scope is done (terminal, do not retry)
+- `Full` — queue at capacity (transient, retry later)
+
+### Handle Strategy
+
+| Strategy | Operator | Tag mapping |
+|---|---|---|
+| `CONCURRENT` | `flatMapMerge` | All intents parallel |
+| `SEQUENTIAL` | `flatMapConcat` | All intents serial |
+| `HYBRID` (default) | `groupHandle` + `flattenMerge(MAX_VALUE)` | Concurrent → parallel, Sequential → serial, Fallback → grouped by `GroupTagSelector` |
+
+### Key Considerations
+
+- Intents implementing **both** `Concurrent` and `Sequential` are treated as conflict → logged once, routed to fallback group
+- `groupHandle` runs a **single coroutine** for routing to groups — a blocked group channel blocks all groups
+- `eventFlow` is a `SharedFlow` with **no replay** — start collecting before dispatching intents that may produce events
+- `PartialChange.apply` exceptions inside `scan`: previous snapshot retained, pipeline continues; `CancellationException` re-thrown
+- `dispatch()` uses `Channel.trySend` — non-blocking; with `SUSPEND` overflow, a full queue returns `Full` instead of suspending
+
+---
+
+## Key Public Types (`cc.colorcat.mvi`)
+
+| Type | Role |
+|---|---|
+| `Mvi.Intent` / `.Concurrent` / `.Sequential` | Marker interfaces; mutually exclusive |
+| `Mvi.State` | Marker for persistent UI state |
+| `Mvi.Event` | Marker for one-shot side effects (no replay) |
+| `Mvi.PartialChange<S,E>` | `fun interface`; `apply(oldSnapshot)` → new snapshot; must be pure |
+| `Mvi.Snapshot<S,E>` | Immutable `(state, event?)`; helpers: `updateState`, `withEvent`, `updateWith` |
+| `Contract<S,E>` | Read-only view: `stateFlow`, `eventFlow` |
+| `ReactiveContract<I,S,E>` | Mutable runtime: adds `dispatch(intent): DispatchResult` |
+| `DispatchResult` | Sealed: `Submitted`, `Unavailable`, `Full` |
+| `IntentQueueConfig` | Dispatch queue `capacity` + `onBufferOverflow` (default: 256, SUSPEND) |
+| `IntentHandler<I,S,E>` | `fun interface`; `handle(intent): Flow<PartialChange>` |
+| `IntentHandlerRegistry` | Register/unregister handlers per class |
+| `IntentHandlerScope` | DSL for `register<MyIntent> { ... }` in contract builder |
+| `IntentTransformer<I,S,E>` | `fun interface`; transforms `Flow<I>` → `Flow<PartialChange>` |
+| `KMvi` | Global config singleton; call `KMvi.configure { copy(...) }` once |
+| `HandleStrategy` | Enum: `CONCURRENT`, `SEQUENTIAL`, `HYBRID` |
+| `HybridStrategyConfig` | Config: `groupChannelCapacity`, `groupCountWarningThreshold` |
+| `GroupTagSelector<I>` | `fun interface`; `selectTag(intent): Any`; default `byClass()` |
+| `RetryPolicy` | Typealias: `(attempt: Long, cause: Throwable) -> Boolean` |
+| `Logger` | `fun interface`; `Logger(threshold)` factory backed by `android.util.Log` |
+
+---
+
+## Key Directories
+
 ```
-
-### Lifecycle-aware collection (`MviCollects.kt`)
-
-```kotlin
-collectState(contract) { state -> /* render */ }
-collectEvent(contract) { event -> /* handle */ }
-stateFlow.collectProperty(MyState::loading, owner) { value -> /* render one property */ }
-dispatchWithLifecycle(lifecycleOwner, contract) { MyIntent.Foo }
-launchWithLifecycle(lifecycleOwner) { /* coroutine */ }
+core/src/main/java/cc/colorcat/mvi/          # Public API surface (13 files)
+core/src/main/java/cc/colorcat/mvi/internal/ # Runtime implementation (4 files: ReactiveContractImpl, InternalExtensions, InternalUtils, LoggerExtensions)
+core/src/test/java/cc/colorcat/mvi/          # JVM unit tests
+core/src/test/java/cc/colorcat/mvi/internal/ # Internal implementation tests
+app/src/main/java/cc/colorcat/mvi/sample/    # Sample app
+  count/       # Counter — sequential intents, derived state
+  login/       # Login — hybrid strategy, async flows, centralized dispatch
+  dashboard/   # Dashboard — concurrent + sequential + grouped intents
+  util/        # showToast, randomDelay, ViewBindingDelegate, doOnTextChanged
+app/src/main/res/navigation/nav_graph.xml   # Navigation Component graph
+gradle/libs.versions.toml                   # Central version catalog
 ```
-
-### Global configuration
-
-```kotlin
-// Application.onCreate
-KMvi.setup {
-    copy(
-        logger = Logger(Logger.DEBUG),
-        handleStrategy = HandleStrategy.HYBRID,
-        intentQueueCapacity = Channel.UNLIMITED,
-    )
-}
-```
-
-### Error handling / retry
-
-`RetryPolicy` is `typealias (attempt: Long, cause: Throwable) -> Boolean` — defaults to retrying `IOException` on attempts `0..2`. Set via `KMvi.Configuration.retryPolicy` or per-contract.
-
-### No DI framework
-
-Dependencies flow via constructor parameters, `ViewModel.contract(...)` factory extensions, and `KMvi` as a global config service locator. No Hilt, Koin, or Dagger.
-
-### Thread safety
-
-`dispatch()` is non-blocking but silently drops intents when the contract is inactive or the queue is full. `PartialChange.apply()` runs on the contract's internal scope — keep it pure. `eventFlow` is not replayed (one-shot `SharedFlow`).
 
 ---
 
@@ -207,77 +136,120 @@ Dependencies flow via constructor parameters, `ViewModel.contract(...)` factory 
 
 | File | Purpose |
 |---|---|
-| `core/src/main/java/cc/colorcat/mvi/Mvi.kt` | Root domain types (`Intent`, `State`, `Event`, `PartialChange`, `Snapshot`) |
-| `core/src/main/java/cc/colorcat/mvi/Contracts.kt` | `Contract` / `ReactiveContract` / `asContract()` |
-| `core/src/main/java/cc/colorcat/mvi/KMvi.kt` | Global config singleton, `RetryPolicy`, `Configuration` |
-| `core/src/main/java/cc/colorcat/mvi/HandleStrategies.kt` | `HandleStrategy` enum, `HybridConfig` |
-| `core/src/main/java/cc/colorcat/mvi/MviViewModels.kt` | `ViewModel.contract(...)` factory extensions |
-| `core/src/main/java/cc/colorcat/mvi/MviCollects.kt` | `collectState`, `collectEvent`, `dispatchWithLifecycle`, etc. |
-| `core/src/main/java/cc/colorcat/mvi/MviExtensions.kt` | `doOnClick`, `debounceLeading`, `asSingleFlow`, etc. |
-| `core/src/main/java/cc/colorcat/mvi/IntentHandlers.kt` | `IntentHandler`, `IntentHandlerRegistry` |
-| `core/src/main/java/cc/colorcat/mvi/IntentTransformers.kt` | `IntentTransformer`, `toPartialChange`, strategy routing |
-| `core/src/main/java/cc/colorcat/mvi/internal/ReactiveContractImpl.kt` | Runtime: channels, scan, stateFlow/eventFlow wiring |
-| `gradle/libs.versions.toml` | Central version catalog (Kotlin, AGP, SDK levels, all dep versions) |
-| `app/src/main/java/cc/colorcat/mvi/sample/SampleApplication.kt` | `KMvi.setup` entry point |
-| `app/src/main/res/navigation/nav_graph.xml` | Navigation graph; start dest: `navigationFragment` |
+| `Mvi.kt` | Root domain types: `Intent`, `State`, `Event`, `PartialChange`, `Snapshot` |
+| `Contracts.kt` | `Contract`, `ReactiveContract`, `asContract()`, `DispatchResult` |
+| `KMvi.kt` | Global config singleton, `RetryPolicy`, `Configuration` |
+| `HandleStrategies.kt` | `HandleStrategy` enum, `HybridStrategyConfig`, `GroupTagSelector` |
+| `IntentQueueConfig.kt` | Dispatch queue `capacity` + `onBufferOverflow` |
+| `IntentHandlers.kt` | `IntentHandler`, `IntentHandlerRegistry`, `IntentHandlerScope`, `IntentHandlerDelegate` |
+| `IntentTransformers.kt` | `IntentTransformer`, `strategyTransformer`, `StrategyIntentTransformer` |
+| `MviViewModels.kt` | `ViewModel.contract(...)` factory extensions (transformer + handler APIs) |
+| `MviCollects.kt` | `collectState`, `collectEvent`, `dispatchWithLifecycle`, `launchWithLifecycle` |
+| `MviExtensions.kt` | `doOnClick`, `debounceLeading`, `asSingleFlow`, UI→Flow helpers |
+| `Logger.kt` | `Logger` fun interface with Android `Log` backend |
+| `internal/ReactiveContractImpl.kt` | Runtime: channels, scan, stateIn/shareIn wiring |
+| `internal/InternalExtensions.kt` | `groupHandle`, `isConcurrent`/`isSequential`, `diagnosticName` |
+| `internal/InternalUtils.kt` | `requireSupportedChannelConfig`, `tagLabel` |
 
 ---
 
-## Runtime / Tooling Preferences
+## Coding Conventions
 
-- **Build tool**: Gradle 8.13 (wrapper at `gradlew` / `gradlew.bat`)
-- **Kotlin**: 1.9.10
+### From `.editorconfig`
+- 4-space indent, continuation indent 4, max line 120 chars
+- LF endings, UTF-8, trailing comma at declaration + call site
+- `kotlin.code.style=official`
+
+### Naming
+- Types: PascalCase (`CounterViewModel`, `HybridStrategyConfig`)
+- Functions/properties: camelCase (`collectState`, `debounceLeading`)
+- Constants: UPPER_SNAKE_CASE
+- Packages: `cc.colorcat.mvi[.sample][.internal]`
+- Files named after primary class/interface
+
+### Test conventions
+- Class: `<Subject>Test` (e.g., `ReactiveContractImplTest`)
+- Methods: Kotlin backticks (`` `dispatch after cancel does not crash` ``)
+- Shared test rule: `TestLogger.kt` prints `[TEST START/PASS/FAIL/ERROR]`
+- Test fixtures (`TestState`, `TestEvent`, `TestIntent`) defined **per test class**, not shared
+- Coroutine pattern: most tests use `runBlocking`; reactive tests use `runTest(UnconfinedTestDispatcher())`
+- Flow assertions via `first()`, `single()`, `toList()`, `collect {}` — no Turbine
+- Tests mutating `KMvi` config must reset in `@Before`/`@After`:
+  ```kotlin
+  @Before fun setUp() { KMvi.configure { KMvi.Configuration() } }
+  ```
+
+### Key patterns
+- `PartialChange` must be **pure and non-throwing** — async work belongs in `IntentHandler.handle()`
+- Handler may return a single `PartialChange` inline or a `Flow<PartialChange>` for multi-step
+- `Snapshot.updateState` clears event; use `updateWith(event) { copy(...) }` to set both
+- `Snapshot.withEvent(event).updateState { ... }` in one change **drops the event** — use `updateWith`
+- Handler registration uses `register<MyIntent> { intent -> ... }` DSL
+- `defaultHandler` for centralized dispatch: unregistered intents routed silently to it
+- `eventFlow` collects in UI with `collectEvent(viewModel.contract) { event -> ... }`
+- Intents implement `Mvi.Intent.Concurrent` or `Mvi.Intent.Sequential` for HYBRID routing
+
+---
+
+## Runtime / Tooling
+
+- **Gradle**: 8.13 (wrapper at `gradlew`/`gradlew.bat`)
+- **Kotlin**: 1.9.10, `jvmTarget=17`
 - **AGP**: 8.13.1
-- **Java**: 17 (`sourceCompatibility`, `targetCompatibility`, `jvmTarget` all set to 17)
-- **Android SDK**: `compileSdk 34`, `minSdk 24`, `targetSdk 34`
-- **No Compose**: sample app uses XML layouts, ViewBinding, Navigation Component
-- **Publishing**: Maven Publish plugin → GitHub Packages (`https://maven.pkg.github.com/ccolorcat/k-mvi`); credentials via `-Pgpr.personal.user` / `-Pgpr.personal.key` or env vars `USERNAME` / `TOKEN`
-- **Local substitution**: root `build.gradle.kts` rewrites `cc.colorcat.mvi:*` dependencies to local `project(":core")` automatically
+- **Java**: 17 (`sourceCompatibility`/`targetCompatibility`)
+- **Android SDK**: `compileSdk=34`, `minSdk=24`, `targetSdk=34`
+- **No Compose** — sample uses XML layouts, ViewBinding, Navigation Component
+- **No DI** — dependencies flow via constructor + `ViewModel.contract(...)` extensions + `KMvi` global config
+- **Publishing**: Maven Publish → GitHub Packages (`https://maven.pkg.github.com/ccolorcat/k-mvi`);
+  credentials via `-Pgpr.personal.user`/`-Pgpr.personal.key` or env vars `USERNAME`/`TOKEN`
+- **Local substitution**: root `build.gradle.kts` rewrites `cc.colorcat.mvi:*` dependencies to `project(":core")`
+- **Logging**: framework uses `Logger` with lazy message; default threshold WARN; all internal logs tagged `k-mvi`
 
 ---
 
-## Testing & QA
+## Git Workflow
 
-### Frameworks
+- Branch naming from commits: `release/<version>`, `dev` for active development
+- Commit style: Conventional Commits (`chore:`, `refactor:`, `feat:`, `fix:`)
+- Current branch: `release/1.4.1`
 
-| Library | Version | Scope |
-|---|---|---|
-| JUnit 4 | 4.13.2 | `core` and `app` unit + instrumented tests |
-| `kotlinx-coroutines-test` | 1.6.4 | `core` unit tests only |
-| AndroidX JUnit | 1.1.5 | Both modules' instrumented tests |
-| Espresso Core | 3.5.1 | Declared; no active Espresso calls yet |
+---
 
-No Turbine, MockK, Robolectric, Kotest, or Compose test libraries.
+## CI/CD
 
-### Conventions
+- GitHub Actions workflow: `.github/workflows/publish.yml`
+- **Manual trigger only** (`workflow_dispatch`)
+- Single job: checkout → JDK 17 → `chmod +x gradlew` → `./gradlew publishReleasePublicationToGitHubPackagesRepository`
+- Credentials from secrets: `MVN_USERNAME`, `MVN_PERSONAL_ACCESS_TOKEN`
+- No automated test step in CI (tests run locally before publishing)
 
-- Test class names: `<Subject>Test` (e.g., `ReactiveContractImplTest`)
-- Test method names: Kotlin backticks (e.g., `` `dispatch after cancel does not crash` ``)
-- Shared test utility: `core/src/test/java/cc/colorcat/mvi/TestLogger.kt` — JUnit `TestRule` that prints `[TEST START/PASS/FAIL/ERROR]`
-- Local fixtures (`TestState`, `TestEvent`, `TestIntent`) are defined privately per test class, not shared
+---
 
-### Coroutine test patterns
+## Testing Coverage
 
-```kotlin
-// Most tests
-@Test fun `some behavior`() = runBlocking { ... }
+| Area | Coverage |
+|---|---|
+| `Snapshot`, `PartialChange`, `asContract` | Well-covered |
+| `Logger`, `KMvi` validation | Well-covered |
+| Intent classification, handler delegation | Well-covered |
+| Transformer strategy routing | Well-covered |
+| `CoreReactiveContract` / `StrategyReactiveContract` | Well-covered |
+| Lazy contract, reactive contract state/event propagation | Well-covered |
+| `groupHandle`, `InternalExtensions` | Covered |
+| `app/src/test` | Stub only |
+| Instrumented tests (`core` + `app`) | Template stubs only |
+| UI / Fragment / Navigation / Espresso | None |
 
-// Tests needing eager shareIn(WhileSubscribed) subscription
-@Test fun `reactive behavior`() = runTest(UnconfinedTestDispatcher()) { ... }
-```
+---
 
-Flow assertions use `first()`, `single()`, `toList()`, `collect {}` directly — no Turbine.
+## Tips for AI Agents
 
-### State reset
-
-Tests that mutate `KMvi` global config must reset it in `@Before`/`@After`:
-
-```kotlin
-@Before fun setUp() { KMvi.setup { KMvi.Configuration() } }
-```
-
-### Coverage
-
-- **Well covered**: `Snapshot`, `PartialChange`, `asContract`, `Logger`, `KMvi` validation, intent classification, handler delegation, transformer strategy routing, lazy contract, reactive contract state/event propagation
-- **Sparse / template only**: `app/src/test` (arithmetic stub), `app/src/androidTest` and `core/src/androidTest` (package-name check only)
-- No UI, fragment, navigation, or Espresso tests exist yet
+- **Start with `Mvi.kt`** — it defines the foundational types (`Intent`, `State`, `Event`, `PartialChange`, `Snapshot`)
+- **The `internal` package is not part of the public API** — do not suggest internal types in user-facing documentation or samples
+- **`KMvi.Configuration` is a data class** with defaults — use `copy()` inside `KMvi.configure { ... }`
+- **Intent marker interfaces are mutually exclusive** — do not implement both `Concurrent` and `Sequential` on one intent
+- **Pipeline runs on `Dispatchers.Default`** — blocking I/O in handlers needs explicit `withContext(Dispatchers.IO)`
+- **Snapshot buffer DROP_OLDEST** may silently drop events if the UI collector is slow — keep event handlers lightweight
+- **`dispatch()` returns `DispatchResult`** (not `Boolean`) — check the sealed class for queue status
+- **Handler lookup is exact class match** — registering a handler for a parent class does NOT trigger for subclass dispatches
+- **3 test files are in `internal/`** (private impl) — for internal changes, run both `core/src/test` and `core/src/test/java/.../internal/`
