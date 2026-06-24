@@ -6,9 +6,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestRule
+import java.net.UnknownHostException
 
 class LoggerExtensionsTest {
 
@@ -58,12 +60,12 @@ class LoggerExtensionsTest {
     fun `e with throwable logs ERROR priority and captures error`() {
         var capturedPriority = -1
         var capturedError: Throwable? = null
-        val log = Logger { priority, _, error, _ ->
+        val log = Logger { priority, _, cause, _ ->
             capturedPriority = priority
-            capturedError = error
+            capturedError = cause
         }
         val exception = RuntimeException("test")
-        log.e("tag", exception) { "msg" }
+        log.e("tag", cause = exception) { "msg" }
         assertEquals(Logger.ERROR, capturedPriority)
         assertSame(exception, capturedError)
     }
@@ -113,7 +115,7 @@ class LoggerExtensionsTest {
     @Test
     fun `e without throwable passes null error`() {
         var capturedError: Throwable? = RuntimeException("not null")
-        val log = Logger { _, _, error, _ -> capturedError = error }
+        val log = Logger { _, _, cause, _ -> capturedError = cause }
         log.e("tag") { "msg" }
         assertNull(capturedError)
     }
@@ -121,8 +123,19 @@ class LoggerExtensionsTest {
     @Test
     fun `assert passes null error`() {
         var capturedError: Throwable? = RuntimeException("not null")
-        val log = Logger { _, _, error, _ -> capturedError = error }
+        val log = Logger { _, _, cause, _ -> capturedError = cause }
         log.assert("tag") { "msg" }
         assertNull(capturedError)
+    }
+
+    @Test
+    fun `stack trace string includes unknown host cause`() {
+        val cause = UnknownHostException("offline")
+        val exception = RuntimeException("wrapper", cause)
+
+        val stackTrace = exception.getStackTraceString()
+
+        assertTrue(stackTrace.contains("java.lang.RuntimeException: wrapper"))
+        assertTrue(stackTrace.contains("Caused by: java.net.UnknownHostException: offline"))
     }
 }

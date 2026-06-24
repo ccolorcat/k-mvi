@@ -282,27 +282,24 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      */
     override fun dispatch(intent: I): DispatchResult {
         if (!scope.isActive) {
-            logger.w(TAG) { "Scope inactive, intent discarded: ${intent.diagnosticName}" }
+            logger.w(TAG) { "Contract unavailable, intent discarded: ${intent.diagnosticName}" }
             return DispatchResult.Unavailable
         }
 
         val result = intentsChannel.trySend(intent)
-        if (result.isSuccess) {
-            return DispatchResult.Submitted
-        }
+        return when {
+            result.isSuccess -> DispatchResult.Submitted
+            !scope.isActive || result.isClosed -> {
+                logger.w(TAG, result.exceptionOrNull()) {
+                    "Contract unavailable, intent discarded: ${intent.diagnosticName}"
+                }
+                DispatchResult.Unavailable
+            }
 
-        // Re-check: scope may have been cancelled between our check and trySend,
-        // in which case Unavailable is more accurate than Full.
-        if (!scope.isActive) {
-            logger.w(TAG) { "Scope became inactive, intent discarded: ${intent.diagnosticName}" }
-            return DispatchResult.Unavailable
-        }
-        return if (result.exceptionOrNull() != null) {
-            logger.w(TAG) { "Intent queue closed, intent discarded: ${intent.diagnosticName}" }
-            DispatchResult.Unavailable
-        } else {
-            logger.w(TAG) { "Intent queue full, intent discarded: ${intent.diagnosticName}" }
-            DispatchResult.Full
+            else -> {
+                logger.w(TAG) { "Intent queue full, intent discarded: ${intent.diagnosticName}" }
+                DispatchResult.Full
+            }
         }
     }
 }

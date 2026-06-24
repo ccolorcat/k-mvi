@@ -31,7 +31,7 @@ import cc.colorcat.mvi.internal.getStackTraceString
  * val debugLogger = Logger(threshold = Logger.DEBUG)
  *
  * // Custom implementation example
- * val customLogger = Logger { priority, tag, error, message ->
+ * val customLogger = Logger { priority, tag, cause, message ->
  *     // Your custom logging logic here
  *     println("[$tag] ${message()}")
  * }
@@ -45,11 +45,11 @@ fun interface Logger {
      *
      * @param priority The log priority level (VERBOSE, DEBUG, INFO, WARN, ERROR, ASSERT)
      * @param tag The tag to identify the source of the log message
-     * @param error Optional throwable to be logged. In the default implementation, the full
+     * @param cause Optional throwable to be logged. In the default implementation, the full
      *              stack trace (including nested causes) will be included in the log output.
      * @param message A lambda that produces the log message (evaluated lazily)
      */
-    fun log(priority: Int, tag: String, error: Throwable?, message: () -> String)
+    fun log(priority: Int, tag: String, cause: Throwable?, message: () -> String)
 
     companion object {
         /** Verbose log level - use for detailed debugging information */
@@ -82,15 +82,15 @@ fun interface Logger {
          * @return A Logger instance that logs to Android's Log system
          */
         operator fun invoke(threshold: Int = WARN): Logger {
-            return Logger { priority, tag, error, message ->
+            return Logger { priority, tag, cause, message ->
                 // Only log if priority meets or exceeds the threshold
                 if (priority >= threshold) {
-                    val msg = if (error == null) {
+                    val msg = if (cause == null) {
                         message()
                     } else {
                         buildString {
                             appendLine(message())
-                            append(error.getStackTraceString())
+                            append(cause.getStackTraceString())
                         }
                     }
                     Log.println(priority, tag, msg)

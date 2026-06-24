@@ -1,6 +1,5 @@
 package cc.colorcat.mvi.internal
 
-import android.util.Log
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 
@@ -42,12 +41,11 @@ internal val logger: Logger
 /**
  * Converts a Throwable to its stack trace string representation.
  *
- * Uses Android's Log.getStackTraceString() which includes the full stack trace
- * and all nested causes.
+ * Includes the full stack trace and all nested causes.
  *
  * @return A string containing the full stack trace with nested causes
  */
-internal fun Throwable.getStackTraceString(): String = Log.getStackTraceString(this)
+internal fun Throwable.getStackTraceString(): String = stackTraceToString()
 
 
 /**
@@ -78,42 +76,24 @@ internal fun Logger.i(tag: String, message: () -> String) =
     log(Logger.INFO, tag, null, message)
 
 /**
- * Logs a warning message.
- *
- * @param tag The tag to identify the source of the log message
- * @param message A lambda that produces the log message (evaluated lazily)
- */
-internal fun Logger.w(tag: String, message: () -> String) =
-    log(Logger.WARN, tag, null, message)
-
-/**
  * Logs a warning message with a throwable.
  *
  * @param tag The tag to identify the source of the log message
- * @param error The throwable to be logged with stack trace and cause chain
+ * @param cause The optional throwable to be logged with stack trace and cause chain
  * @param message A lambda that produces the log message (evaluated lazily)
  */
-internal fun Logger.w(tag: String, error: Throwable, message: () -> String) =
-    log(Logger.WARN, tag, error, message)
-
-/**
- * Logs an error message.
- *
- * @param tag The tag to identify the source of the log message
- * @param message A lambda that produces the log message (evaluated lazily)
- */
-internal fun Logger.e(tag: String, message: () -> String) =
-    log(Logger.ERROR, tag, null, message)
+internal fun Logger.w(tag: String, cause: Throwable? = null, message: () -> String) =
+    log(Logger.WARN, tag, cause, message)
 
 /**
  * Logs an error message with a throwable.
  *
  * @param tag The tag to identify the source of the log message
- * @param error The throwable to be logged with stack trace and cause chain
+ * @param cause The optional throwable to be logged with stack trace and cause chain
  * @param message A lambda that produces the log message (evaluated lazily)
  */
-internal fun Logger.e(tag: String, error: Throwable, message: () -> String) =
-    log(Logger.ERROR, tag, error, message)
+internal fun Logger.e(tag: String, cause: Throwable? = null, message: () -> String) =
+    log(Logger.ERROR, tag, cause, message)
 
 /**
  * Logs an assert message for conditions that should never occur.

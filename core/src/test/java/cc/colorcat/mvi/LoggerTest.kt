@@ -57,8 +57,8 @@ class LoggerTest {
     @Test
     fun `custom logger receives throwable`() {
         var capturedError: Throwable? = null
-        val log = Logger { _, _, error, message ->
-            capturedError = error
+        val log = Logger { _, _, cause, message ->
+            capturedError = cause
             message()
         }
 
