@@ -18,69 +18,20 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Transforms a flow of intents into a flow of partial state changes.
  *
- * IntentTransformer is a critical component in the MVI architecture that bridges
- * intents and state changes. It applies a [HandleStrategy] to determine how intents
- * are processed (concurrently, sequentially, or in a hybrid manner) before being
- * passed to intent handlers.
+ * `IntentTransformer` is the low-level extension point between dispatched intents
+ * and [Mvi.PartialChange] emissions. Custom implementations can intercept, merge,
+ * throttle, split, or otherwise transform the incoming intent stream before state
+ * accumulation.
  *
- * ## Architecture Flow
+ * The framework's default implementation applies a [HandleStrategy] and delegates
+ * each intent to an [IntentHandler]. See [HandleStrategy] for the authoritative
+ * semantics of CONCURRENT / SEQUENTIAL / HYBRID processing.
  *
- * ```
- * User Action → Intent → IntentTransformer → IntentHandler → PartialChange → State
- *                             ↓
- *                       Apply Strategy
- *                    (CONCURRENT/SEQUENTIAL/HYBRID)
- * ```
+ * ## Custom Transformer Example
  *
- * ## Key Responsibilities
- *
- * 1. **Strategy Application**: Applies the configured [HandleStrategy] to the intent flow
- * 2. **Flow Transformation**: Converts `Flow<Intent>` to `Flow<PartialChange>`
- * 3. **Concurrency Control**: Manages how intents are processed based on their type
- * 4. **Handler Delegation**: Delegates actual intent handling to [IntentHandler]
- *
- * ## Strategy Implementation
- *
- * ### CONCURRENT Strategy
- * ```kotlin
- * intentFlow.flatMapMerge { handler.handle(it) }
- * ```
- * All intents are processed in parallel.
- *
- * ### SEQUENTIAL Strategy
- * ```kotlin
- * intentFlow.flatMapConcat { handler.handle(it) }
- * ```
- * All intents are processed one-by-one in order.
- *
- * ### HYBRID Strategy
- * ```kotlin
- * intentFlow.groupByType().flattenMerge()
- * ```
- * Intents are grouped by type, with sequential processing within groups
- * and parallel processing between groups.
- *
- * ## Usage Example
- *
- * ### Basic Usage (typically done by framework)
- * ```kotlin
- * val transformer = IntentTransformer<MyIntent, MyState, MyEvent>(
- *     handleStrategy = HandleStrategy.HYBRID,
- *     hybridStrategyConfig = HybridStrategyConfig(),
- *     handler = myIntentHandler
- * )
- *
- * intentFlow
- *     .toPartialChange(transformer)
- *     .collect { partialChange ->
- *         // Apply partial change to state
- *     }
- * ```
- *
- * ### Custom Transformer
  * ```kotlin
  * class LoggingIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
- *     private val delegate: IntentTransformer<I, S, E>
+ *     private val delegate: IntentTransformer<I, S, E>,
  * ) : IntentTransformer<I, S, E> {
  *     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
  *         return delegate.transform(
@@ -92,16 +43,9 @@ import java.util.concurrent.ConcurrentHashMap
  * }
  * ```
  *
- * ## Performance Considerations
- *
- * - **CONCURRENT**: Best performance, but may have race conditions
- * - **SEQUENTIAL**: Safest, but may block on long-running intents
- * - **HYBRID**: Balanced approach, recommended for most applications
- *
- * ## Thread Safety
- *
- * The transformer itself is stateless and thread-safe. Concurrency control
- * is handled by the underlying Flow operators (flatMapMerge/flatMapConcat).
+ * Implementations should be stateless or otherwise safe for the coroutine context
+ * in which their returned flow is collected. Concurrency semantics are determined
+ * by the flow operators used by the implementation.
  *
  * @param I The intent type
  * @param S The state type
@@ -113,13 +57,10 @@ import java.util.concurrent.ConcurrentHashMap
  */
 fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
     /**
-     * Transforms a flow of intents into a flow of partial state changes.
-     *
-     * This method applies the configured strategy to process intents and delegates
-     * to the intent handler to produce state changes.
+     * Transforms incoming intents into partial changes.
      *
      * @param intentFlow The flow of intents to transform
-     * @return A flow of partial state changes to be applied to the current state
+     * @return A flow of partial changes to be applied to snapshots
      */
     fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>>
 }
@@ -179,68 +120,26 @@ private object ConcurrentGroup
 private object SequentialGroup
 
 /**
- * Default implementation of [IntentTransformer] that applies a [HandleStrategy].
+ * Default [IntentTransformer] used by the handler-based contract API.
  *
- * This internal class is the main implementation that handles the three processing
- * strategies: CONCURRENT, SEQUENTIAL, and HYBRID. It orchestrates how intents are
- * processed based on the configured strategy and delegates actual intent handling
- * to the [IntentHandler].
+ * This implementation selects the configured [HandleStrategy], delegates actual
+ * work to [handler], and emits the resulting [Mvi.PartialChange] flow. It keeps
+ * the strategy wiring in one place while leaving the detailed strategy semantics
+ * documented on [HandleStrategy].
  *
- * ## Implementation Details
- *
- * ### CONCURRENT Strategy
- * - Uses `Flow.flatMapMerge` to process all intents in parallel
- * - No grouping or ordering guarantees
- * - Maximum throughput
- *
- * ### SEQUENTIAL Strategy
- * - Uses `Flow.flatMapConcat` to process intents one-by-one
- * - Strict FIFO ordering
- * - Each intent waits for the previous to complete
- *
- * ### HYBRID Strategy (Most Complex)
- * 1. **Group intents by type**:
- *    - [Mvi.Intent.Concurrent] → fixed concurrent group (parallel processing)
- *    - [Mvi.Intent.Sequential] → fixed sequential group (sequential processing)
- *    - Fallback intents → Custom groups based on [GroupTagSelector]
- * 2. **Process groups**:
- *    - Within each group: Sequential processing (`flatMapConcat`)
- *    - Between groups: Parallel processing (`flattenMerge`)
- *
- * ## Hybrid Strategy Flow Diagram
- *
- * ```
- * Intent Flow
- *     ↓
- * assignGroupTag()  ← Classify each intent
- *     ↓
- * groupHandle()     ← Group by tag
- *     ↓
- * ┌─────────────────┬─────────────────┬──────────────────┐
- * │ ConcurrentGroup │ SequentialGroup │ Custom tag       │
- * │ (flatMapMerge)  │ (flatMapConcat) │ (flatMapConcat)  │
- * └─────────────────┴─────────────────┴──────────────────┘
- *     ↓                   ↓                   ↓
- * flattenMerge()  ← Merge all groups in parallel
- *     ↓
- * PartialChange Flow
- * ```
- *
- * ## Logging
- *
- * Logs the strategy being applied at the start of transformation:
- * - CONCURRENT/SEQUENTIAL: Logs strategy name only
- * - HYBRID: Logs strategy and config details (useful for debugging grouping)
+ * For HYBRID processing, fallback grouping is selected by [groupTagSelector] and
+ * runtime buffering / diagnostics are controlled by [hybridStrategyConfig].
  *
  * @param I The intent type
  * @param S The state type
  * @param E The event type
  * @param handleStrategy The handling strategy to apply
- * @param hybridStrategyConfig Runtime configuration for HYBRID strategy (unused for other strategies)
+ * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
  * @param groupTagSelector Selects fallback group tags for HYBRID strategy
  * @param handler The intent handler that processes individual intents
  * @see HandleStrategy
  * @see HybridStrategyConfig
+ * @see GroupTagSelector
  * @see IntentHandler
  */
 internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(

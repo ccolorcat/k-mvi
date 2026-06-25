@@ -85,7 +85,7 @@
 
 - 🟡 **Style-1**: `.editorconfig` 中 `max_line_length=120`，当前 core main 仍有少量超过 120 列的代码行，集中在长日志 / 错误消息字符串和 `KMvi.Configuration.toString()`。这不影响行为，但与项目格式约定不完全一致；建议后续将这些长字符串拆行，保持源码宽度一致。
 
-- 🟡 **Style-2**: KDoc 整体过于冗长，部分文件的文档篇幅远超代码本身（如 `HandleStrategies.kt` 316 行中约 70% 是 KDoc）。文档中有大量重复的内容——`IntentTransformer` 中重复解释了三类 strategy 的行为，而这些在 `HandleStrategy` 中已有完整描述。建议遵循 DRY 原则，核心概念集中描述，其他文件交叉引用。
+- 🟡 **Style-2**（6月25日已部分优化）: KDoc 整体仍偏重，部分文件文档篇幅明显高于代码本身；其中 `HandleStrategies.kt` 作为 strategy 权威说明保留完整文档。已将 `IntentTransformers.kt` 中重复展开三类 strategy 的 KDoc 改为简述职责并通过 `HandleStrategy` 交叉引用权威文档，避免 strategy 语义变动时多处同步。后续仍可继续减少局部重复，优先保留核心入口的完整说明，其他位置用 `@see` / 交叉引用承接。
 
 - 🟢 **Style-3**（6月25日已修复）: `@author ccolorcat` 标签出现在 16 个文件中。Kotlin 社区一般不再使用 `@author` 标签，改为通过 Git 历史追踪作者。已从全部 16 个文件中移除。
 
