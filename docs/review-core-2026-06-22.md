@@ -107,13 +107,11 @@
 
 - 🟢 **Doc-1**: 顶层 KDoc 覆盖非常完善——每个 public 类型、方法、属性都有 KDoc，且包含了使用示例、注意事项和架构图。这是非常好的习惯。
 
-- 🟡 **Doc-2**: `HandleStrategies.kt` 中 `strategyTransformer` 函数和 `StrategyIntentTransformer` 类的 KDoc 内容有大量重叠，后者几乎完整复述了前三类 strategy 的行为。建议后者简要标注 "See HandleStrategy for strategy details。" 以避免重复。
+- 🟢 **Doc-2**（6月25日已修复）: `IntentTransformers.kt` 中 `strategyTransformer` 和 `StrategyIntentTransformer` 的重复 strategy KDoc 已精简。`StrategyIntentTransformer` 现在只说明默认实现职责，并通过 `HandleStrategy` / `@see` 交叉引用权威 strategy 文档，避免 strategy 语义变动时多处同步。
 
 - 🟢 **Doc-3**（6月25日已修复）: `Mvi.kt` 的 `PartialChange` KDoc 中给出了完整 async 操作示例（`handleLoadData`）。示例中的 `repository.loadData()` 已改为使用 `withContext(Dispatchers.IO)` 包裹可能阻塞的网络 / 数据库 / 文件工作，避免误导用户把阻塞 I/O 放进默认的 `Dispatchers.Default` handler pipeline。`IntentHandlers.kt`、`MviViewModels.kt` 和 README 中同类 `loadData` 示例也已同步更新。
 
-- 🟡 **Doc-4**: `MviCollects.kt` 的 `dispatchWithLifecycle` KDoc 中注明事件的行为：
-  > Collection starts when the lifecycle reaches [state] and **stops** when the lifecycle drops below that state.
-  这是正确的，但注意 `repeatOnLifecycle` 在 lifecycle 低于指定状态时会取消协程并重新启动，因此 `dispatch(this)` 会丢弃其间到达的 flow 元素——这在 dispatcher 中通常是可以接受的（因为 dispatch 是非幂等敏感的）。
+- 🟡 **Doc-4**: `MviCollects.kt` 的 `dispatchWithLifecycle` KDoc 已说明 collection 会在 lifecycle 低于指定状态时停止并在恢复后重启。现已补充说明：如果上游是 hot flow 且没有 replay，停止期间发出的 intents 不会被收集，也就不会调用 `dispatch`；如需跨 lifecycle stop 保留 intent，应使用带 replay 或持久化语义的上游来源。
 
 - 🟢 **Doc-5**（已修复）: `ReactiveContractLazy` 的 KDoc 此前未充分说明 `@Volatile` 与非线程安全的关系。当前 KDoc 已改为说明该 lazy 是主线程访问约定下的非线程安全实现，委托给 `lazy(LazyThreadSafetyMode.NONE)` 是为了显式表达“不做同步、不保证并发初始化安全”的设计选择。
 
@@ -121,9 +119,9 @@
 
 - 🟢 **Doc-7**: `groupHandle` 的 KDoc 详细记录了单协程瓶颈问题和 mitigation 方案，也记录了 tag 的稳定性要求。这种"诚实文档"值得保留和表扬。
 
-- 🟡 **Doc-8**: `InternalUtils.kt` 中 `tagLabel` 的 KDoc 良好，但 `requireSupportedChannelConfig` 的 KDoc 中没有提及 `capacity` 各特殊值的数字含义。注意 `Channel.BUFFERED` 常量值为 `-2`（运行时解析为默认 buffer size 64，来自系统属性 `kotlinx.coroutines.flow.buffer.size`）；`Channel.RENDEZVOUS = 0`；`Channel.CONFLATED = -1`；`Channel.UNLIMITED = Int.MAX_VALUE`。如果 KDoc 列出这些常量与其运行时行为的映射，代码理解会更直观。
+- 🟡 **Doc-8**: `InternalUtils.kt` 的 `requireSupportedChannelConfig` KDoc 已说明支持 named constants、正整数 capacity，以及 `Channel.CONFLATED` 只能配合 `BufferOverflow.SUSPEND`。现已进一步列出完整常量映射（`BUFFERED = -2`、`CONFLATED = -1`、`RENDEZVOUS = 0`、`UNLIMITED = Int.MAX_VALUE`）及 `BUFFERED` 的运行时默认 buffer 语义，使配置校验规则更直观。
 
-- 🟡 **Doc-9**: `README.md` 中多处指向过时的版本号（如 `1.2.6`），需要随着版本更新同步。
+- 🟡 **Doc-9**: `README.md` 安装示例仍写 `cc.colorcat.mvi:core:1.2.6`，而项目当前 `versionName` 是 `1.4.0-SNAPSHOT`。如果 `1.2.6` 不是最新稳定发布版，应同步更新；如果 README 有意展示最新稳定版而非开发快照，则建议在发布流程中明确维护该版本号，避免与 `versionName` 混淆。`Requirements` 中的 Kotlin / Coroutines 版本也应区分“最低支持版本”和“当前构建依赖版本”。
 
 ---
 
@@ -137,12 +135,12 @@
 |------|------|------|
 | 🔴 Critical | 0 | — |
 | 🟠 Medium | 1 | Design-4 |
-| 🟡 Minor | 5 | Style-1/2, Doc-2/4/8/9 |
-| 🟢 Good / Resolved | 32 | Design-1/2/3/5/6/7/8/9/10, Bug-1/2, Note-1/2/3/4, Name-1/2/3/4/5/6/7/8, Style-3/4/5/6/7/8/9, Doc-1/3/5/6/7 |
+| 🟡 Minor | 4 | Style-1/2, Doc-4/8/9 |
+| 🟢 Good / Resolved | 33 | Design-1/2/3/5/6/7/8/9/10, Bug-1/2, Note-1/2/3/4, Name-1/2/3/4/5/6/7/8, Style-3/4/5/6/7/8/9, Doc-1/2/3/5/6/7 |
 
 **仍可改进的领域**：
 
-- KDoc 的冗余减少——遵循 DRY，交叉引用代替重复（Style-2, Doc-2）
+- KDoc 的冗余减少——遵循 DRY，交叉引用代替重复（Style-2）
 - `groupHandle` 单协程瓶颈的长期方案（Design-4）
 
 **已解决的问题**：
@@ -153,3 +151,4 @@
 - `ReactiveContractLazy` 改为 `by lazy(LazyThreadSafetyMode.NONE)` 委托，删除自定义 lazy 与误导性的 `@Volatile` 注解；并将原并发风险重新归类为主线程访问约定下的非线程安全设计（Bug-1 + Design-10，6月25日调整）
 - `@author ccolorcat` 从全部 16 个核心模块源码文件中移除（Style-3，6月25日修复）
 - 阻塞型 `repository.loadData()` 示例已用 `withContext(Dispatchers.IO)` 隔离，避免误导用户在 Default pipeline 中执行 I/O（Doc-3，6月25日修复）
+- `IntentTransformers.kt` 中重复 strategy KDoc 已精简为职责说明 + `HandleStrategy` 交叉引用（Doc-2，6月25日修复）

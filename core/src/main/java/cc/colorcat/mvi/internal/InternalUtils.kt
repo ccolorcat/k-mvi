@@ -7,8 +7,10 @@ import kotlinx.coroutines.channels.Channel
  * Validates channel-like buffer configuration for K-MVI queue configs.
  *
  * Supported capacity values:
- * - Named constants in `[-2, 0]`: [Channel.BUFFERED], [Channel.CONFLATED], [Channel.RENDEZVOUS]
- * - Any positive `Int` (`> 0`), including [Channel.UNLIMITED]
+ * - [Channel.BUFFERED] (`-2`): uses the coroutines default buffered capacity at runtime.
+ * - [Channel.CONFLATED] (`-1`): conflated channel; requires [BufferOverflow.SUSPEND].
+ * - [Channel.RENDEZVOUS] (`0`): no buffer; sender and receiver rendezvous.
+ * - Any positive `Int` (`> 0`), including [Channel.UNLIMITED] ([Int.MAX_VALUE]).
  *
  * [Channel.CONFLATED] already defines conflation semantics internally and only supports
  * [BufferOverflow.SUSPEND]. Other supported capacities can use any [BufferOverflow].

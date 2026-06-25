@@ -490,6 +490,10 @@ inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTyped(
  * - Collection resumes when lifecycle returns to [state]
  * - Collection stops permanently when the lifecycle is destroyed
  *
+ * For hot flows with no replay, intents emitted while the lifecycle is below [state]
+ * are not collected and therefore are not dispatched later. Use an upstream replaying
+ * or persistent source if those intents must survive lifecycle stops.
+ *
  * @param I The intent type
  * @param owner The lifecycle owner
  * @param state The minimum lifecycle state required for collection (default: STARTED)
