@@ -51,7 +51,7 @@
 
 > 以下条目并非 Bug，但属于设计层面的 trade-off 或容易误读的模式，值得记录。
 
-- 🟡 **Note-1**: `isConcurrent` 扩展属性实现为 `this is Mvi.Intent.Concurrent && this !is Mvi.Intent.Sequential`，`isSequential` 类似。当某个 Intent 同时实现两个标记接口时（conflict 场景），`isConcurrent` 和 `isSequential` 都返回 `false`，然后 `assignGroupTag` 的 `else` 分支检测到冲突并记录警告。这个逻辑是正确的，但不够直观——属于"设计正确但容易让人误解"的模式。建议考虑将冲突检测统一放到 `assignGroupTag` 中，而 `isConcurrent`/`isSequential` 仅做纯粹的接口检查（不互斥过滤），让分类逻辑完全集中在 transformer 中。
+- 🟢 **Note-1**（6月24日已修复）: `isConcurrent`/`isSequential` 此前实现为互斥过滤（`this is Concurrent && this !is Sequential`），冲突检测分散在属性定义和 `assignGroupTag` 两处。现已改为纯接口检查（`this is Concurrent` / `this is Sequential`），冲突检测完全集中在 `assignGroupTag` 中——先检查双标记冲突再路由到单标记分支，分类逻辑一目了然。
 
 - 🟠 **Note-2**: `eventFlow` 使用 `WhileSubscribed(5000)` + `shareIn`，5 秒的 stop timeout 意味着 Fragment 进入后台后最多 5 秒内上游仍保持活跃。在此窗口内若无订阅者，事件因 `replay=0` 而被丢弃——这是 one-shot event 的设计意图。在高实时性场景中需确保订阅者尽早就位。
 
@@ -137,8 +137,8 @@
 |------|------|------|
 | 🔴 Critical | 1 | Bug-1 |
 | 🟠 Medium | 4 | Design-4, Design-10, Note-2, Doc-3 |
-| 🟡 Minor | 15 | Design-1, Note-1/3/4, Name-1/3/8, Style-1/2/3/8/9, Doc-2/4/8/9 |
-| 🟢 Good / Resolved | 18 | Design-2/3/5/6/7/8/9, Bug-2, Name-2/4/5/6/7, Style-4/5/6/7, Doc-1/5/6/7 |
+| 🟡 Minor | 14 | Design-1, Note-3/4, Name-1/3/8, Style-1/2/3/8/9, Doc-2/4/8/9 |
+| 🟢 Good / Resolved | 19 | Design-2/3/5/6/7/8/9, Bug-2, Note-1, Name-2/4/5/6/7, Style-4/5/6/7, Doc-1/5/6/7 |
 
 **仍可改进的领域**：
 
@@ -152,3 +152,4 @@
 
 - `dispatch()` TOCTOU 竞争（Bug-2，6月23日修复）
 - `ReactiveContractLazy` KDoc 对 volatile/非原子性的说明（Doc-5）
+- `isConcurrent`/`isSequential` 冲突检测逻辑集中化（Note-1，6月24日修复）

@@ -65,8 +65,8 @@ class InternalExtensionsTest {
     }
 
     @Test
-    fun `isConcurrent false for intent implementing both`() {
-        assertFalse(TestIntent.Both.isConcurrent)
+    fun `isConcurrent true for intent implementing both`() {
+        assertTrue(TestIntent.Both.isConcurrent)
     }
 
     @Test
@@ -97,8 +97,8 @@ class InternalExtensionsTest {
     }
 
     @Test
-    fun `isSequential false for intent implementing both`() {
-        assertFalse(TestIntent.Both.isSequential)
+    fun `isSequential true for intent implementing both`() {
+        assertTrue(TestIntent.Both.isSequential)
     }
 
     @Test
@@ -106,30 +106,34 @@ class InternalExtensionsTest {
         assertTrue(anonymousSequential.isSequential)
     }
 
-    // --- Mutual exclusion ---
+    // --- Classification ---
 
     @Test
-    fun `isConcurrent and isSequential are mutually exclusive`() {
-        val intents = listOf(
+    fun `single-marker intents are not both isConcurrent and isSequential`() {
+        val singleMarkerIntents = listOf(
             TestIntent.JustIntent,
             TestIntent.OnlyConcurrent,
             TestIntent.OnlySequential(1),
-            TestIntent.Both,
             anonymousIntent,
             anonymousConcurrent,
             anonymousSequential,
-            anonymousBoth,
         )
-        for (intent in intents) {
+        for (intent in singleMarkerIntents) {
             assertFalse(
-                "intent $intent should not have both isConcurrent and isSequential",
+                "single-marker intent $intent should not have both isConcurrent and isSequential",
                 intent.isConcurrent && intent.isSequential,
             )
         }
     }
 
     @Test
-    fun `isConcurrent XOR isSequential XOR fallback covers all cases`() {
+    fun `conflict intents have both isConcurrent and isSequential true`() {
+        assertTrue(TestIntent.Both.isConcurrent && TestIntent.Both.isSequential)
+        assertTrue(anonymousBoth.isConcurrent && anonymousBoth.isSequential)
+    }
+
+    @Test
+    fun `every intent is concurrent or sequential or fallback`() {
         val intents = listOf(
             TestIntent.JustIntent,
             TestIntent.OnlyConcurrent,
@@ -142,18 +146,10 @@ class InternalExtensionsTest {
             val sequential = intent.isSequential
             val fallback = !concurrent && !sequential
             assertTrue(
-                "exactly one category should apply for $intent",
+                "at least one category should apply for $intent",
                 concurrent || sequential || fallback,
             )
         }
-    }
-
-    @Test
-    fun `both implements neither concurrent nor sequential`() {
-        // Both implements both interfaces, but because each excludes the other,
-        // both isConcurrent and isSequential return false
-        assertFalse(TestIntent.Both.isConcurrent)
-        assertFalse(TestIntent.Both.isSequential)
     }
 
     // --- diagnosticName ---

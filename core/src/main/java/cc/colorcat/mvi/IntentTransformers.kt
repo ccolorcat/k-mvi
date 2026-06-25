@@ -311,45 +311,52 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     /**
      * Assigns a group tag to an intent based on its type.
      *
+     * All classification and conflict detection are centralized here.
+     * [isConcurrent] and [isSequential] are pure interface checks; this method
+     * is the single place that resolves ambiguity.
+     *
      * The tag determines how the intent will be processed in HYBRID strategy:
      *
-     * - **Concurrent Intent** ([Mvi.Intent.Concurrent]):
+     * - **Conflict** (implements both [Mvi.Intent.Concurrent] and [Mvi.Intent.Sequential]):
+     *   - The two markers are mutually exclusive; implementing both is incorrect.
+     *   - A warning is logged once per intent class for this transformer instance.
+     *   - The intent falls through to fallback grouping.
+     *   - Checked first so that conflict intents never silently enter a fixed group.
+     *
+     * - **Concurrent Intent** ([Mvi.Intent.Concurrent] only):
      *   - Tag: private concurrent sentinel
      *   - Processing: Parallel with all other concurrent intents
      *
-     * - **Sequential Intent** ([Mvi.Intent.Sequential]):
+     * - **Sequential Intent** ([Mvi.Intent.Sequential] only):
      *   - Tag: private sequential sentinel
      *   - Processing: Sequential in a single global queue
      *
-     * - **Fallback Intent** (implements neither [Mvi.Intent.Concurrent] nor [Mvi.Intent.Sequential]):
+     * - **Fallback Intent** (implements neither marker):
      *   - Tag: result of [GroupTagSelector.selectTag]
      *   - Processing: Sequential within the same tag group, parallel with other groups
      *   - This is a valid, intentional pattern — use it for fine-grained grouping control
      *     when neither fixed concurrency mode fits.
      *
-     * - **Conflict** (implements both [Mvi.Intent.Concurrent] and [Mvi.Intent.Sequential]):
-     *   - The two markers are mutually exclusive; implementing both is incorrect.
-     *   - A warning is logged once per intent class for this transformer instance.
-     *   - The intent falls through to fallback grouping (same as the case above).
-     *
      * @param intent The intent to classify
      * @return The group tag for this intent
      */
     private fun assignGroupTag(intent: I): Any {
+        val concurrent = intent.isConcurrent
+        val sequential = intent.isSequential
         return when {
-            intent.isConcurrent -> ConcurrentGroup
-            intent.isSequential -> SequentialGroup
-            else -> {
-                if (intent is Mvi.Intent.Concurrent && intent is Mvi.Intent.Sequential) {
-                    if (conflictIntentTypes.add(intent.javaClass)) {
-                        logger.w(TAG) {
-                            "${intent.diagnosticName} implements both Concurrent and Sequential; " +
-                                "falling back to hybrid group selection."
-                        }
+            concurrent && sequential -> {
+                if (conflictIntentTypes.add(intent.javaClass)) {
+                    logger.w(TAG) {
+                        "${intent.diagnosticName} implements both Concurrent and Sequential; " +
+                            "falling back to hybrid group selection."
                     }
                 }
                 groupTagSelector.selectTag(intent)
             }
+
+            concurrent -> ConcurrentGroup
+            sequential -> SequentialGroup
+            else -> groupTagSelector.selectTag(intent)
         }
     }
 }

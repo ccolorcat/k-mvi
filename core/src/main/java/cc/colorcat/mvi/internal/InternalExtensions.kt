@@ -20,28 +20,30 @@ import kotlinx.coroutines.flow.flow
 
 
 /**
- * Checks if the Intent is purely of type [Mvi.Intent.Concurrent].
+ * Checks if the Intent implements [Mvi.Intent.Concurrent].
  *
- * Returns `true` only if the Intent implements [Mvi.Intent.Concurrent] and does NOT
- * implement [Mvi.Intent.Sequential]. This ensures the Intent has unambiguous concurrent semantics.
+ * This is a pure interface check. An intent implementing both [Mvi.Intent.Concurrent]
+ * and [Mvi.Intent.Sequential] will return `true` here — conflict resolution is handled
+ * by the strategy transformer's `assignGroupTag`, not by this property.
  *
- * @return `true` if the Intent is purely concurrent, `false` otherwise
+ * @return `true` if the Intent implements [Mvi.Intent.Concurrent]
  * @see isSequential
  */
 internal val Mvi.Intent.isConcurrent: Boolean
-    get() = this is Mvi.Intent.Concurrent && this !is Mvi.Intent.Sequential
+    get() = this is Mvi.Intent.Concurrent
 
 /**
- * Checks if the Intent is purely of type [Mvi.Intent.Sequential].
+ * Checks if the Intent implements [Mvi.Intent.Sequential].
  *
- * Returns `true` only if the Intent implements [Mvi.Intent.Sequential] and does NOT
- * implement [Mvi.Intent.Concurrent]. This ensures the Intent has unambiguous sequential semantics.
+ * This is a pure interface check. An intent implementing both [Mvi.Intent.Sequential]
+ * and [Mvi.Intent.Concurrent] will return `true` here — conflict resolution is handled
+ * by the strategy transformer's `assignGroupTag`, not by this property.
  *
- * @return `true` if the Intent is purely sequential, `false` otherwise
+ * @return `true` if the Intent implements [Mvi.Intent.Sequential]
  * @see isConcurrent
  */
 internal val Mvi.Intent.isSequential: Boolean
-    get() = this is Mvi.Intent.Sequential && this !is Mvi.Intent.Concurrent
+    get() = this is Mvi.Intent.Sequential
 
 /**
  * A stable, human-readable name for this intent, intended for logging and diagnostics only.
