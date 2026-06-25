@@ -51,7 +51,7 @@
 
 > 以下条目并非 Bug，但属于设计层面的 trade-off 或容易误读的模式，值得记录。
 
-- 🟢 **Note-1**（6月24日已修复）: `isConcurrent`/`isSequential` 此前实现为互斥过滤（`this is Concurrent && this !is Sequential`），冲突检测分散在属性定义和 `assignGroupTag` 两处。现已改为纯接口检查（`this is Concurrent` / `this is Sequential`），冲突检测完全集中在 `assignGroupTag` 中——先检查双标记冲突再路由到单标记分支，分类逻辑一目了然。
+- 🟢 **Note-1**（6月25日已修复）: `isConcurrent`/`isSequential` 曾从“互斥过滤”改为“纯接口检查”，以便把双标记冲突检测集中到 `assignGroupTag`。后续复查确认这两个 internal property 只是 `intent is Mvi.Intent.Concurrent/Sequential` 的薄包装，生产代码也只有 `assignGroupTag` 一个调用点；现已删除，`assignGroupTag` 内直接做 marker interface 判断，冲突检测和路由逻辑继续集中在同一处。
 
 - 🟠 **Note-2**: `eventFlow` 使用 `WhileSubscribed(5000)` + `shareIn`，5 秒的 stop timeout 意味着 Fragment 进入后台后最多 5 秒内上游仍保持活跃。在此窗口内若无订阅者，事件因 `replay=0` 而被丢弃——这是 one-shot event 的设计意图。在高实时性场景中需确保订阅者尽早就位。
 
@@ -152,4 +152,4 @@
 
 - `dispatch()` TOCTOU 竞争（Bug-2，6月23日修复）
 - `ReactiveContractLazy` KDoc 对 volatile/非原子性的说明（Doc-5）
-- `isConcurrent`/`isSequential` 冲突检测逻辑集中化（Note-1，6月24日修复）
+- `isConcurrent`/`isSequential` 冗余 internal property 已删除，冲突检测仍集中在 `assignGroupTag`（Note-1，6月25日修复）

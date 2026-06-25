@@ -230,8 +230,8 @@ class IntentTransformersTest {
         }.toPartialChange(transformer).toList()
 
         assertEquals(1, results.size)
-        // Ambiguous implements both interfaces, so neither isConcurrent nor isSequential,
-        // meaning it falls through to the custom groupTagSelector result.
+        // Ambiguous implements both marker interfaces, so HYBRID resolves the conflict
+        // by falling through to the custom groupTagSelector result.
         assertSame(BothIntent.Ambiguous.javaClass, handledTag)
     }
 

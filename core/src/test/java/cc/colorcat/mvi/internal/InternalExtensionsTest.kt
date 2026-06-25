@@ -28,128 +28,18 @@ class InternalExtensionsTest {
     // --- Test intent types ---
 
     private interface TestIntent : Mvi.Intent {
-        data object JustIntent : TestIntent
         data object OnlyConcurrent : TestIntent, Mvi.Intent.Concurrent
         data class OnlySequential(val id: Int) : TestIntent, Mvi.Intent.Sequential
-        data object Both : TestIntent, Mvi.Intent.Concurrent, Mvi.Intent.Sequential
     }
 
-    // Anonymous implementations for edge cases
+    // Anonymous implementation for edge cases
     private val anonymousIntent = object : Mvi.Intent {}
-    private val anonymousConcurrent = object : Mvi.Intent, Mvi.Intent.Concurrent {}
-    private val anonymousSequential = object : Mvi.Intent, Mvi.Intent.Sequential {}
-    private val anonymousBoth = object : Mvi.Intent, Mvi.Intent.Concurrent, Mvi.Intent.Sequential {}
 
     private data class TaggedIntent(val tag: String) : Mvi.Intent
 
     @Before
     fun setUp() {
         KMvi.configure { KMvi.Configuration(logger = Logger { _, _, _, _ -> }) }
-    }
-
-    // --- isConcurrent ---
-
-    @Test
-    fun `isConcurrent true for Concurrent-only intent`() {
-        assertTrue(TestIntent.OnlyConcurrent.isConcurrent)
-    }
-
-    @Test
-    fun `isConcurrent false for plain intent`() {
-        assertFalse(TestIntent.JustIntent.isConcurrent)
-    }
-
-    @Test
-    fun `isConcurrent false for Sequential-only intent`() {
-        assertFalse(TestIntent.OnlySequential(1).isConcurrent)
-    }
-
-    @Test
-    fun `isConcurrent true for intent implementing both`() {
-        assertTrue(TestIntent.Both.isConcurrent)
-    }
-
-    @Test
-    fun `isConcurrent false for anonymous plain intent`() {
-        assertFalse(anonymousIntent.isConcurrent)
-    }
-
-    @Test
-    fun `isConcurrent true for anonymous Concurrent-only intent`() {
-        assertTrue(anonymousConcurrent.isConcurrent)
-    }
-
-    // --- isSequential ---
-
-    @Test
-    fun `isSequential true for Sequential-only intent`() {
-        assertTrue(TestIntent.OnlySequential(1).isSequential)
-    }
-
-    @Test
-    fun `isSequential false for plain intent`() {
-        assertFalse(TestIntent.JustIntent.isSequential)
-    }
-
-    @Test
-    fun `isSequential false for Concurrent-only intent`() {
-        assertFalse(TestIntent.OnlyConcurrent.isSequential)
-    }
-
-    @Test
-    fun `isSequential true for intent implementing both`() {
-        assertTrue(TestIntent.Both.isSequential)
-    }
-
-    @Test
-    fun `isSequential true for anonymous Sequential-only intent`() {
-        assertTrue(anonymousSequential.isSequential)
-    }
-
-    // --- Classification ---
-
-    @Test
-    fun `single-marker intents are not both isConcurrent and isSequential`() {
-        val singleMarkerIntents = listOf(
-            TestIntent.JustIntent,
-            TestIntent.OnlyConcurrent,
-            TestIntent.OnlySequential(1),
-            anonymousIntent,
-            anonymousConcurrent,
-            anonymousSequential,
-        )
-        for (intent in singleMarkerIntents) {
-            assertFalse(
-                "single-marker intent $intent should not have both isConcurrent and isSequential",
-                intent.isConcurrent && intent.isSequential,
-            )
-        }
-    }
-
-    @Test
-    fun `conflict intents have both isConcurrent and isSequential true`() {
-        assertTrue(TestIntent.Both.isConcurrent && TestIntent.Both.isSequential)
-        assertTrue(anonymousBoth.isConcurrent && anonymousBoth.isSequential)
-    }
-
-    @Test
-    fun `every intent is concurrent or sequential or fallback`() {
-        val intents = listOf(
-            TestIntent.JustIntent,
-            TestIntent.OnlyConcurrent,
-            TestIntent.OnlySequential(1),
-            TestIntent.Both,
-            anonymousIntent,
-        )
-        for (intent in intents) {
-            val concurrent = intent.isConcurrent
-            val sequential = intent.isSequential
-            val fallback = !concurrent && !sequential
-            assertTrue(
-                "at least one category should apply for $intent",
-                concurrent || sequential || fallback,
-            )
-        }
     }
 
     // --- diagnosticName ---

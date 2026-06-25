@@ -9,41 +9,13 @@ import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
 
 /**
- * Internal extension functions for MVI Intent handling and Flow processing.
+ * Internal extension functions for MVI diagnostics and Flow processing.
  *
- * This file provides utility extensions for:
- * - Intent type checking (Concurrent, Sequential, Fallback)
- * - Flow grouping and handling by tag for parallel processing
+ * This file provides utility extensions for diagnostic-safe intent names and
+ * Flow grouping/handling by tag for parallel processing.
  *
  * @author ccolorcat
  */
-
-
-/**
- * Checks if the Intent implements [Mvi.Intent.Concurrent].
- *
- * This is a pure interface check. An intent implementing both [Mvi.Intent.Concurrent]
- * and [Mvi.Intent.Sequential] will return `true` here — conflict resolution is handled
- * by the strategy transformer's `assignGroupTag`, not by this property.
- *
- * @return `true` if the Intent implements [Mvi.Intent.Concurrent]
- * @see isSequential
- */
-internal val Mvi.Intent.isConcurrent: Boolean
-    get() = this is Mvi.Intent.Concurrent
-
-/**
- * Checks if the Intent implements [Mvi.Intent.Sequential].
- *
- * This is a pure interface check. An intent implementing both [Mvi.Intent.Sequential]
- * and [Mvi.Intent.Concurrent] will return `true` here — conflict resolution is handled
- * by the strategy transformer's `assignGroupTag`, not by this property.
- *
- * @return `true` if the Intent implements [Mvi.Intent.Sequential]
- * @see isConcurrent
- */
-internal val Mvi.Intent.isSequential: Boolean
-    get() = this is Mvi.Intent.Sequential
 
 /**
  * A stable, human-readable name for this intent, intended for logging and diagnostics only.

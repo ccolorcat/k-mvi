@@ -6,8 +6,6 @@ import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.diagnosticName
 import cc.colorcat.mvi.internal.groupHandle
 import cc.colorcat.mvi.internal.i
-import cc.colorcat.mvi.internal.isConcurrent
-import cc.colorcat.mvi.internal.isSequential
 import cc.colorcat.mvi.internal.logger
 import cc.colorcat.mvi.internal.w
 import kotlinx.coroutines.FlowPreview
@@ -311,9 +309,8 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     /**
      * Assigns a group tag to an intent based on its type.
      *
-     * All classification and conflict detection are centralized here.
-     * [isConcurrent] and [isSequential] are pure interface checks; this method
-     * is the single place that resolves ambiguity.
+     * Classification and conflict detection are centralized here. The marker checks are kept local so
+     * conflict resolution cannot diverge from tag assignment.
      *
      * The tag determines how the intent will be processed in HYBRID strategy:
      *
@@ -341,10 +338,10 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @return The group tag for this intent
      */
     private fun assignGroupTag(intent: I): Any {
-        val concurrent = intent.isConcurrent
-        val sequential = intent.isSequential
+        val isConcurrent = intent is Mvi.Intent.Concurrent
+        val isSequential = intent is Mvi.Intent.Sequential
         return when {
-            concurrent && sequential -> {
+            isConcurrent && isSequential -> {
                 if (conflictIntentTypes.add(intent.javaClass)) {
                     logger.w(TAG) {
                         "${intent.diagnosticName} implements both Concurrent and Sequential; " +
@@ -354,8 +351,8 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
                 groupTagSelector.selectTag(intent)
             }
 
-            concurrent -> ConcurrentGroup
-            sequential -> SequentialGroup
+            isConcurrent -> ConcurrentGroup
+            isSequential -> SequentialGroup
             else -> groupTagSelector.selectTag(intent)
         }
     }
