@@ -123,8 +123,6 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * @see ReactiveContract
  * @see IntentTransformer
  * @see RetryPolicy
- *
- * @author ccolorcat
  */
 internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
     private val scope: CoroutineScope,

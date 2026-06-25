@@ -22,8 +22,6 @@ import kotlinx.coroutines.channels.Channel
  * @property capacity The queue capacity. Allowed values are [Channel.BUFFERED], [Channel.CONFLATED],
  *                    [Channel.RENDEZVOUS], or any positive Int including [Channel.UNLIMITED].
  * @property onBufferOverflow The overflow policy used when the queue has no free capacity.
- *
- * @author ccolorcat
  */
 data class IntentQueueConfig(
     val capacity: Int = DEFAULT_CAPACITY,

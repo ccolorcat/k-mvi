@@ -6,7 +6,6 @@ package cc.colorcat.mvi
  * Dispatch only reports how the dispatch request interacted with the contract's entry queue. It
  * does not indicate whether the intent handler has started, completed, or produced a state change.
  *
- * @author ccolorcat
  */
 sealed class DispatchResult {
     /**

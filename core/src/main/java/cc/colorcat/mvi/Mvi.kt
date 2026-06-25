@@ -49,8 +49,6 @@ package cc.colorcat.mvi
  * @see Event
  * @see PartialChange
  * @see Snapshot
- *
- * @author ccolorcat
  */
 object Mvi {
     /**

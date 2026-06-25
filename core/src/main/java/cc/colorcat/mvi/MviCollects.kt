@@ -23,8 +23,6 @@ import kotlin.reflect.KProperty1
  * This file provides convenient extension functions and DSL builders for collecting
  * state and event flows with automatic lifecycle management. All collectors respect
  * the Android lifecycle and automatically start/stop collection based on lifecycle state.
- *
- * @author ccolorcat
  */
 
 /**

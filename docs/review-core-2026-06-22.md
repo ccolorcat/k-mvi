@@ -87,7 +87,7 @@
 
 - 🟡 **Style-2**: KDoc 整体过于冗长，部分文件的文档篇幅远超代码本身（如 `HandleStrategies.kt` 316 行中约 70% 是 KDoc）。文档中有大量重复的内容——`IntentTransformer` 中重复解释了三类 strategy 的行为，而这些在 `HandleStrategy` 中已有完整描述。建议遵循 DRY 原则，核心概念集中描述，其他文件交叉引用。
 
-- 🟡 **Style-3**: `@author ccolorcat` 标签出现在多个文件中。Kotlin 社区一般不再使用 `@author` 标签，改为通过 Git 历史追踪作者。建议移除。
+- 🟢 **Style-3**（6月25日已修复）: `@author ccolorcat` 标签出现在 16 个文件中。Kotlin 社区一般不再使用 `@author` 标签，改为通过 Git 历史追踪作者。已从全部 16 个文件中移除。
 
 - 🟢 **Style-4**: `internal val logger: Logger get() = KMvi.logger` 每次访问都从 `KMvi` 重新读取配置，而不是缓存引用。由于 `KMvi.config` 是 `@Volatile` 的，这是正确的行为（确保最新的 logger 配置被使用），但每次日志调用都有一次 volatile read 开销。这点开销微不足道，无需改进。
 
@@ -137,8 +137,8 @@
 |------|------|------|
 | 🔴 Critical | 0 | — |
 | 🟠 Medium | 2 | Design-4, Doc-3 |
-| 🟡 Minor | 6 | Style-1/2/3, Doc-2/4/8/9 |
-| 🟢 Good / Resolved | 30 | Design-1/2/3/5/6/7/8/9/10, Bug-1/2, Note-1/2/3/4, Name-1/2/3/4/5/6/7/8, Style-4/5/6/7/8/9, Doc-1/5/6/7 |
+| 🟡 Minor | 5 | Style-1/2, Doc-2/4/8/9 |
+| 🟢 Good / Resolved | 31 | Design-1/2/3/5/6/7/8/9/10, Bug-1/2, Note-1/2/3/4, Name-1/2/3/4/5/6/7/8, Style-3/4/5/6/7/8/9, Doc-1/5/6/7 |
 
 **仍可改进的领域**：
 
@@ -152,3 +152,4 @@
 - `ReactiveContractLazy` KDoc 对主线程访问约定和非线程安全语义的说明（Doc-5）
 - `isConcurrent`/`isSequential` 冗余 internal property 已删除，冲突检测仍集中在 `assignGroupTag`（Note-1，6月25日修复）
 - `ReactiveContractLazy` 改为 `by lazy(LazyThreadSafetyMode.NONE)` 委托，删除自定义 lazy 与误导性的 `@Volatile` 注解；并将原并发风险重新归类为主线程访问约定下的非线程安全设计（Bug-1 + Design-10，6月25日调整）
+- `@author ccolorcat` 从全部 16 个核心模块源码文件中移除（Style-3，6月25日修复）

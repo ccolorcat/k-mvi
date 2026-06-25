@@ -36,8 +36,6 @@ import cc.colorcat.mvi.internal.getStackTraceString
  *     println("[$tag] ${message()}")
  * }
  * ```
- *
- * @author ccolorcat
  */
 fun interface Logger {
     /**

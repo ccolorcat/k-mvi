@@ -110,8 +110,6 @@ import java.util.concurrent.ConcurrentHashMap
  * @see IntentHandler
  * @see HybridStrategyConfig
  * @see toPartialChange
- *
- * @author ccolorcat
  */
 fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
     /**

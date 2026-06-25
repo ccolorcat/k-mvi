@@ -12,8 +12,6 @@ import kotlinx.coroutines.channels.Channel
  *
  * [Channel.CONFLATED] already defines conflation semantics internally and only supports
  * [BufferOverflow.SUSPEND]. Other supported capacities can use any [BufferOverflow].
- *
- * @author ccolorcat
  */
 internal fun requireSupportedChannelConfig(
     name: String,

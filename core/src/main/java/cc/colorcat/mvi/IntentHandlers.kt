@@ -76,8 +76,6 @@ import java.util.concurrent.ConcurrentHashMap
  * @see Mvi.Intent
  * @see Mvi.PartialChange
  * @see IntentHandlerRegistry
- *
- * @author ccolorcat
  */
 fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
     /**

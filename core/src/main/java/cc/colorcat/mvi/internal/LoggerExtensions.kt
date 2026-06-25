@@ -7,8 +7,6 @@ import cc.colorcat.mvi.Logger
  * Internal logger extension functions and utilities.
  *
  * These functions provide convenient internal logging methods for the MVI framework.
- *
- * @author ccolorcat
  */
 
 /**

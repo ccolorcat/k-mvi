@@ -66,8 +66,6 @@ import kotlinx.coroutines.flow.StateFlow
  * @see ReactiveContract
  * @see StateFlow
  * @see Flow
- *
- * @author ccolorcat
  */
 interface Contract<S : Mvi.State, E : Mvi.Event> {
     /**

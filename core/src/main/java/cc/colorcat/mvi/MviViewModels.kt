@@ -19,8 +19,6 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
  *
  * Both APIs return a [Lazy] delegate for delayed initialization - the contract is only
  * created when first accessed.
- *
- * @author ccolorcat
  */
 
 /**

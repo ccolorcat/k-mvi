@@ -13,8 +13,6 @@ import kotlinx.coroutines.flow.flow
  *
  * This file provides utility extensions for diagnostic-safe intent names and
  * Flow grouping/handling by tag for parallel processing.
- *
- * @author ccolorcat
  */
 
 /**
