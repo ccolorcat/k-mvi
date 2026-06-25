@@ -219,10 +219,10 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * ## Thread Safety
  *
  * This implementation is NOT thread-safe by design. ViewModels are expected to be
- * accessed from the main thread only. [cached] is marked `@Volatile` as a low-cost
- * defensive measure to ensure cross-thread visibility of the written reference,
- * but the check-then-act sequence in [value] remains non-atomic. Do not access
- * this lazy from multiple threads.
+ * accessed from the main thread only. Delegation to [lazy] with
+ * [LazyThreadSafetyMode.NONE] matches this expectation: the initializer may be
+ * called more than once if accessed concurrently from multiple threads. Do not
+ * access this lazy from multiple threads.
  *
  * @param I The Intent type that extends [Mvi.Intent]
  * @param S The State type that extends [Mvi.State]
@@ -230,13 +230,5 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param create Factory function that creates the ReactiveContract instance
  */
 internal class ReactiveContractLazy<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event>(
-    private val create: () -> ReactiveContract<I, S, E>,
-) : Lazy<ReactiveContract<I, S, E>> {
-    @Volatile
-    private var cached: ReactiveContract<I, S, E>? = null
-
-    override val value: ReactiveContract<I, S, E>
-        get() = cached ?: create().also { cached = it }
-
-    override fun isInitialized(): Boolean = cached != null
-}
+    create: () -> ReactiveContract<I, S, E>,
+) : Lazy<ReactiveContract<I, S, E>> by lazy(LazyThreadSafetyMode.NONE, create)

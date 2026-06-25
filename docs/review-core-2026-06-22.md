@@ -35,13 +35,13 @@
 
 - 🟢 **Design-9**: `IntentHandlerScope` 设计为 `value class` 并利用 `@PublishedApi internal` + `reified` 类型参数，使用户只需写 `register<MyIntent> { ... }` 而不必重复声明 `S`/`E`。这是解决 Kotlin 泛型类型推断限制的巧妙模式。
 
-- 🟠 **Design-10**: `ReactiveContractLazy` 是 custom `Lazy` 实现，但 `@Volatile cached` + `cached ?: create().also { cached = it }` 存在非原子 check-then-act 问题。虽然 ViewModel 的主线程访问约定使其在多数情况下安全，但理论上如果某天多线程访问，可能会创建多次实例。使用 `SynchronizedLazyImpl` 或 `kotlin.lazy` 会更安全。
+- 🟢 **Design-10**（6月25日已调整）: `ReactiveContractLazy` 原本是 custom `Lazy` 实现，使用 `@Volatile cached` + `cached ?: create().also { cached = it }`。由于 `ViewModel` 与 delegated property 的访问约定明确为主线程，不需要为并发首次访问提供线程安全保证；真正的问题是 `@Volatile` 容易制造“线程安全”的误读。现已改为 `by lazy(LazyThreadSafetyMode.NONE, create)` 一行委托，保留主线程 / 非线程安全语义，同时消除自定义实现与 `@Volatile` 注解带来的认知负担。
 
 ---
 
 ## Bug
 
-- 🔴 **Bug-1**: `ReactiveContractLazy.value` 的 `cached ?: create().also { cached = it }` 非线程安全。即使 KDoc 声明 "not thread-safe"，`@Volatile` 仅保证可见性而不保证原子性。两个线程同时首次访问时将各自创建一个实例，后写入的会覆盖前一个。实际风险低（ViewModel 默认单线程使用），但标记 `@Volatile` 容易让读者误以为它是线程安全的。
+- 🟢 **Bug-1**（6月25日重新归类）: `ReactiveContractLazy.value` 的 `cached ?: create().also { cached = it }` 非线程安全。复查后确认这不是运行时 bug：该 lazy 只用于 `ViewModel.contract(...)` delegate，调用约定明确为主线程访问，因此不需要支持并发首次初始化。已将实现改为 `by lazy(LazyThreadSafetyMode.NONE, create)`，让“非线程安全 / 无同步开销”的设计选择显式依赖 stdlib 语义，并删除容易误导读者的 `@Volatile` 注解。
 
 - 🟢 **Bug-2**（边缘情况，6月23日已修复）: `dispatch()` 中有 TOCTOU 竞争：先检查 `scopeJob.isActive` 再调用 `channel.trySend`，两者之间 scope 可能被取消。但结果只是将 `Unavailable` 误报告为 `Full`，或者将 `Full` 误报告为 `Submitted`。系统行为正确（不重复处理、不丢失 intent），只是返回结果不精确。这在实践中影响极小，因为 `dispatch` 返回值仅用于监控，不用于业务逻辑。**修复方式**：保留前置 `isActive` 检查以保证 scope 取消时正确返回 `Unavailable`，在 `trySend` 失败后补充二次 `isActive` 检查以缩窄 TOCTOU 窗口——将因竞争导致的误报 `Full` 修正为 `Unavailable`。
 
@@ -115,7 +115,7 @@
   > Collection starts when the lifecycle reaches [state] and **stops** when the lifecycle drops below that state.
   这是正确的，但注意 `repeatOnLifecycle` 在 lifecycle 低于指定状态时会取消协程并重新启动，因此 `dispatch(this)` 会丢弃其间到达的 flow 元素——这在 dispatcher 中通常是可以接受的（因为 dispatch 是非幂等敏感的）。
 
-- 🟢 **Doc-5**（已修复）: `ReactiveContractLazy` 的 KDoc 此前未充分说明 `@Volatile` 与非线程安全的关系。当前 KDoc 已明确阐述："[cached] is marked @Volatile as a low-cost defensive measure to ensure cross-thread visibility of the written reference, but the check-then-act sequence in [value] remains non-atomic." 问题已解决。
+- 🟢 **Doc-5**（已修复）: `ReactiveContractLazy` 的 KDoc 此前未充分说明 `@Volatile` 与非线程安全的关系。当前 KDoc 已改为说明该 lazy 是主线程访问约定下的非线程安全实现，委托给 `lazy(LazyThreadSafetyMode.NONE)` 是为了显式表达“不做同步、不保证并发初始化安全”的设计选择。
 
 - 🟢 **Doc-6**: `DispatchResult` 的 KDoc 非常详尽，对各种 Channel 配置下的语义都有说明，这对于用户理解 dispatch 的返回行为至关重要。
 
@@ -135,21 +135,21 @@
 
 | 等级 | 数量 | 条目 |
 |------|------|------|
-| 🔴 Critical | 1 | Bug-1 |
-| 🟠 Medium | 4 | Design-4, Design-10, Note-2, Doc-3 |
+| 🔴 Critical | 0 | — |
+| 🟠 Medium | 3 | Design-4, Note-2, Doc-3 |
 | 🟡 Minor | 14 | Design-1, Note-3/4, Name-1/3/8, Style-1/2/3/8/9, Doc-2/4/8/9 |
-| 🟢 Good / Resolved | 19 | Design-2/3/5/6/7/8/9, Bug-2, Note-1, Name-2/4/5/6/7, Style-4/5/6/7, Doc-1/5/6/7 |
+| 🟢 Good / Resolved | 21 | Design-2/3/5/6/7/8/9/10, Bug-1/2, Note-1, Name-2/4/5/6/7, Style-4/5/6/7, Doc-1/5/6/7 |
 
 **仍可改进的领域**：
 
 - `Mvi` 外层容器的必要性（Design-1）
 - KDoc 的冗余减少——遵循 DRY，交叉引用代替重复（Style-2, Doc-2）
 - `groupHandle` 的命名（Name-1）和单协程瓶颈的长期方案（Design-4）
-- `ReactiveContractLazy` 的 `@Volatile` 标注与非线程安全的认知负担（Bug-1）
 - `PartialChange` KDoc 示例中补充调度器切换说明（Doc-3）
 
 **已解决的问题**：
 
 - `dispatch()` TOCTOU 竞争（Bug-2，6月23日修复）
-- `ReactiveContractLazy` KDoc 对 volatile/非原子性的说明（Doc-5）
+- `ReactiveContractLazy` KDoc 对主线程访问约定和非线程安全语义的说明（Doc-5）
 - `isConcurrent`/`isSequential` 冗余 internal property 已删除，冲突检测仍集中在 `assignGroupTag`（Note-1，6月25日修复）
+- `ReactiveContractLazy` 改为 `by lazy(LazyThreadSafetyMode.NONE)` 委托，删除自定义 lazy 与误导性的 `@Volatile` 注解；并将原并发风险重新归类为主线程访问约定下的非线程安全设计（Bug-1 + Design-10，6月25日调整）
