@@ -51,7 +51,9 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
  *                     is MyIntent.Load -> flow {
  *                         emit(PartialChange.Loading(true))
  *                         try {
- *                             val data = repository.loadData()
+ *                             val data = withContext(Dispatchers.IO) {
+ *                                 repository.loadData()
+ *                             }
  *                             emit(PartialChange.DataLoaded(data))
  *                         } catch (e: Exception) {
  *                             emit(PartialChange.Error(e))
@@ -138,7 +140,9 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *         register<LoadIntent>(IntentHandler { intent ->
  *             flow {
  *                 emit(PartialChange.Loading(true))
- *                 val data = repository.loadData(intent.id)
+ *                 val data = withContext(Dispatchers.IO) {
+ *                     repository.loadData(intent.id)
+ *                 }
  *                 emit(PartialChange.DataLoaded(data))
  *                 emit(PartialChange.Loading(false))
  *             }

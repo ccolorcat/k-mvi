@@ -50,8 +50,10 @@ import java.util.concurrent.ConcurrentHashMap
  *         emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
  *
  *         try {
- *             // Suspend work belongs inside the Flow, so strategy operators control its lifecycle.
- *             val data = repository.loadData(intent.id)
+ *             // Isolate blocking network, database, or file work from the Default pipeline.
+ *             val data = withContext(Dispatchers.IO) {
+ *                 repository.loadData(intent.id)
+ *             }
  *             // Second: Update with loaded data
  *             emit(Mvi.PartialChange { snapshot ->
  *                 snapshot.updateWith(MyEvent.ShowSuccess) {

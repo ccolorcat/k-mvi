@@ -109,7 +109,7 @@
 
 - 🟡 **Doc-2**: `HandleStrategies.kt` 中 `strategyTransformer` 函数和 `StrategyIntentTransformer` 类的 KDoc 内容有大量重叠，后者几乎完整复述了前三类 strategy 的行为。建议后者简要标注 "See HandleStrategy for strategy details。" 以避免重复。
 
-- 🟠 **Doc-3**: `Mvi.kt` 的 `PartialChange` KDoc 中给出了一个完整的 async 操作示例（`handleLoadData`），但 `flow { }` 示例中 `repository.loadData()` 是 suspend 调用，没有使用 `withContext(Dispatchers.IO)` 或 `flowOn(IO)`。这在 KDoc 示例中可能误导用户认为可以直接在 `flow { }` 中执行 IO 操作而不需切换调度器（实际 handler 运行在 `Dispatchers.Default` 上）。建议在示例中添加 `flowOn(Dispatchers.IO)` 或注解说明。
+- 🟢 **Doc-3**（6月25日已修复）: `Mvi.kt` 的 `PartialChange` KDoc 中给出了完整 async 操作示例（`handleLoadData`）。示例中的 `repository.loadData()` 已改为使用 `withContext(Dispatchers.IO)` 包裹可能阻塞的网络 / 数据库 / 文件工作，避免误导用户把阻塞 I/O 放进默认的 `Dispatchers.Default` handler pipeline。`IntentHandlers.kt`、`MviViewModels.kt` 和 README 中同类 `loadData` 示例也已同步更新。
 
 - 🟡 **Doc-4**: `MviCollects.kt` 的 `dispatchWithLifecycle` KDoc 中注明事件的行为：
   > Collection starts when the lifecycle reaches [state] and **stops** when the lifecycle drops below that state.
@@ -136,15 +136,14 @@
 | 等级 | 数量 | 条目 |
 |------|------|------|
 | 🔴 Critical | 0 | — |
-| 🟠 Medium | 2 | Design-4, Doc-3 |
+| 🟠 Medium | 1 | Design-4 |
 | 🟡 Minor | 5 | Style-1/2, Doc-2/4/8/9 |
-| 🟢 Good / Resolved | 31 | Design-1/2/3/5/6/7/8/9/10, Bug-1/2, Note-1/2/3/4, Name-1/2/3/4/5/6/7/8, Style-3/4/5/6/7/8/9, Doc-1/5/6/7 |
+| 🟢 Good / Resolved | 32 | Design-1/2/3/5/6/7/8/9/10, Bug-1/2, Note-1/2/3/4, Name-1/2/3/4/5/6/7/8, Style-3/4/5/6/7/8/9, Doc-1/3/5/6/7 |
 
 **仍可改进的领域**：
 
 - KDoc 的冗余减少——遵循 DRY，交叉引用代替重复（Style-2, Doc-2）
 - `groupHandle` 单协程瓶颈的长期方案（Design-4）
-- `PartialChange` KDoc 示例中补充调度器切换说明（Doc-3）
 
 **已解决的问题**：
 
@@ -153,3 +152,4 @@
 - `isConcurrent`/`isSequential` 冗余 internal property 已删除，冲突检测仍集中在 `assignGroupTag`（Note-1，6月25日修复）
 - `ReactiveContractLazy` 改为 `by lazy(LazyThreadSafetyMode.NONE)` 委托，删除自定义 lazy 与误导性的 `@Volatile` 注解；并将原并发风险重新归类为主线程访问约定下的非线程安全设计（Bug-1 + Design-10，6月25日调整）
 - `@author ccolorcat` 从全部 16 个核心模块源码文件中移除（Style-3，6月25日修复）
+- 阻塞型 `repository.loadData()` 示例已用 `withContext(Dispatchers.IO)` 隔离，避免误导用户在 Default pipeline 中执行 I/O（Doc-3，6月25日修复）

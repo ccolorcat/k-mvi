@@ -252,7 +252,9 @@ object Mvi {
      *     })
      *
      *     try {
-     *         val data = repository.loadData(id)
+     *         val data = withContext(Dispatchers.IO) {
+     *             repository.loadData(id)
+     *         }
      *         // Second: update with loaded data and emit success event
      *         emit(Mvi.PartialChange { snapshot ->
      *             snapshot.updateWith(MyEvent.ShowSuccess) {

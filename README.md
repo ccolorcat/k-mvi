@@ -492,7 +492,9 @@ class MyViewModel : ViewModel() {
         emit(MyPartialChange { it.updateState { copy(loading = true) } })
 
         try {
-            val data = repository.loadData(intent.id)
+            val data = withContext(Dispatchers.IO) {
+                repository.loadData(intent.id)
+            }
             emit(MyPartialChange { it.updateState { copy(loading = false, data = data) } })
         } catch (e: Exception) {
             emit(
@@ -991,7 +993,9 @@ private fun handleLoadData(intent: LoadDataIntent): Flow<MyPartialChange> = flow
     emit(MyPartialChange { it.updateState { copy(loading = true) } })
 
     try {
-        val data = repository.loadData()
+        val data = withContext(Dispatchers.IO) {
+            repository.loadData()
+        }
         emit(
             MyPartialChange {
                 it.updateState { copy(loading = false, data = data) }
