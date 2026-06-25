@@ -17,7 +17,7 @@
 
 ## Design
 
-- 🟡 **Design-1**: `Mvi` 作为所有领域类型（`Intent`/`State`/`Event`/`PartialChange`/`Snapshot`）的命名空间容器，设计意图清晰——保证类型命名空间不冲突。但 Kotlin 已提供顶级类型 + 包级导入，额外套一层 `Mvi.Xxx` 增加了冗余。`Mvi.Intent`、`Mvi.State` 等前缀在多处重复出现，且用户定义的类型也必须实现 `Mvi.State` 等具名接口，这使得 `Mvi` 对象的包裹价值有限，建议考虑将核心类型提升为顶级。
+- 🟢 **Design-1**: `Mvi` 作为所有领域类型（`Intent`/`State`/`Event`/`PartialChange`/`Snapshot`）的命名空间容器，设计意图清晰。除避免类型命名冲突外，它还能改善 IDE 补全体验：用户输入 `Mvi.` 后即可看到核心领域类型与嵌套 marker interface 的候选项，降低 API 发现成本。虽然会带来少量 `Mvi.Xxx` 前缀冗余，但这是为可发现性和补全引导做出的合理取舍。
 
 - 🟢 **Design-2**: `Snapshot` 的 frame 模型设计精良——`updateState`（清 event）、`withEvent`（仅设置 event）、`updateWith`（同时更新 state + event）三者职责明确且互斥，KDoc 中清楚说明了 `withEvent` + `updateState` 联用会丢 event。这个小 API 表面避免了用户大量踩坑。
 
@@ -53,21 +53,21 @@
 
 - 🟢 **Note-1**（6月25日已修复）: `isConcurrent`/`isSequential` 曾从“互斥过滤”改为“纯接口检查”，以便把双标记冲突检测集中到 `assignGroupTag`。后续复查确认这两个 internal property 只是 `intent is Mvi.Intent.Concurrent/Sequential` 的薄包装，生产代码也只有 `assignGroupTag` 一个调用点；现已删除，`assignGroupTag` 内直接做 marker interface 判断，冲突检测和路由逻辑继续集中在同一处。
 
-- 🟠 **Note-2**: `eventFlow` 使用 `WhileSubscribed(5000)` + `shareIn`，5 秒的 stop timeout 意味着 Fragment 进入后台后最多 5 秒内上游仍保持活跃。在此窗口内若无订阅者，事件因 `replay=0` 而被丢弃——这是 one-shot event 的设计意图。在高实时性场景中需确保订阅者尽早就位。
+- 🟢 **Note-2**: `eventFlow` 使用 `WhileSubscribed(5000)` + `shareIn(replay = 0)` 是有意设计：5 秒 stop timeout 只是在短暂 collector 缺席时保持 `eventFlow` 对 `snapshots` 的订阅，避免配置变更 / Fragment back-stack 过渡期间频繁重启；它不会缓存事件。没有活跃 collector 时产生的事件会被丢弃，这是 one-shot event 的语义。`ReactiveContractImpl` KDoc 已明确要求先订阅 `eventFlow`，再 dispatch 可能产生事件的 intent。
 
-- 🟡 **Note-3**: `groupHandle` 中 `activeChannels` 使用 `linkedMapOf`，但在 `openChannel` 内先写入 map 再 `emit`。如果 `emit` 因下游 `flattenMerge` 的回压而挂起，map 中已有一个未消费的 channel。`emit` 恢复后下游订阅 channel，在此之前不会有数据到达。这个顺序设计正确（KDoc 注释明确说明了意图），但如果 review 不够仔细可能会被误解为竞态。
+- 🟢 **Note-3**: `groupHandle` 中 `activeChannels` 使用 `linkedMapOf`，并在 `openChannel` 内先写入 map 再 `emit`。这个顺序是有意设计：如果 `emit` 因下游回压挂起，外层 `collect` 同样挂起，不会继续处理后续 intent，也就不会向尚未被下游订阅的 channel 发送数据；若挂起期间取消，`finally` 会关闭已登记的 channel。代码注释已明确说明该顺序，当前实现正确。
 
-- 🟡 **Note-4**: `KMvi.configure` 使用非原子的 `config = config.transform()`。KDoc 明确声明非线程安全且仅应在 `Application.onCreate()` 中主线程调用一次。如果用户不慎在多线程配置，可能会丢失更新。可考虑在 v2 中使用 `AtomicReference`。
+- 🟢 **Note-4**: `KMvi.configure` 使用非原子的 `config = config.transform()`，但这是符合设计约定的：该方法只应在 `Application.onCreate()` 等初始化阶段从主线程调用。`config` 使用 `@Volatile` 仅用于让后台 Flow pipeline 读取到最新发布的配置，不用于支持并发写入。KDoc 已明确说明 `configure()` 非线程安全且并发调用可能丢失更新，因此无需引入 `AtomicReference` 扩大 API 契约。
 
 ---
 
 ## Name
 
-- 🟡 **Name-1**: `groupHandle` 命名不够自描述。从名称无法直接理解是"按组处理"还是"处理组"。对比 `groupBy` + `handleByTag` 的组合，`groupHandle` 作为函数名稍显模糊。建议改为 `fanOutByTag` 或 `groupAndHandle`。
+- 🟢 **Name-1**: `groupHandle` 单独看不如 `groupAndHandle` 自然，但它是 internal 函数，唯一生产调用点位于 `StrategyIntentTransformer.hybrid()`，上下文中已有 `assignGroupTag` 与 `handleByTag`，语义足够清晰。KDoc 首句也明确说明其职责是按 tag 分组并独立处理每个 group。当前命名与项目里的 `HandleStrategy` / `IntentHandler` / `handleByTag` 术语保持一致，暂不为了轻微信息增益重命名 internal 函数、测试名、日志文本和文档引用。
 
 - 🟢 **Name-2**: `Mvi.PartialChange` — `PartialChange` 含义明确表示"部分变更"，但在某些场景（如拦截所有变更做 logging/debugging）用户需要理解它代表"一个 frame 到下个 frame 的迁移"。名称本身可以传达更清晰的 frame 视角，例如 `FrameMigration` 或 `SnapshotTransform`。不过当前命名在 MVI 社区已被广泛接受，无需改变。
 
-- 🟡 **Name-3**: `getStackTraceString()` 扩展函数命名使用了 Java 的 `get` 前缀风格。不过 Kotlin stdlib 自身的 `stackTraceToString()` 也是函数风格而非属性风格，因此此处并非明确的风格违规，但如果追求极致一致性可考虑改为扩展属性 `val Throwable.stackTraceString`。
+- 🟢 **Name-3**: `getStackTraceString()` 是 internal helper，只有内部 logger 使用。虽然 `get` 前缀偏 Java 风格，但它与 Android `Log.getStackTraceString(Throwable)` 的命名一致，而默认 logger 本身也基于 Android `Log`。Kotlin stdlib 对应 API 是 `Throwable.stackTraceToString()` 函数而非属性，因此改成 `val Throwable.stackTraceString` 并不会更一致。当前命名可保留。
 
 - 🟢 **Name-4**: `Mvi.Intent.Concurrent` 和 `Mvi.Intent.Sequential` 作为嵌套接口的命名准确——明确表示"并发意图"和"顺序意图"。
 
@@ -77,7 +77,7 @@
 
 - 🟢 **Name-7**: `IntentHandlerDelegate` 中的 `Delegate` 命名合理——它同时实现了 `IntentHandlerRegistry` 和 `IntentHandler`，扮演双重委托角色。
 
-- 🟡 **Name-8**: `ReactiveContractLazy` — `Lazy` 后缀暗示它是一个 `Lazy<ReactiveContract>`，这确实符合其类型，但命名与 Kotlin stdlib 的 `lazy()` 函数容易混淆。建议改为 `ContractLazy` 或 `LazyReactiveContract`。
+- 🟢 **Name-8**: `ReactiveContractLazy` 是 internal `Lazy<ReactiveContract<I, S, E>>` delegate，名称准确描述了职责。它只在两个 `ViewModel.contract(...)` factory 和对应测试中使用，不是 public API；与 stdlib `lazy()` 的大小写和符号形态不同，混淆风险很低。`ContractLazy` 会降低类型精度，`LazyReactiveContract` 反而更容易被误读为 contract 本体，当前命名可保留。
 
 ---
 
@@ -97,9 +97,9 @@
 
 - 🟢 **Style-7**: `HandleStrategies.kt` 中 `strategyTransformer` 是 `internal fun` 而非 `internal val StrategyIntentTransformer(...) : IntentTransformer` 的工厂形式，很好地隔离了构造细节。
 
-- 🟡 **Style-8**: `MviCollects.kt` 中 `collectAll` 和 `collectTyped` 作为自由函数和 `EventCollector` 方法存在重复——职责相同但入口不同。虽然提供了灵活的使用方式，但 API 表面积增大，用户需要区分何时用 DSL，何时用自由函数。
+- 🟢 **Style-8**: `MviCollects.kt` 中自由函数 `collectTyped` 与 `EventCollector.collectTyped` 看似重复，但职责分层清晰：自由函数服务“只收一个 event type”的简单场景，DSL 成员服务 `collectEvent { ... }` 中多个 collector 共享同一个 `SupervisorJob` 的场景。`collectAll` 并没有自由函数版本，只存在于 DSL 中。KDoc 已明确建议单一事件类型用自由函数，多事件类型用 `collectEvent` DSL，当前 API 表面积是有意取舍。
 
-- 🟡 **Style-9**: `IntentHandlerDelegate.handle()` 中 `@Suppress("UNCHECKED_CAST")` 是安全的（因为 handler 注册时保证了类型匹配），但 `as IntentHandler<I, S, E>` 的转换发生在运行时，如果某天引入类型不匹配的 handler，此处的异常会比较难调试。可以考虑在 register 时做更严格的类型检查，或者增加一条守卫日志（DEBUG 级别）。
+- 🟢 **Style-9**: `IntentHandlerDelegate.handle()` 中的 `@Suppress("UNCHECKED_CAST")` 是类型擦除下的必要实现细节。`handlers` 的唯一写入点是 `register(intentType: Class<T>, handler: IntentHandler<T, S, E>)`，同一个泛型参数 `T` 同时绑定 key 和 handler；读取时又使用 `intent.javaClass` 做 exact class lookup，因此正常 API 使用下取出的 handler 与 intent 类型一致。额外 `isInstance` 检查基本冗余，运行时也无法验证 handler 的泛型参数；DEBUG 守卫只能覆盖 raw type 滥用，不值得增加复杂度。
 
 ---
 
@@ -136,15 +136,14 @@
 | 等级 | 数量 | 条目 |
 |------|------|------|
 | 🔴 Critical | 0 | — |
-| 🟠 Medium | 3 | Design-4, Note-2, Doc-3 |
-| 🟡 Minor | 14 | Design-1, Note-3/4, Name-1/3/8, Style-1/2/3/8/9, Doc-2/4/8/9 |
-| 🟢 Good / Resolved | 21 | Design-2/3/5/6/7/8/9/10, Bug-1/2, Note-1, Name-2/4/5/6/7, Style-4/5/6/7, Doc-1/5/6/7 |
+| 🟠 Medium | 2 | Design-4, Doc-3 |
+| 🟡 Minor | 6 | Style-1/2/3, Doc-2/4/8/9 |
+| 🟢 Good / Resolved | 30 | Design-1/2/3/5/6/7/8/9/10, Bug-1/2, Note-1/2/3/4, Name-1/2/3/4/5/6/7/8, Style-4/5/6/7/8/9, Doc-1/5/6/7 |
 
 **仍可改进的领域**：
 
-- `Mvi` 外层容器的必要性（Design-1）
 - KDoc 的冗余减少——遵循 DRY，交叉引用代替重复（Style-2, Doc-2）
-- `groupHandle` 的命名（Name-1）和单协程瓶颈的长期方案（Design-4）
+- `groupHandle` 单协程瓶颈的长期方案（Design-4）
 - `PartialChange` KDoc 示例中补充调度器切换说明（Doc-3）
 
 **已解决的问题**：
