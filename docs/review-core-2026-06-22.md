@@ -83,7 +83,7 @@
 
 ## Style
 
-- 🟡 **Style-1**: KDoc 中存在较多超过 120 列的行（`.editorconfig` 中 `max_line_length=120`）。例如 `MviCollects.kt` 的多个 KDoc 参数描述和 `IntentHandlers.kt` 的详细文档超出了列限制。建议格式化 KDoc 使其符合项目约定。
+- 🟡 **Style-1**: `.editorconfig` 中 `max_line_length=120`，当前 core main 仍有少量超过 120 列的代码行，集中在长日志 / 错误消息字符串和 `KMvi.Configuration.toString()`。这不影响行为，但与项目格式约定不完全一致；建议后续将这些长字符串拆行，保持源码宽度一致。
 
 - 🟡 **Style-2**: KDoc 整体过于冗长，部分文件的文档篇幅远超代码本身（如 `HandleStrategies.kt` 316 行中约 70% 是 KDoc）。文档中有大量重复的内容——`IntentTransformer` 中重复解释了三类 strategy 的行为，而这些在 `HandleStrategy` 中已有完整描述。建议遵循 DRY 原则，核心概念集中描述，其他文件交叉引用。
 
