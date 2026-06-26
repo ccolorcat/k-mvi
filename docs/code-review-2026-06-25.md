@@ -19,19 +19,22 @@
 
 ## 一、Design — 设计合理性
 
-### 🔴 Design-1: `groupHandle` 单协程路由瓶颈
+### 🟡 Design-1: `groupHandle` 单协程路由的跨组背压
 
 - **位置**: `InternalExtensions.kt:groupHandle()`
-- **问题**: `groupHandle` 的 `collect { }` 是单协程循环。当某个 group 的 channel 因为下游 handler 慢而 `send` 挂起时，**所有 group 都被阻塞**（即使其他 group channel 有空闲容量）。
-- **运行场景**: 高频并发 Intent 场景，如 Dashboard 示例中同时触发 3 个 CONCURRENT Intent + 多个 SEQUENTIAL Intent。
-- **建议**: 方法已在 KDoc 和 `docs/groupHandle-bottleneck-analysis.md` 中充分文档化，属于已知设计取舍。对于生产高吞吐场景，建议增大 `groupChannelCapacity` 或使用 `Channel.UNLIMITED`。
+- **审计结论**: 属实，但不构成 🔴 HIGH。当前实现确实在一个 `flow { collect { ... channel.send(...) } }` 协程中路由所有 group；当目标 group 的 channel 已满时，`send` 会挂起并造成跨组 head-of-line blocking。
+- **影响边界**: 只有在某个 group 的内部 channel 被填满且下游 handler 持续消费慢时才触发。默认 `groupChannelCapacity = Channel.BUFFERED` 会吸收普通 burst；Dashboard 示例的少量并发点击本身不足以稳定触发该瓶颈。
+- **风险定级**: 结果是延迟和背压扩大，通常不是运行时错误或数据丢失。若背压继续传导到 dispatch 入口队列，`dispatch()` 会按既有队列策略返回 `DispatchResult.Full`，这是显式背压而非静默丢失。
+- **设计取舍**: 当前实现优先保留背压语义、组内顺序和简单生命周期管理，避免在路由层静默丢 Intent 或为每个拥塞点引入额外发送协程。对轻量 MVI 库是可接受的保守实现。
+- **建议**: 维持当前实现和文档化。高吞吐业务可调大 `groupChannelCapacity`、谨慎使用 `Channel.UNLIMITED`；若未来需要真正的跨组隔离，应先补充背压/顺序/取消语义测试和基准，再评估 `channelFlow` 或 per-group sender 方案。
 
-### 🔴 Design-2: `PartialChange.apply()` 在 `Dispatchers.Default` 上运行的限制
+### ℹ️ Design-2: `PartialChange.apply()` 纯函数契约（非运行时设计缺陷）
 
 - **位置**: `Mvi.kt:apply()` + `ReactiveContractImpl.kt:scan{}`
-- **问题**: `PartialChange.apply()` 在 `Dispatchers.Default` 上被 `scan` 同步调用。文档要求其必须为纯函数（无 I/O、无协程启动），但如果开发者误将阻塞 I/O 放入 apply，将导致 Default 线程池阻塞。
-- **运行场景**: 生产环境，依赖 Default 线程池做其他计算任务的场景。
-- **建议**: 考虑在运行时增加校验（如在开发模式检查调用耗时）捕获非纯函数用法；或者在 `Configuration` 中增加 `strictMode` 开关以在 debug 构建中启用断言。
+- **审计结论**: 不构成 🔴 HIGH。`apply()` 是同步 reducer 回调；阻塞 I/O、协程启动或重计算放入 `apply` 属于调用方违反公共契约，不是库需要通过运行时机制兜底的设计缺陷。
+- **实现事实**: 当前运行时在 `Dispatchers.Default` 上累积快照，但这是 `ReactiveContractImpl` 的线程调度实现细节；公共 API 只需要承诺“同步累积快照”，并要求 `apply` 保持纯、轻量、非抛异常。
+- **不采纳 strictMode 的原因**: 调用耗时检查只能发现“慢”，不能证明“不纯”；在每个 `PartialChange` 上打点会增加热路径开销和误报（GC、调试器、设备抖动、大对象 copy）。围绕 `apply` 临时启用 Android `StrictMode` 也会修改线程策略，成本和侵入性都过高。
+- **建议**: 维持文档契约，不新增 `Configuration.strictMode`。阻塞网络、数据库、文件操作应放在 `IntentHandler.handle` 产生 `Flow<PartialChange>` 的阶段，并用 `withContext(Dispatchers.IO)` 或 `flowOn(Dispatchers.IO)` 隔离。
 
 ### ✅ Design-3: `LoginContract.ClearError` 同时实现 `Intent` 和 `PartialChange`（已修复）
 
@@ -316,19 +319,19 @@
 
 | 类别 | 🔴 HIGH | 🟡 MEDIUM | 🟢 LOW/INFO | 总计 |
 |------|---------|-----------|-------------|------|
-| **Design** | 2 | 1 | 5 | 8 |
+| **Design** | 0 | 2 | 6 | 8 |
 | **Bug** | 0 | 2 | 1 | 3 |
 | **Name** | 0 | 0 | 7 | 7 |
 | **Style** | 0 | 0 | 10 | 10 |
 | **Doc** | 0 | 1 | 8 | 9 |
-| **总计** | **2** | **4** | **31** | **37** |
+| **总计** | **0** | **5** | **32** | **37** |
 
-> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。Design-3、Bug-1、Bug-2 已修复（见下方行动项）。
+> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-1 经复审由 🔴 降为 🟡，Design-2 经复审降为 ℹ️，Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。Design-3、Bug-1、Bug-2 已修复（见下方行动项）。
 
 ### 关键行动项
 
-1. **🔴 Design-1**: `groupHandle` 单协程瓶颈 — 已文档化，高吞吐场景需注意 `groupChannelCapacity` 配置
-2. **🔴 Design-2**: `PartialChange.apply()` 在 `Dispatchers.Default` 运行 — 考虑增加开发模式检测
+1. **🟡 Design-1**: `groupHandle` 单协程跨组背压 — 已文档化，高吞吐场景需注意 `groupChannelCapacity` 配置
+2. ~~**🔴 Design-2**: `PartialChange.apply()` 在 `Dispatchers.Default` 运行~~ — **复审降级**：这是调用方契约约束，不新增运行时 strictMode
 3. ~~**🟡 Design-3**: `ClearError` 双重角色~~ — **已修复**：拆分为独立的 `Intent.ClearError` + `PartialChange.ClearError`，`handleIntent` 改为显式分支
 4. ~~**🟡 Bug-1**: `stateFlow.value` 过期读取~~ — **已修复**：决策移入 `PartialChange` lambda，改用 `old.state`
 5. ~~**🟡 Bug-2**: `stamp()`/`now()` 在 `apply()` 内调用~~ — **已修复**：全部 7 个 handler 改为在 `emit()` 前捕获时间戳为局部 `val`
