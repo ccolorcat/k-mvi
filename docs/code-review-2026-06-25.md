@@ -81,10 +81,10 @@
 
 ## 二、Bug — 代码正确性
 
-### 🟡 Bug-1: `handleDecrement` 读取 `stateFlow.value` 可能产生过期状态
+### ✅ Bug-1: `handleDecrement` 读取 `stateFlow.value` 可能产生过期状态（已修复）
 
-- **位置**: `CounterViewModel.kt:handleDecrement()`
-- **代码**:
+- **原位置**: `CounterViewModel.kt:handleDecrement()`
+- **原代码**:
   ```kotlin
   return if (stateFlow.value.count == COUNT_MIN) {
       PartialChange { it.withEvent(Event.ShowToast("Already reached $COUNT_MIN")) }
@@ -92,9 +92,18 @@
       PartialChange { it.updateState { copy(count = count - 1) } }
   }
   ```
-- **问题**: `stateFlow.value.count` 在 handler 调用时读取，但 Handler 和 `PartialChange.apply()` 之间的时间窗口内状态可能已被其他并发 Intent 改变。在用户标记 `Sequential` 的 Counter 中没有问题，但如果开发者将此模式复制到 CONCURRENT/HYBRID 策略中就会触发此 Bug。
-- **运行场景**: CONCURRENT 或 HYBRID 策略下，多个 Intent 并发处理且依赖最新状态做决策。
-- **建议**: 文档虽已提及此 trade-off（见 CounterViewModel KDoc），但仍建议在框架层面或代码注释中更显著地标注此陷阱。考虑添加 lint check 规则。
+- **原问题**: `stateFlow.value.count` 在 handler 调用时读取。在 CONCURRENT/HYBRID 策略下，handler 调用与 `apply()` 执行之间的时间窗口内可能有其他 `PartialChange` 被 `scan` 折叠，导致边界判断基于过期状态。
+- **修复**: 将决策移入 `PartialChange` lambda，使用 `old.state.count`（`apply()` 被调用时 `scan` 传入的最新快照）：
+  ```kotlin
+  private fun handleDecrement(intent: Intent.Decrement) = PartialChange { old ->
+      if (old.state.count == COUNT_MIN) {
+          old.withEvent(Event.ShowToast("Already reached $COUNT_MIN"))
+      } else {
+          old.updateState { copy(count = count - 1) }
+      }
+  }
+  ```
+  同步更新了 `handleDecrement` 的 KDoc（移除 "Trade-off to be aware of" 章节，改为解释 `old.state` 相对于 `stateFlow.value` 的正确性）和类级 KDoc 的 item 2 说明。
 
 ### 🟡 Bug-2: `DashboardViewModel` 中 `stamp()`/`now()` 违反 `PartialChange.apply()` 纯函数契约
 
@@ -323,14 +332,14 @@
 | **Doc** | 0 | 1 | 8 | 9 |
 | **总计** | **2** | **4** | **31** | **37** |
 
-> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。Design-3 已修复（见下方行动项）。
+> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。Design-3、Bug-1 已修复（见下方行动项）。
 
 ### 关键行动项
 
 1. **🔴 Design-1**: `groupHandle` 单协程瓶颈 — 已文档化，高吞吐场景需注意 `groupChannelCapacity` 配置
 2. **🔴 Design-2**: `PartialChange.apply()` 在 `Dispatchers.Default` 运行 — 考虑增加开发模式检测
 3. ~~**🟡 Design-3**: `ClearError` 双重角色~~ — **已修复**：拆分为独立的 `Intent.ClearError` + `PartialChange.ClearError`，`handleIntent` 改为显式分支
-4. **🟡 Bug-1**: `stateFlow.value` 过期读取 — 文档已提及，但需更突出的显式标注
+4. ~~**🟡 Bug-1**: `stateFlow.value` 过期读取~~ — **已修复**：决策移入 `PartialChange` lambda，改用 `old.state`
 5. **🟡 Bug-2**: `DashboardViewModel` 中 `stamp()`/`now()` 在 `apply()` 内调用 → 移至 handler emit 处求值
 6. **🟡 Doc-1 / Bug-4**: README 版本号 `1.2.6` → 更新为当前版本
 7. **🟢 Style-2**: `Mvi.kt` 多余空行
@@ -343,7 +352,7 @@
 - 命名一致：整个库命名风格统一，可读性强
 - 测试覆盖好：`ReactiveContractImplTest` (759行)、`MviTest`、`IntentHandlersTest` 等综合测试
 - 编码规范：Kotlin 惯用法（sealed interface、fun interface、reified inline、@JvmInline）使用恰当
-- 设计说明清晰：已知权衡（如 groupHandle bottleneck、stateFlow.value 过期）都有文档说明
+- 设计说明清晰：已知权衡（如 groupHandle bottleneck）都有文档说明
 - 健康的质量意识：`docs/proguard-obfuscation-audit-2026-06-19.md` 表明项目有安全意识
 
 ### 审查过程记录
@@ -355,4 +364,4 @@
    - Bug-2 由"SimpleDateFormat 线程不安全"修正为"PartialChange.apply() 纯函数违规"（`stamp()` 在 `scan` 内串行调用，无竞争）
    - Bug-5 移除（`android.useAndroidX=true` 已在 `gradle.properties:17` 显式声明）
    - Style-3 修正（`this@PartialChange.username` 是必需的消歧义，因 `State` 有同名属性）
-4. **代码修复**（Design-3）：拆分 `ClearError` 双重角色，涉及 `LoginContract.kt`、`LoginViewModel.kt`、`LoginFragment.kt` 共 3 个文件
+4. **代码修复**（Design-3 + Bug-1）：`ClearError` 拆分（`LoginContract.kt`、`LoginViewModel.kt`、`LoginFragment.kt`）；`handleDecrement` 改用 `old.state`（`CounterViewModel.kt`）

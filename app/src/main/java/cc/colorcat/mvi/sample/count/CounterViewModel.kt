@@ -33,10 +33,9 @@ import kotlin.random.Random
  *
  * 1. [handleIncrement] — decides **inside** the change. The most concise form, acceptable here only
  *    because the branch is a trivial one-line guard.
- * 2. [handleDecrement] — decides **in the handler**, so each resulting [PartialChange] collapses to
- *    a single snapshot update with no logic inside. This is the form to prefer as branching grows,
- *    because it best honors the principle above. The two synchronous handlers are intentionally
- *    written differently to highlight this contrast.
+ * 2. [handleDecrement] — also decides **inside** the change via `old.state`, the freshest
+ *    accumulated value at `apply()` time. Its KDoc explains why reading [stateFlow.value] in
+ *    the handler body is unsafe under CONCURRENT/HYBRID strategies and how `old.state` avoids it.
  * 3. [handleReset] — returns an asynchronous [Flow] of changes (loading → success/error → done),
  *    for async work, multiple emissions, or cancellable operations.
  *
@@ -113,33 +112,25 @@ class CounterViewModel : ViewModel() {
     /**
      * Synchronous handler: decrement the counter, or warn when it is already at [COUNT_MIN].
      *
-     * Deliberately written differently from [handleIncrement] to demonstrate the preferred shape:
-     * the boundary check happens **in the handler**, and each branch returns a [PartialChange] that
-     * does nothing but apply a single snapshot update — there is no `if` inside the change. This is
-     * the form to reach for in general, because it honors the core discipline of this sample:
-     * **a [PartialChange] should be tiny and only update the snapshot**, while all decision-making
-     * stays in the handler. The closer your changes stay to "just update the snapshot", the easier
-     * they are to read, test, and reason about.
+     * The boundary check happens **inside** the [PartialChange] lambda, reading `old.state.count`
+     * — the snapshot accumulated up to the exact moment `apply()` is called by `scan`. This value
+     * is always fresh: every preceding [PartialChange] has already been folded in before this
+     * lambda runs, regardless of which [cc.colorcat.mvi.HandleStrategy] is active.
      *
-     * ## Trade-off to be aware of
-     *
-     * Deciding in the handler reads [stateFlow]`.value`, a snapshot captured at *handler-invocation*
-     * time. Under the CONCURRENT/HYBRID strategies (where handlers may interleave) that value can be
-     * stale by the moment the change is applied. When a decision must see the very latest accumulated
-     * state, make it inside the change via `old.state` instead — as [handleIncrement] does. Choose
-     * the placement that fits: handler-level to keep the change minimal, inside-the-change when
-     * freshness is critical.
+     * Contrast this with reading [stateFlow]`.value` in the handler body (the previous form of
+     * this handler): that value is captured at *handler-invocation* time. Under CONCURRENT or
+     * HYBRID strategies another intent's change may be applied between invocation and `apply()`,
+     * making the handler-body read stale and the boundary decision incorrect. `old.state` inside
+     * the lambda is the strategy-agnostic, always-correct alternative.
      *
      * @param intent The decrement intent (unused; its type selects this handler)
      * @return A change that either decrements the count or emits a "limit reached" toast
      */
-    private fun handleDecrement(intent: Intent.Decrement): PartialChange {
-        // Decide here, in the handler, so each PartialChange stays minimal: every branch returns a
-        // change that only applies one snapshot update and contains no branching logic of its own.
-        return if (stateFlow.value.count == COUNT_MIN) {
-            PartialChange { it.withEvent(Event.ShowToast("Already reached $COUNT_MIN")) }
+    private fun handleDecrement(intent: Intent.Decrement) = PartialChange { old ->
+        if (old.state.count == COUNT_MIN) {
+            old.withEvent(Event.ShowToast("Already reached $COUNT_MIN"))
         } else {
-            PartialChange { it.updateState { copy(count = count - 1) } }
+            old.updateState { copy(count = count - 1) }
         }
     }
 
