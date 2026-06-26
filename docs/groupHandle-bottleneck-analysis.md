@@ -140,6 +140,24 @@ channel.trySend(intent)
 - 通过 `groupChannelCapacity` 给高吞吐用户调参空间。
 - 通过 `groupCountWarningThreshold` 诊断高基数 tag。
 
+### 按 tag 配置容量的裁定
+
+当前不新增 per-tag capacity API。`InternalExtensions.kt` 的 `openChannel(tag)` 继续使用 `Channel(config.groupChannelCapacity)`，`HybridStrategyConfig` 继续只暴露全局 `groupChannelCapacity`；目前没有已确认的生产瓶颈证明统一 `groupChannelCapacity` 不够用。
+
+Per-tag capacity 只能推迟某个热门 group 的 channel 填满，不能消除 `groupHandle` 的单路由协程 head-of-line blocking；它是调参能力，不是隔离修复。
+
+如果未来有证据需要该能力，选择“按 tag 返回 capacity”的受限接口，而不是“按 tag 创建 Channel”的工厂。推荐未来接口形态如下（仅示例，不在当前版本实现）：
+
+```kotlin
+fun interface GroupChannelCapacitySelector {
+    fun selectCapacity(tag: Any, defaultCapacity: Int): Int
+}
+```
+
+未来实现该 selector 时，必须复用 `core/src/main/java/cc/colorcat/mvi/internal/InternalUtils.kt` 的 `requireSupportedChannelConfig` 对 selector 返回值做运行时校验；默认实现必须返回当前 `HybridStrategyConfig.groupChannelCapacity`。
+
+不选择 channel factory 的原因：它暴露 `Channel<I>` 所有权，允许用户返回已关闭 / 共享 / 生命周期不受 `groupHandle` 管理的 channel，绕过现有 capacity 校验，并把 close/error propagation 责任泄漏给用户；这超过“不同 tag 需要不同容量”的需求。
+
 ### 业务侧调优
 
 按场景选择：
@@ -148,6 +166,7 @@ channel.trySend(intent)
 |------|------|
 | 普通 UI intent | 使用默认 `Channel.BUFFERED` |
 | 同组短时 burst 明显 | 增大 `groupChannelCapacity` |
+| 不同 tag 的流量差异明显，但没有生产瓶颈证据 | 先调整全局 `groupChannelCapacity` 或重新设计 `GroupTagSelector`；不新增 API |
 | 必须尽早暴露慢 handler | 使用较小 buffer 或 `Channel.RENDEZVOUS` |
 | intent 速率有严格外部上界 | 可评估 `Channel.UNLIMITED` |
 | 高基数 tag 但不需要逐值顺序 | 使用 bucketed tag，例如 `"user"` / `"search"` |
