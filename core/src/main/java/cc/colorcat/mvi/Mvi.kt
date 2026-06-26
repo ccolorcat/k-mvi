@@ -285,13 +285,13 @@ object Mvi {
          *
          * ## Design Contract
          *
-         * This function is called synchronously inside `scan` on [kotlinx.coroutines.Dispatchers.Default]
-         * during state accumulation. It **must** be:
+         * The framework invokes this function synchronously while accumulating snapshots.
+         * It **must** be:
          * - **Pure**: no side effects, I/O, or coroutine launching
          * - **Lightweight**: only `copy()` calls and simple branching; all async / heavy work
          *   belongs in [IntentHandler.handle][cc.colorcat.mvi.IntentHandler.handle], which produces
          *   `PartialChange` values through a `Flow`
-         * - **Non-throwing**: exceptions thrown by `apply` are caught by the pipeline, logged at
+         * - **Non-throwing**: exceptions thrown by `apply` are caught by the framework, logged at
          *   ERROR level, and the previous snapshot is retained unchanged — the pipeline continues
          *   processing subsequent intents. Never rely on throwing to signal state; use the return
          *   value only.
