@@ -33,12 +33,23 @@
 - **运行场景**: 生产环境，依赖 Default 线程池做其他计算任务的场景。
 - **建议**: 考虑在运行时增加校验（如在开发模式检查调用耗时）捕获非纯函数用法；或者在 `Configuration` 中增加 `strictMode` 开关以在 debug 构建中启用断言。
 
-### 🟡 Design-3: `LoginContract.ClearError` 同时实现 `Intent` 和 `PartialChange`
+### ✅ Design-3: `LoginContract.ClearError` 同时实现 `Intent` 和 `PartialChange`（已修复）
 
-- **位置**: `LoginContract.kt:294`
-- **问题**: `ClearError` 同时实现 `Intent` 和 `PartialChange`。在 `handleIntent()` 中，`ClearError` 可以匹配 `is PartialChange` 分支并直接 `asSingleFlow()`，但其通过 `Intent` -> `handler` -> `when` 的路由链中转，当 Intent 本身也是 PartialChange 时概念上存在混淆可能性。
-- **运行场景**: 团队协作多人维护时，新开发者可能不理解此双重角色设计意图。
-- **建议**: 虽然是有效（且已被文档说明）的设计模式，但建议将 `ClearError` 改为普通 Intent + 显式 handler 处理，以提高可读性和可预测性。
+- **原位置**: `LoginContract.kt:294`（顶层 `object ClearError : Intent, PartialChange`）
+- **原问题**: `ClearError` 同时实现 `Intent` 和 `PartialChange`，`handleIntent()` 通过 `is PartialChange -> intent.asSingleFlow()` 隐式捕获，路由意图模糊，新开发者难以理解双重角色。
+- **修复**（涉及 3 个文件）:
+  - **`LoginContract.kt`**: 拆分为两个独立的具名类型：
+    - `Intent` 内新增 `data object ClearError : Intent`（用户动作）
+    - `PartialChange` Error Management 分区新增 `data object ClearError : PartialChange`（状态变换）
+    - 删除原顶层的 `object ClearError : Intent, PartialChange` 及其 KDoc
+  - **`LoginViewModel.kt`**: `handleIntent` 的 `when` 改为显式分支，同时删除泛化的 catch-all：
+    ```kotlin
+    // Before
+    is PartialChange -> intent.asSingleFlow()
+    // After
+    is Intent.ClearError -> PartialChange.ClearError.asSingleFlow()
+    ```
+  - **`LoginFragment.kt`**: 两处 `LoginContract.ClearError` → `Intent.ClearError`
 
 ### 🟢 Design-4: 冲突 Intent 类型去重集合的内存考量
 
@@ -312,17 +323,18 @@
 | **Doc** | 0 | 1 | 8 | 9 |
 | **总计** | **2** | **4** | **31** | **37** |
 
-> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。
+> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。Design-3 已修复（见下方行动项）。
 
 ### 关键行动项
 
 1. **🔴 Design-1**: `groupHandle` 单协程瓶颈 — 已文档化，高吞吐场景需注意 `groupChannelCapacity` 配置
 2. **🔴 Design-2**: `PartialChange.apply()` 在 `Dispatchers.Default` 运行 — 考虑增加开发模式检测
-3. **🟡 Bug-1**: `stateFlow.value` 过期读取 — 文档已提及，但需更突出的显式标注
-4. **🟡 Bug-2**: `DashboardViewModel` 中 `stamp()`/`now()` 在 `apply()` 内调用 → 移至 handler emit 处求值
-5. **🟡 Doc-1 / Bug-4**: README 版本号 `1.2.6` → 更新为当前版本
-6. **🟢 Style-2**: `Mvi.kt` 多余空行
-7. **🟢 Doc-8**: KDoc 中 `groupHandle` 瓶颈分析改用行内文字引用
+3. ~~**🟡 Design-3**: `ClearError` 双重角色~~ — **已修复**：拆分为独立的 `Intent.ClearError` + `PartialChange.ClearError`，`handleIntent` 改为显式分支
+4. **🟡 Bug-1**: `stateFlow.value` 过期读取 — 文档已提及，但需更突出的显式标注
+5. **🟡 Bug-2**: `DashboardViewModel` 中 `stamp()`/`now()` 在 `apply()` 内调用 → 移至 handler emit 处求值
+6. **🟡 Doc-1 / Bug-4**: README 版本号 `1.2.6` → 更新为当前版本
+7. **🟢 Style-2**: `Mvi.kt` 多余空行
+8. **🟢 Doc-8**: KDoc 中 `groupHandle` 瓶颈分析改用行内文字引用
 
 ### 项目优点
 
@@ -336,10 +348,11 @@
 
 ### 审查过程记录
 
-本报告经过三轮审查：
+本报告经过三轮审查 + 一次代码修复：
 1. **第一轮**（初始审查）：逐文件阅读全部源代码、测试和文档后撰写
 2. **第二轮**（Meta-Review）：对初稿进行二次审查，发现并修正了 3 项遗漏（Dashboard handler 重复、eventFlow WhileSubscribed）、1 个评级偏差（Design-4 降级）和 1 个格式建议（Doc-8 KDoc 引用语法）
 3. **第三轮**（源码验证审计）：逐项对照源码验证，修正了 3 处错误：
    - Bug-2 由"SimpleDateFormat 线程不安全"修正为"PartialChange.apply() 纯函数违规"（`stamp()` 在 `scan` 内串行调用，无竞争）
    - Bug-5 移除（`android.useAndroidX=true` 已在 `gradle.properties:17` 显式声明）
    - Style-3 修正（`this@PartialChange.username` 是必需的消歧义，因 `State` 有同名属性）
+4. **代码修复**（Design-3）：拆分 `ClearError` 双重角色，涉及 `LoginContract.kt`、`LoginViewModel.kt`、`LoginFragment.kt` 共 3 个文件
