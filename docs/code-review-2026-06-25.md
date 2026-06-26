@@ -105,29 +105,20 @@
   ```
   同步更新了 `handleDecrement` 的 KDoc（移除 "Trade-off to be aware of" 章节，改为解释 `old.state` 相对于 `stateFlow.value` 的正确性）和类级 KDoc 的 item 2 说明。
 
-### 🟡 Bug-2: `DashboardViewModel` 中 `stamp()`/`now()` 违反 `PartialChange.apply()` 纯函数契约
+### ✅ Bug-2: `DashboardViewModel` 中 `stamp()`/`now()` 违反 `PartialChange.apply()` 纯函数契约（已修复）
 
-- **位置**: `DashboardViewModel.kt:174-178`
-- **代码**:
+- **原位置**: `DashboardViewModel.kt:174-178`，全部 7 个 handler（Section 1–3）
+- **原问题**: `stamp()` 和 `now()` 在 `PartialChange { s -> ... }` lambda 体内调用，即在 `apply()` 执行时才读取系统时钟，违反"纯函数、无可观测副作用"契约。
+- **修复**: 在每次 `emit()` 之前捕获时间戳为局部 `val`，PartialChange lambda 仅关闭引用已有字符串：
   ```kotlin
-  private val fmtTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-  private val fmtMs = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+  // Before — 时钟读取在 apply() 内
+  emit(PartialChange { s -> s.updateState { copy(... operationLog = operationLog + stamp("START $tag")) } })
 
-  private fun now(): String = fmtTime.format(Date())
-  private fun stamp(msg: String): String = "[${fmtMs.format(Date())}] $msg"
+  // After — 时钟读取在 flow{} 体内
+  val startStamp = stamp("START $tag")
+  emit(PartialChange { s -> s.updateState { copy(... operationLog = operationLog + startStamp) } })
   ```
-- **问题**: `stamp()` 和 `now()` 在 `PartialChange { s -> s.updateState { ... stamp(...) ... } }` 的 lambda 体内被调用。由于该 lambda 即为 `PartialChange.apply()` 的实现，这违反了框架对 `apply()` 的"纯函数、无副作用、无 I/O"契约（见 Design-2）。`Date()` 创建和 `SimpleDateFormat.format()` 属于可观测副作用（依赖系统时钟）。
-- **线程安全说明**: 此处 **不存在** 线程安全问题。虽然 CONCURRENT handler 并发发射 `PartialChange` 对象，但 `stamp()` 的实际调用发生在 `scan` 累加器内，`scan` 逐个处理每个 `PartialChange`，天然串行。
-- **运行场景**: Dashboard 示例中所有 handler 的时间戳记录。
-- **建议**: 将时间戳捕获移至 handler 的 `flow {}` 体内（emit 时求值），使 `apply()` 保持纯函数：
-
-  ```kotlin
-  private fun handleLoadBanners(...): Flow<PartialChange> = flow {
-      val startStamp = stamp("START LoadBanners") // ← 在 emit 时捕获
-      emit(PartialChange { s -> s.updateState { copy(bannerLoading = true, operationLog = operationLog + startStamp) } })
-      // ...
-  }
-  ```
+  `handleCheckout` 中的 `now()` 同理改为 `val completedAt = now()`，在 `randomDelay` 之后、emit 之前求值。全部 7 个 handler 均已更新。
 
 ### ℹ️ Bug-3: `Snapshot.updateWith` 调用 `state.transform()` 而非显式 receiver
 
@@ -332,7 +323,7 @@
 | **Doc** | 0 | 1 | 8 | 9 |
 | **总计** | **2** | **4** | **31** | **37** |
 
-> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。Design-3、Bug-1 已修复（见下方行动项）。
+> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。Design-3、Bug-1、Bug-2 已修复（见下方行动项）。
 
 ### 关键行动项
 
@@ -340,7 +331,7 @@
 2. **🔴 Design-2**: `PartialChange.apply()` 在 `Dispatchers.Default` 运行 — 考虑增加开发模式检测
 3. ~~**🟡 Design-3**: `ClearError` 双重角色~~ — **已修复**：拆分为独立的 `Intent.ClearError` + `PartialChange.ClearError`，`handleIntent` 改为显式分支
 4. ~~**🟡 Bug-1**: `stateFlow.value` 过期读取~~ — **已修复**：决策移入 `PartialChange` lambda，改用 `old.state`
-5. **🟡 Bug-2**: `DashboardViewModel` 中 `stamp()`/`now()` 在 `apply()` 内调用 → 移至 handler emit 处求值
+5. ~~**🟡 Bug-2**: `stamp()`/`now()` 在 `apply()` 内调用~~ — **已修复**：全部 7 个 handler 改为在 `emit()` 前捕获时间戳为局部 `val`
 6. **🟡 Doc-1 / Bug-4**: README 版本号 `1.2.6` → 更新为当前版本
 7. **🟢 Style-2**: `Mvi.kt` 多余空行
 8. **🟢 Doc-8**: KDoc 中 `groupHandle` 瓶颈分析改用行内文字引用
@@ -364,4 +355,4 @@
    - Bug-2 由"SimpleDateFormat 线程不安全"修正为"PartialChange.apply() 纯函数违规"（`stamp()` 在 `scan` 内串行调用，无竞争）
    - Bug-5 移除（`android.useAndroidX=true` 已在 `gradle.properties:17` 显式声明）
    - Style-3 修正（`this@PartialChange.username` 是必需的消歧义，因 `State` 有同名属性）
-4. **代码修复**（Design-3 + Bug-1）：`ClearError` 拆分（`LoginContract.kt`、`LoginViewModel.kt`、`LoginFragment.kt`）；`handleDecrement` 改用 `old.state`（`CounterViewModel.kt`）
+4. **代码修复**（Design-3 + Bug-1 + Bug-2）：`ClearError` 拆分（`LoginContract.kt`、`LoginViewModel.kt`、`LoginFragment.kt`）；`handleDecrement` 改用 `old.state`（`CounterViewModel.kt`）；DashboardViewModel 全部 7 个 handler 的 `stamp()`/`now()` 移至 `flow {}` 体内
