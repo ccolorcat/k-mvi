@@ -85,41 +85,28 @@
 - **运行场景**: CONCURRENT 或 HYBRID 策略下，多个 Intent 并发处理且依赖最新状态做决策。
 - **建议**: 文档虽已提及此 trade-off（见 CounterViewModel KDoc），但仍建议在框架层面或代码注释中更显著地标注此陷阱。考虑添加 lint check 规则。
 
-### 🟡 Bug-2: `DashboardViewModel` 中 `SimpleDateFormat` 线程安全问题
+### 🟡 Bug-2: `DashboardViewModel` 中 `stamp()`/`now()` 违反 `PartialChange.apply()` 纯函数契约
 
 - **位置**: `DashboardViewModel.kt:174-178`
 - **代码**:
   ```kotlin
+  private val fmtTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
   private val fmtMs = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+
+  private fun now(): String = fmtTime.format(Date())
   private fun stamp(msg: String): String = "[${fmtMs.format(Date())}] $msg"
   ```
-- **问题**: `java.text.SimpleDateFormat` **不是线程安全的**。DashboardViewModel 使用 HYBRID 策略，CONCURRENT Intent（如 LoadBanners、LoadRecommendations、LoadFlashSale）以 `flatMapMerge` 方式并发执行。多个 `flow {}` builder 同时调用 `stamp()`，竞争同一个 `fmtMs` 实例。
-- **风险**:
+- **问题**: `stamp()` 和 `now()` 在 `PartialChange { s -> s.updateState { ... stamp(...) ... } }` 的 lambda 体内被调用。由于该 lambda 即为 `PartialChange.apply()` 的实现，这违反了框架对 `apply()` 的"纯函数、无副作用、无 I/O"契约（见 Design-2）。`Date()` 创建和 `SimpleDateFormat.format()` 属于可观测副作用（依赖系统时钟）。
+- **线程安全说明**: 此处 **不存在** 线程安全问题。虽然 CONCURRENT handler 并发发射 `PartialChange` 对象，但 `stamp()` 的实际调用发生在 `scan` 累加器内，`scan` 逐个处理每个 `PartialChange`，天然串行。
+- **运行场景**: Dashboard 示例中所有 handler 的时间戳记录。
+- **建议**: 将时间戳捕获移至 handler 的 `flow {}` 体内（emit 时求值），使 `apply()` 保持纯函数：
 
-  | 症状 | 概率 | 影响 |
-  |------|------|------|
-  | 日期格式错乱（数字乱码） | 中 | 日志 timestamps 不可读 |
-  | `ArrayIndexOutOfBoundsException` | 低-中 | 已知 `SimpleDateFormat` 并发 bug |
-  | `NumberFormatException` 导致 coroutine 异常 | 低 | handler 流意外终止 |
-
-- **运行场景**: Dashboard 示例中点击 "Trigger All 3" → 3 个 CONCURRENT handler 并行执行 → 全部调用 `stamp()`。
-- **建议**: 替换为线程安全的日期格式化方案：
-
-  **方案 A（推荐）— `java.time` API（API 26+，minSdk=24 可用）**：
   ```kotlin
-  private val stampFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
-  private fun stamp(msg: String): String {
-      val now = java.time.LocalTime.now()
-      return "[${now.format(stampFormatter)}] $msg"
+  private fun handleLoadBanners(...): Flow<PartialChange> = flow {
+      val startStamp = stamp("START LoadBanners") // ← 在 emit 时捕获
+      emit(PartialChange { s -> s.updateState { copy(bannerLoading = true, operationLog = operationLog + startStamp) } })
+      // ...
   }
-  ```
-
-  **方案 B — `ThreadLocal` 包装**：
-  ```kotlin
-  private val fmtMs = ThreadLocal.withInitial {
-      SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
-  }
-  private fun stamp(msg: String): String = "[${fmtMs.get().format(Date())}] $msg"
   ```
 
 ### ℹ️ Bug-3: `Snapshot.updateWith` 调用 `state.transform()` 而非显式 receiver
@@ -136,10 +123,10 @@
 - **问题**: 当前项目版本为 `1.4.0-SNAPSHOT`（见 `gradle/libs.versions.toml`），但 README 仍显示 `1.2.6`。
 - **建议**: 更新 README 中的版本号以匹配仓库状态。
 
-### 🟢 Bug-5: `gradle.properties` 中 `android.useAndroidX=true` 未显式设置
+### ~~Bug-5~~: ~~`gradle.properties` 中 `android.useAndroidX=true` 未显式设置~~
 
-- **文件**: `/gradle.properties`
-- **问题**: 虽然没有显式设置 `android.useAndroidX=true`，但 AGP 8.x 默认开启。不是真正的 Bug，但为了可读性和向后兼容，建议显式声明。
+- **文件**: `/gradle.properties:17`
+- **裁定**: **误报。** `android.useAndroidX=true` 已在 `gradle.properties` 第 17 行显式声明。此条目不成立。
 
 ### ℹ️ Bug-6: `conflictIntentTypes` 类型安全
 
@@ -205,15 +192,15 @@
   ```
 - **建议**: 删除多余空行，保持代码整洁。
 
-### 🟢 Style-3: `LoginContract.PartialChange.apply()` 中冗余的 `this@PartialChange`
+### 🟢 Style-3: `LoginContract.PartialChange.apply()` 中 `this@PartialChange` 的使用
 
 - **位置**: `LoginContract.kt:136,144,152,161`
 - **代码**: `this@PartialChange.username`, `this@PartialChange.message`
-- **观察**: 在 `when` 分支中的 `is` 分支里使用 `this@PartialChange` 而不是直接访问属性。虽然在 `data class` 的 `apply` 内部需要消除歧义，但考虑到 `when` 分支已经 `is SetErrorMessage` 等，使用 receiver 内的属性更简洁。
-- **建议**: 可以简化为直接访问属性，因为 Kotlin 的智能类型转换已经确保了 scope。如：
-  ```kotlin
-  is SetErrorMessage -> old.updateState { copy(errorMessage = message) }
-  ```
+- **观察**: 在 `when(this)` 的 `is` 分支内，`updateState { copy(...) }` lambda 的 receiver 是 `State`。当 `State` 与 smart-cast 后的子类型有同名属性时，`this@PartialChange` 是**必需的消歧义**，而非冗余。
+- **分析**:
+  - `this@PartialChange.message`（lines 136, 152, 161）：`State` 无 `message` 属性，理论上可省略——Kotlin 会向外层作用域解析。但保留 `this@PartialChange` 提供了显式意图，属于风格偏好。
+  - `this@PartialChange.username`（lines 144, 147）：`State` **有** `val username: String`，省略后 `username` 解析为 `State.username`（当前状态旧值）而非 `CompleteLogin.username`（intent 新值）。此处限定符**不可省略**。
+- **建议**: 对 `username` 的使用保持现状（必需）。对 `message` 的使用，保留或省略皆可，统一风格即可。当前全部保留 `this@PartialChange` 是更安全的一致性选择。
 
 ### 🟢 Style-4: 良好的 Lambda 日志模式
 
@@ -319,20 +306,20 @@
 | 类别 | 🔴 HIGH | 🟡 MEDIUM | 🟢 LOW/INFO | 总计 |
 |------|---------|-----------|-------------|------|
 | **Design** | 2 | 1 | 5 | 8 |
-| **Bug** | 0 | 2 | 2 | 4 |
+| **Bug** | 0 | 2 | 1 | 3 |
 | **Name** | 0 | 0 | 7 | 7 |
 | **Style** | 0 | 0 | 10 | 10 |
 | **Doc** | 0 | 1 | 8 | 9 |
-| **总计** | **2** | **4** | **32** | **38** |
+| **总计** | **2** | **4** | **31** | **37** |
 
-> 注：Bug-3 已确认为误检，不计入 Bug 统计。Design-4 降为 🟢。新增 Bug-2（SimpleDateFormat 线程安全）、Style-10（Dashboard handler 重复）、Info/Doc-9（eventFlow WhileSubscribed 行为说明）。
+> 注：Bug-3 已确认为误检，Bug-5 经第三轮审计确认为事实性错误（`android.useAndroidX=true` 已存在），均不计入统计。Design-4 降为 🟢。Bug-2 由原"SimpleDateFormat 线程安全"修正为"PartialChange.apply() 纯函数契约违规"（线程安全误报已纠正）。
 
 ### 关键行动项
 
 1. **🔴 Design-1**: `groupHandle` 单协程瓶颈 — 已文档化，高吞吐场景需注意 `groupChannelCapacity` 配置
 2. **🔴 Design-2**: `PartialChange.apply()` 在 `Dispatchers.Default` 运行 — 考虑增加开发模式检测
 3. **🟡 Bug-1**: `stateFlow.value` 过期读取 — 文档已提及，但需更突出的显式标注
-4. **🟡 Bug-2**: `DashboardViewModel` 中 `SimpleDateFormat` 线程不安全 → `DateTimeFormatter` 或 `ThreadLocal` 包装
+4. **🟡 Bug-2**: `DashboardViewModel` 中 `stamp()`/`now()` 在 `apply()` 内调用 → 移至 handler emit 处求值
 5. **🟡 Doc-1 / Bug-4**: README 版本号 `1.2.6` → 更新为当前版本
 6. **🟢 Style-2**: `Mvi.kt` 多余空行
 7. **🟢 Doc-8**: KDoc 中 `groupHandle` 瓶颈分析改用行内文字引用
@@ -349,6 +336,10 @@
 
 ### 审查过程记录
 
-本报告经过两轮审查：
+本报告经过三轮审查：
 1. **第一轮**（初始审查）：逐文件阅读全部源代码、测试和文档后撰写
-2. **第二轮**（Meta-Review）：对初稿进行二次审查，发现并修正了 3 项遗漏（`SimpleDateFormat` 线程安全、Dashboard handler 重复、eventFlow WhileSubscribed）、1 个评级偏差（Design-4 降级）和 1 个格式建议（Doc-8 KDoc 引用语法）
+2. **第二轮**（Meta-Review）：对初稿进行二次审查，发现并修正了 3 项遗漏（Dashboard handler 重复、eventFlow WhileSubscribed）、1 个评级偏差（Design-4 降级）和 1 个格式建议（Doc-8 KDoc 引用语法）
+3. **第三轮**（源码验证审计）：逐项对照源码验证，修正了 3 处错误：
+   - Bug-2 由"SimpleDateFormat 线程不安全"修正为"PartialChange.apply() 纯函数违规"（`stamp()` 在 `scan` 内串行调用，无竞争）
+   - Bug-5 移除（`android.useAndroidX=true` 已在 `gradle.properties:17` 显式声明）
+   - Style-3 修正（`this@PartialChange.username` 是必需的消歧义，因 `State` 有同名属性）

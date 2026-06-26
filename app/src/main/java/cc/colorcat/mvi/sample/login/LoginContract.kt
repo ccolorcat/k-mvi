@@ -111,7 +111,10 @@ sealed interface LoginContract {
          */
         data object Logout : Intent
 
-        // Note: ClearError is defined at the bottom as it also implements PartialChange
+        /**
+         * Intent to clear the current error message.
+         */
+        data object ClearError : Intent
     }
 
     /**
@@ -176,7 +179,10 @@ sealed interface LoginContract {
          */
         data class SetErrorMessage(val message: String) : PartialChange
 
-        // Note: ClearError is defined at the bottom as it also implements Intent
+        /**
+         * Clear the current error message.
+         */
+        data object ClearError : PartialChange
 
         // ============================================================
         // Loading State Management
@@ -263,33 +269,4 @@ sealed interface LoginContract {
      * @property message The message to display
      */
     data class ShowToast(val message: String) : Event, PartialChange
-
-
-    /**
-     * Clear the error message.
-     *
-     * This type implements both [Intent] and [PartialChange], demonstrating a design pattern
-     * for simple, synchronous operations that don't require additional business logic.
-     *
-     * **Design Pattern - Dual Implementation:**
-     * - As an [Intent]: User can dispatch `ClearError` from the UI
-     * - As a [PartialChange]: Can be directly used in the ViewModel without creating a separate handler
-     *
-     * **Benefits:**
-     * - **Simplicity**: No need for a separate handler method in ViewModel
-     * - **Efficiency**: Direct state transformation without intermediate steps
-     * - **Clarity**: The intent directly maps to its state change
-     *
-     * **Usage in ViewModel:**
-     * ```kotlin
-     * // Can be used directly with asSingleFlow()
-     * is Intent.ClearError -> PartialChange.ClearError.asSingleFlow()
-     * ```
-     *
-     * **When to use this pattern:**
-     * - For simple, synchronous operations
-     * - When the intent directly maps to a single state change
-     * - When no additional business logic is needed
-     */
-    object ClearError : Intent, PartialChange
 }

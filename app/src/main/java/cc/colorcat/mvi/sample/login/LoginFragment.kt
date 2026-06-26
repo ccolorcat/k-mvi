@@ -48,12 +48,12 @@ class LoginFragment : Fragment() {
     private fun inputIntents(): Flow<Intent> = merge(
         binding.usernameInput.doOnTextChanged {
             if (!binding.errorText.text.isNullOrEmpty()) {
-                trySend(LoginContract.ClearError)
+                trySend(Intent.ClearError)
             }
         },
         binding.passwordInput.doOnTextChanged {
             if (!binding.errorText.text.isNullOrEmpty()) {
-                trySend(LoginContract.ClearError)
+                trySend(Intent.ClearError)
             }
         },
     )

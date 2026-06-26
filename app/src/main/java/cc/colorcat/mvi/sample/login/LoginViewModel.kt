@@ -103,7 +103,7 @@ class LoginViewModel : ViewModel() {
         return when (intent) {
             is Intent.Login -> handleLogin(intent)
             is Intent.Logout -> handleLogout()
-            is PartialChange -> intent.asSingleFlow()
+            is Intent.ClearError -> PartialChange.ClearError.asSingleFlow()
         }
     }
 
