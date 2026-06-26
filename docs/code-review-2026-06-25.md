@@ -40,12 +40,13 @@
 - **运行场景**: 团队协作多人维护时，新开发者可能不理解此双重角色设计意图。
 - **建议**: 虽然是有效（且已被文档说明）的设计模式，但建议将 `ClearError` 改为普通 Intent + 显式 handler 处理，以提高可读性和可预测性。
 
-### 🟡 Design-4: 冲突 Intent 类型集合的泄漏
+### 🟢 Design-4: 冲突 Intent 类型去重集合的内存考量
 
 - **位置**: `IntentTransformers.kt:151` — `conflictIntentTypes`
-- **问题**: `StrategyIntentTransformer` 的 `conflictIntentTypes` 是一个 `ConcurrentHashMap.newKeySet()`，仅在 log warning 后 add。这个集合**永不清理**，在长时间运行的 contract 中，如果存在大量不同的冲突 Intent 类型，会积累内存。
-- **运行场景**: 长时间运行的 ViewModel，存在多种冲突 Intent 类型。
-- **建议**: 这是无害的（仅存储 `Class` 对象引用），但可以考虑添加 `WeakReference` 包装或限制存储数量。
+- **问题**: `StrategyIntentTransformer` 的 `conflictIntentTypes` 是一个 `ConcurrentHashMap.newKeySet()`，仅在 log warning 后 add，且永不清理。
+- **运行场景**: 长时间运行的 ViewModel。
+- **分析**: 该集合仅存储 `Class<*>` 对象引用。Class 对象位于 MetaSpace（不参与普通 GC），因此不存在传统意义上的"内存泄漏"。集合本身极小（~64 bytes/entry），实际影响可忽略。无操作风险。
+- **建议**: 维持现状。如果希望极致整洁，可改用仅存储一次的弱引用包装，但必要性很低。
 
 ### 🟢 Design-5: `ReactiveContractLazy` 使用 `LazyThreadSafetyMode.NONE`
 
@@ -84,26 +85,63 @@
 - **运行场景**: CONCURRENT 或 HYBRID 策略下，多个 Intent 并发处理且依赖最新状态做决策。
 - **建议**: 文档虽已提及此 trade-off（见 CounterViewModel KDoc），但仍建议在框架层面或代码注释中更显著地标注此陷阱。考虑添加 lint check 规则。
 
-### 🟡 Bug-2: `Snapshot.updateWith` 调用 `state.transform()` 而非 `state.transform(state)` 的隐式 receiver
+### 🟡 Bug-2: `DashboardViewModel` 中 `SimpleDateFormat` 线程安全问题
+
+- **位置**: `DashboardViewModel.kt:174-178`
+- **代码**:
+  ```kotlin
+  private val fmtMs = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+  private fun stamp(msg: String): String = "[${fmtMs.format(Date())}] $msg"
+  ```
+- **问题**: `java.text.SimpleDateFormat` **不是线程安全的**。DashboardViewModel 使用 HYBRID 策略，CONCURRENT Intent（如 LoadBanners、LoadRecommendations、LoadFlashSale）以 `flatMapMerge` 方式并发执行。多个 `flow {}` builder 同时调用 `stamp()`，竞争同一个 `fmtMs` 实例。
+- **风险**:
+
+  | 症状 | 概率 | 影响 |
+  |------|------|------|
+  | 日期格式错乱（数字乱码） | 中 | 日志 timestamps 不可读 |
+  | `ArrayIndexOutOfBoundsException` | 低-中 | 已知 `SimpleDateFormat` 并发 bug |
+  | `NumberFormatException` 导致 coroutine 异常 | 低 | handler 流意外终止 |
+
+- **运行场景**: Dashboard 示例中点击 "Trigger All 3" → 3 个 CONCURRENT handler 并行执行 → 全部调用 `stamp()`。
+- **建议**: 替换为线程安全的日期格式化方案：
+
+  **方案 A（推荐）— `java.time` API（API 26+，minSdk=24 可用）**：
+  ```kotlin
+  private val stampFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+  private fun stamp(msg: String): String {
+      val now = java.time.LocalTime.now()
+      return "[${now.format(stampFormatter)}] $msg"
+  }
+  ```
+
+  **方案 B — `ThreadLocal` 包装**：
+  ```kotlin
+  private val fmtMs = ThreadLocal.withInitial {
+      SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+  }
+  private fun stamp(msg: String): String = "[${fmtMs.get().format(Date())}] $msg"
+  ```
+
+### ℹ️ Bug-3: `Snapshot.updateWith` 调用 `state.transform()` 而非显式 receiver
 
 - **位置**: `Mvi.kt:422`
 - **代码**: `return copy(state = state.transform(), event = event)`
-- **问题**: 对比 `updateState` 和 `updateWith`，两者的 `transform` 签名都是 `S.() -> S`。此处 `state.transform()` 和 `updateState` 中的 `state.transform()` 行为一致——都使用 `state` 作为 receiver。
+- **分析**: 对比 `updateState` 和 `updateWith`，两者的 `transform` 签名都是 `S.() -> S`。`state.transform()` 使用 `state` 作为 receiver，`updateState` 中的 `state.transform()` 行为完全一致。
   - **结果**: **不是 Bug。** 两者行为一致，`updateWith` 正确处理了 state 和 event 的同时更新。误检，标记为确认。
 
-### 🟢 Bug-3: README 安装示例版本号与项目版本不一致
+### 🟢 Bug-4: README 安装示例版本号与项目版本不一致
 
 - **位置**: `README.md:45`
 - **代码**: `implementation("cc.colorcat.mvi:core:1.2.6")`
 - **问题**: 当前项目版本为 `1.4.0-SNAPSHOT`（见 `gradle/libs.versions.toml`），但 README 仍显示 `1.2.6`。
 - **建议**: 更新 README 中的版本号以匹配仓库状态。
 
-### 🟢 Bug-4: `gradle.properties` 中 `android.useAndroidX=true` 未显式设置
+### 🟢 Bug-5: `gradle.properties` 中 `android.useAndroidX=true` 未显式设置
 
 - **文件**: `/gradle.properties`
 - **问题**: 虽然没有显式设置 `android.useAndroidX=true`，但 AGP 8.x 默认开启。不是真正的 Bug，但为了可读性和向后兼容，建议显式声明。
 
-### ℹ️ Bug-5: `conflictIntentTypes` 类型安全
+### ℹ️ Bug-6: `conflictIntentTypes` 类型安全
 
 - `conflictIntentTypes.add(intent.javaClass)` 使用 `Class<*>` 类型的 set。虽然类型安全的泛型被擦除，但 `Class` 对象的 identity 是正确的，运行时不会出错。
 - **裁定**: 安全。
@@ -190,7 +228,7 @@
 
 - **观察**: 库中所有 Contract（LoginContract、CounterContract、DashboardContract）一致使用 `sealed interface` 定义 Intent/Event/PartialChange，风格统一。
 
-### 🟢 Style-7: DashboardFragment 中 `intents` 属性的 getter 模式一致
+### 🟢 Style-7: Fragment 中 `intents` 属性的 getter 模式一致
 
 - **观察**: 三个 Fragment 都使用 `private val intents: Flow<Intent> get() = merge(...)` 模式。`get()` 确保每次访问都使用最新的 `binding` 实例。命名 `intents`（复数）准确表达了意图为多 Intent 流的合并。
 
@@ -202,6 +240,20 @@
 ### 🟢 Style-9: 测试中的 Kotlin 反引号方法名
 
 - **观察**: 测试方法使用 Kotlin 反引号方法名（如 `` `dispatch updates stateFlow` ``），可读性强，且库内风格一致。
+
+### 🟢 Style-10: `DashboardViewModel` handler 代码重复
+
+- **位置**: `DashboardViewModel.kt` — `handleLoadBanners` / `handleLoadRecommendations` / `handleLoadFlashSale`
+- **观察**: 三个 handler 的代码结构完全一致——`try-catch → emit(Loading) → randomDelay() → emit(Success)`，每个约 15 行。仅数据内容不同，但基本模式完全相同。
+- **建议**: 可抽取通用 `loadData` 模板函数减少重复。但作为示例代码，重复有助于独立阅读，重构与否取决于项目风格。
+  ```kotlin
+  private fun loadData(
+      tag: String,
+      setLoading: State.(Boolean) -> State,
+      setData: State.(Any) -> State,
+      dataProvider: suspend () -> Any,
+  ): Flow<PartialChange> = flow { ... }
+  ```
 
 ---
 
@@ -248,10 +300,17 @@
 ### 🟢 Doc-8: `groupHandle` KDoc 提及瓶颈但没有引用 `docs/` 下的分析文档
 
 - **位置**: `InternalExtensions.kt`
-- **观察**: KDoc 大篇幅描述了 bottleneck，但未引用 `docs/groupHandle-bottleneck-analysis.md`。建议在 KDoc 末尾添加交叉引用链接：
+- **观察**: KDoc 大篇幅描述了 bottleneck，但未引用 `docs/groupHandle-bottleneck-analysis.md` 中的详细分析。
+- **建议**: `@see` 标签无法直接引用文件路径，改用行内文字引用：
   ```kotlin
-  * @see [docs/groupHandle-bottleneck-analysis.md]
+  * See the analysis document at `docs/groupHandle-bottleneck-analysis.md` for details.
   ```
+
+### ℹ️ Doc-9: `eventFlow` 使用 `SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)`
+
+- **位置**: `ReactiveContractImpl.kt:264`
+- **观察**: eventFlow 采用 5 秒的 stop timeout。在配置变更（如 Fragment 进入 backstack 后快速恢复）期间，上游 pipeline 会保持运行而非立刻重启。这是设计意图——避免 pipeline 重建开销。不影响正确性，Events 本身是 fire-and-forget，5 秒内无 subscriber 时 events 自然丢失。
+- **建议**: 无需改动，已正确文档化。
 
 ---
 
@@ -259,20 +318,24 @@
 
 | 类别 | 🔴 HIGH | 🟡 MEDIUM | 🟢 LOW/INFO | 总计 |
 |------|---------|-----------|-------------|------|
-| **Design** | 2 | 2 | 3 | 7 |
+| **Design** | 2 | 1 | 5 | 8 |
 | **Bug** | 0 | 2 | 2 | 4 |
 | **Name** | 0 | 0 | 7 | 7 |
-| **Style** | 0 | 0 | 9 | 9 |
-| **Doc** | 0 | 1 | 7 | 8 |
-| **总计** | **2** | **5** | **28** | **35** |
+| **Style** | 0 | 0 | 10 | 10 |
+| **Doc** | 0 | 1 | 8 | 9 |
+| **总计** | **2** | **4** | **32** | **38** |
+
+> 注：Bug-3 已确认为误检，不计入 Bug 统计。Design-4 降为 🟢。新增 Bug-2（SimpleDateFormat 线程安全）、Style-10（Dashboard handler 重复）、Info/Doc-9（eventFlow WhileSubscribed 行为说明）。
 
 ### 关键行动项
 
 1. **🔴 Design-1**: `groupHandle` 单协程瓶颈 — 已文档化，高吞吐场景需注意 `groupChannelCapacity` 配置
 2. **🔴 Design-2**: `PartialChange.apply()` 在 `Dispatchers.Default` 运行 — 考虑增加开发模式检测
 3. **🟡 Bug-1**: `stateFlow.value` 过期读取 — 文档已提及，但需更突出的显式标注
-4. **🟡 Bug-3 / Doc-1**: README 版本号 `1.2.6` → 更新为当前版本
-5. **🟢 Style-2**: `Mvi.kt` 多余空行
+4. **🟡 Bug-2**: `DashboardViewModel` 中 `SimpleDateFormat` 线程不安全 → `DateTimeFormatter` 或 `ThreadLocal` 包装
+5. **🟡 Doc-1 / Bug-4**: README 版本号 `1.2.6` → 更新为当前版本
+6. **🟢 Style-2**: `Mvi.kt` 多余空行
+7. **🟢 Doc-8**: KDoc 中 `groupHandle` 瓶颈分析改用行内文字引用
 
 ### 项目优点
 
@@ -283,3 +346,9 @@
 - 编码规范：Kotlin 惯用法（sealed interface、fun interface、reified inline、@JvmInline）使用恰当
 - 设计说明清晰：已知权衡（如 groupHandle bottleneck、stateFlow.value 过期）都有文档说明
 - 健康的质量意识：`docs/proguard-obfuscation-audit-2026-06-19.md` 表明项目有安全意识
+
+### 审查过程记录
+
+本报告经过两轮审查：
+1. **第一轮**（初始审查）：逐文件阅读全部源代码、测试和文档后撰写
+2. **第二轮**（Meta-Review）：对初稿进行二次审查，发现并修正了 3 项遗漏（`SimpleDateFormat` 线程安全、Dashboard handler 重复、eventFlow WhileSubscribed）、1 个评级偏差（Design-4 降级）和 1 个格式建议（Doc-8 KDoc 引用语法）
