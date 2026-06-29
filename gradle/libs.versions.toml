@@ -4,8 +4,8 @@ groupId = "cc.colorcat.mvi"
 compileSdk = "34"
 minSdk = "24"
 targetSdk = "34"
-versionCode = "12"
-versionName = "1.4.2-SNAPSHOT"
+versionCode = "13"
+versionName = "1.4.3-SNAPSHOT"
 
 # JAVA version
 java = "17"
