@@ -18,7 +18,7 @@ import cc.colorcat.mvi.sample.util.viewBinding
  * GitHub: https://github.com/ccolorcat
  */
 class SampleActivity : AppCompatActivity() {
-    private val binding by viewBinding<ActivitySampleBinding>()
+    private val binding by viewBinding(ActivitySampleBinding::inflate)
 
     private val navController: NavController by lazy(LazyThreadSafetyMode.NONE) {
         findNavController(R.id.fragment_container)

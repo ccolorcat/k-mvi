@@ -264,8 +264,8 @@ interface ReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> : Contr
  * ## Implementation Details
  *
  * This function returns a wrapper that delegates [Contract.stateFlow] and [Contract.eventFlow] to the
- * underlying [ReactiveContract] but does not expose the [ReactiveContract.dispatch] method. This provides
- * true read-only access that cannot be bypassed by casting.
+ * underlying [ReactiveContract] but does not expose the [ReactiveContract.dispatch] method. Callers cannot
+ * recover `dispatch` by casting the returned [Contract] reference.
  *
  * ## Performance Note
  *
@@ -286,8 +286,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ReactiveContract<I, S, E>.asC
 /**
  * A read-only wrapper around [ReactiveContract] that only exposes [Contract] interface.
  *
- * This internal class ensures that the [ReactiveContract.dispatch] method cannot be accessed even through
- * type casting, providing true encapsulation for read-only access.
+ * This private wrapper re-exposes only the [Contract] surface of the delegate.
  *
  * @param S The state type
  * @param E The event type

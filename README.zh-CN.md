@@ -19,7 +19,7 @@
 
 ✅ **零模板代码**：干净的 API 设计，减少重复代码
 
-✅ **生产就绪**：内置重试策略、错误处理与日志系统
+✅ **生产就绪**：内置重试策略、fatal 错误钩子、R8 规则与日志系统
 
 ## 目录
 
@@ -31,6 +31,9 @@
 - [高级特性](#高级特性)
 - [最佳实践](#最佳实践)
 - [示例 App](#示例-app)
+- [R8 / ProGuard](#r8--proguard)
+- [环境要求](#环境要求)
+- [贡献](#贡献)
 - [许可协议](#许可协议)
 
 ## 安装
@@ -39,7 +42,7 @@
 
 ```kotlin
 dependencies {
-    implementation("cc.colorcat.mvi:core:1.2.6")
+    implementation("cc.colorcat.mvi:core:1.4.1")
 }
 ```
 
@@ -428,7 +431,7 @@ class MyViewModel : ViewModel() {
     fun dispatch(intent: MyIntent) = contract.dispatch(intent)
 
     // 所有 Intent 处理集中在同一方法——易于阅读和维护
-    private suspend fun handleIntent(intent: MyIntent): Flow<MyPartialChange> {
+    private fun handleIntent(intent: MyIntent): Flow<MyPartialChange> {
         return when (intent) {
             is MyIntent.Increment -> handleIncrement(intent)
             is MyIntent.Decrement -> handleDecrement(intent)
@@ -535,7 +538,7 @@ class MyViewModel : ViewModel() {
     fun dispatch(intent: MyContract.Intent) = contract.dispatch(intent)
 
     // 简单的 handler——直接转换并返回
-    private suspend fun handleIntent(intent: MyContract.Intent): Flow<MyContract.PartialChange> {
+    private fun handleIntent(intent: MyContract.Intent): Flow<MyContract.PartialChange> {
         return when (intent) {
             is MyContract.PartialChange -> intent.asSingleFlow()
         }
@@ -614,7 +617,7 @@ class UserViewModel : ViewModel() {
     fun dispatch(intent: UserIntent) = contract.dispatch(intent)
 
     // 所有 Intent 路由集中在一处
-    private suspend fun handleIntent(intent: UserIntent): Flow<UserPartialChange> {
+    private fun handleIntent(intent: UserIntent): Flow<UserPartialChange> {
         return when (intent) {
             is UserIntent.Save -> handleSave(intent)
             is UserIntent.Update -> handleUpdate(intent)
@@ -840,6 +843,9 @@ class MyApplication : Application() {
                     groupChannelCapacity = Channel.BUFFERED
                 ),
 
+                // fatal 管线错误默认按开发者错误处理，直接重新抛出原始异常
+                fatalErrorHandler = FatalErrorHandler.Rethrow,
+
                 // 日志配置：默认为 WARN；debug 版本可用 DEBUG
                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
             )
@@ -892,9 +898,29 @@ class MyApplication : Application() {
 
 HYBRID 策略的配置：
 
-- `groupTagSelector`：为每个回退 Intent 分配分组标签，用于组内顺序处理的函数
 - `groupChannelCapacity`：分组 Intent 通道的缓冲区大小（默认：`Channel.BUFFERED` = 64）。
   允许值：`Channel.BUFFERED`、`Channel.CONFLATED`、`Channel.RENDEZVOUS` 以及任何正数 `Int`（包括 `Channel.UNLIMITED`）。
+
+#### GroupTagSelector
+
+`groupTagSelector` 在使用 `HandleStrategy.HYBRID` 时为每个回退 Intent 分配 group tag。
+相同 tag 的 Intent 会按顺序处理，不同 tag 可并发执行。默认值为 `GroupTagSelector.byClass()`，
+即按精确运行时类型分组。
+
+#### FatalErrorHandler
+
+`fatalErrorHandler` 处理 `RetryPolicy` 放弃后的不可恢复管线失败，以及
+`PartialChange.apply` 抛出的开发者错误。它不是恢复钩子；`handle(error): Nothing`
+表示实现必须通过抛出异常或其他方式终止，不能正常返回。
+
+默认策略：
+
+```kotlin
+FatalErrorHandler.Rethrow
+```
+
+Reducer 代码应保持纯粹、轻量、非抛异常。可恢复的业务错误应在 handler 或 transformer
+中捕获，并编码为 state/event 变化。
 
 #### Logger
 
@@ -968,6 +994,12 @@ KMvi.configure {
 }
 ```
 
+#### Fatal 管线错误
+
+如果 `PartialChange.apply` 抛出异常，或 `retryPolicy` 对 handler / transformer 的未捕获异常返回
+`false`，K-MVI 会记录该失败并交给 `fatalErrorHandler`。默认的
+`FatalErrorHandler.Rethrow` 会用原始异常终止处理协程。
+
 ### 测试
 
 K-MVI 的清晰架构使测试变得简单：
@@ -977,14 +1009,14 @@ K-MVI 的清晰架构使测试变得简单：
 ```kotlin
 @Test
 fun `increment intent increases count`() = runTest {
-        val viewModel = MyViewModel()
-        val initialState = viewModel.stateFlow.value
+    val viewModel = MyViewModel()
+    val initialState = viewModel.stateFlow.value
 
-        viewModel.dispatch(MyIntent.Increment)
+    viewModel.dispatch(MyIntent.Increment)
 
-        advanceUntilIdle()
-        assertEquals(initialState.count + 1, viewModel.stateFlow.value.count)
-    }
+    advanceUntilIdle()
+    assertEquals(initialState.count + 1, viewModel.stateFlow.value.count)
+}
 ```
 
 #### 测试 State Flow
@@ -992,21 +1024,21 @@ fun `increment intent increases count`() = runTest {
 ```kotlin
 @Test
 fun `loading state changes correctly`() = runTest {
-        val viewModel = MyViewModel()
-        val states = mutableListOf<MyState>()
+    val viewModel = MyViewModel()
+    val states = mutableListOf<MyState>()
 
-        val job = launch {
-            viewModel.stateFlow.collect { states.add(it) }
-        }
-
-        viewModel.dispatch(LoadDataIntent)
-        advanceUntilIdle()
-
-        assertTrue(states.any { it.loading })
-        assertFalse(states.last().loading)
-
-        job.cancel()
+    val job = launch {
+        viewModel.stateFlow.collect { states.add(it) }
     }
+
+    viewModel.dispatch(LoadDataIntent)
+    advanceUntilIdle()
+
+    assertTrue(states.any { it.loading })
+    assertFalse(states.last().loading)
+
+    job.cancel()
+}
 ```
 
 #### 测试 Event Flow
@@ -1014,20 +1046,20 @@ fun `loading state changes correctly`() = runTest {
 ```kotlin
 @Test
 fun `error event is emitted on failure`() = runTest {
-        val viewModel = MyViewModel()
-        val events = mutableListOf<MyEvent>()
+    val viewModel = MyViewModel()
+    val events = mutableListOf<MyEvent>()
 
-        val job = launch {
-            viewModel.eventFlow.collect { events.add(it) }
-        }
-
-        viewModel.dispatch(FailingIntent)
-        advanceUntilIdle()
-
-        assertTrue(events.any { it is MyEvent.ShowError })
-
-        job.cancel()
+    val job = launch {
+        viewModel.eventFlow.collect { events.add(it) }
     }
+
+    viewModel.dispatch(FailingIntent)
+    advanceUntilIdle()
+
+    assertTrue(events.any { it is MyEvent.ShowError })
+
+    job.cancel()
+}
 ```
 
 ### 自定义 Logger
@@ -1176,6 +1208,15 @@ collectWhole { state ->
 
 请查看 [`app`](app/) 模块获取完整示例。
 
+## R8 / ProGuard
+
+`core` AAR 会随包提供 K-MVI public API 与标记子类型相关的 consumer R8 规则。如果你的应用启用
+R8 aggressive shrinking，请确保自己的 `Intent`、`State`、`Event`、`PartialChange`
+具体类型保持可达；这些类型会用于精确类匹配的 handler 查找和按类型过滤的事件收集。
+
+对于应用自身的反射，请添加自己的 keep 规则。示例 app 的 ViewBinding delegate 已通过显式传入
+生成的 binding factory 引用来避免反射。
+
 ## 环境要求
 
 - Android API 24+（Android 7.0）
@@ -1192,7 +1233,7 @@ K-MVI 的依赖极少：
 
 ## 贡献
 
-欢迎贡献！请随时提交 Pull Request。
+欢迎贡献。请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解本地环境、测试和 Pull Request 要求。
 
 ## 许可协议
 
@@ -1217,10 +1258,5 @@ limitations under the License.
 **ccolorcat**
 
 - GitHub: [@ccolorcat](https://github.com/ccolorcat)
-
-## 致谢
-
-K-MVI 受以下项目概念启发而构建：
----
 
 **如果觉得有用，请 Star ⭐ 支持！**

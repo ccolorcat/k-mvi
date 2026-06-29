@@ -120,6 +120,12 @@ object KMvi {
         get() = config.retryPolicy
 
     /**
+     * The global fatal error handler for unrecoverable pipeline failures.
+     */
+    internal val fatalErrorHandler: FatalErrorHandler
+        get() = config.fatalErrorHandler
+
+    /**
      * The global dispatch queue configuration.
      *
      * Controls the dispatch queue buffer for each contract.
@@ -247,6 +253,9 @@ object KMvi {
      * @property hybridStrategyConfig Runtime configuration for [HandleStrategy.HYBRID].
      * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
      *                       Default: retry on [IOException] when `attempt < 3` (up to 3 retries)
+     * @property fatalErrorHandler Handles unrecoverable pipeline failures after retry gives up,
+     *                             and developer errors thrown from [Mvi.PartialChange.apply].
+     *                             Default: [FatalErrorHandler.Rethrow]
      * @property logger The logger instance. Default: Logger with WARN level
      *
      * @see HandleStrategy
@@ -258,11 +267,18 @@ object KMvi {
         val intentQueueConfig: IntentQueueConfig = IntentQueueConfig(),
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
         val hybridStrategyConfig: HybridStrategyConfig = HybridStrategyConfig(),
-        val retryPolicy: RetryPolicy = { attempt: Long, cause: Throwable -> defaultRetryPolicy(attempt, cause) },
+        val retryPolicy: RetryPolicy = { attempt: Long, cause: Throwable ->
+            defaultRetryPolicy(attempt, cause)
+        },
+        val fatalErrorHandler: FatalErrorHandler = FatalErrorHandler.Rethrow,
         val logger: Logger = Logger(),
     ) {
         override fun toString(): String {
-            return "Configuration(intentQueueConfig=$intentQueueConfig, handleStrategy=$handleStrategy, hybridStrategyConfig=$hybridStrategyConfig, logger=$logger)"
+            return "Configuration(" +
+                "intentQueueConfig=$intentQueueConfig, " +
+                "handleStrategy=$handleStrategy, " +
+                "hybridStrategyConfig=$hybridStrategyConfig" +
+                ")"
         }
     }
 }

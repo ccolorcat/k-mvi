@@ -5,13 +5,32 @@
 **Scope**: `core/` (library) + `app/` (sample) — all `.kt` source files
 **Minification status**: Disabled in both modules (`isMinifyEnabled = false`)
 
+> Line-number references in this document were captured when the audit was written and may drift as
+> source files change. Prefer the referenced symbol names when re-checking findings.
+
+> Status: The H1/H2 release blockers have been addressed for the 1.4.1 release by removing
+> reflection-based ViewBinding lookup from the sample app and adding active consumer R8 rules to
+> `core/consumer-rules.pro`. The remaining items are either covered by those rules or diagnostic-only.
+
 ---
 
-## Executive Summary
+## Current Release Status
 
-The project currently has **zero** active ProGuard/R8 keep rules across both modules. While minification is disabled today, the library is published as an AAR with an **empty `consumer-rules.pro`**, meaning any downstream consumer that enables R8 will silently corrupt the library's type-based dispatch and event filtering. The sample app's `ViewBindingDelegate` uses reflection that will crash under R8.
+For 1.4.1, there are no remaining R8 release blockers from this audit.
 
-**3 HIGH-risk, 2 MEDIUM-risk, 3 info items** found.
+| Finding | Current status |
+|---|---|
+| H1 ViewBinding reflection | Fixed. Sample delegates now require explicit generated factory references such as `FragmentCounterBinding::bind`. |
+| H2 Empty consumer rules | Fixed. `core/consumer-rules.pro` now ships active rules for the K-MVI API and MVI marker subtypes. |
+| H3 Intent handler type dispatch | Covered by marker-subtype consumer rules. Exact `Class` identity is stable under renaming when concrete intent classes remain reachable. |
+| M1 Event type filtering | Covered by marker-subtype consumer rules for concrete event classes. |
+| M2 Obfuscated diagnostic names | Accepted. These names are used only for logging and are not part of runtime semantics. |
+
+## Original Audit Summary
+
+At the time of the original audit, the project had **zero** active ProGuard/R8 keep rules across both modules. While minification was disabled, the library was published as an AAR with an **empty `consumer-rules.pro`**, meaning any downstream consumer that enabled R8 could corrupt the library's type-based dispatch and event filtering. The sample app's `ViewBindingDelegate` also used reflection that could crash under R8.
+
+**3 HIGH-risk, 2 MEDIUM-risk, 3 info items** were found.
 
 ---
 
@@ -45,11 +64,12 @@ inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T {
 - `DashboardFragment.kt:44` — `private val binding: FragmentDashboardBinding by viewBinding()`
 - `SampleActivity.kt:21` — `private val binding by viewBinding<ActivitySampleBinding>()`
 
-**Recommended fix**: Replace reflection with direct static method calls — the reified type parameter already makes the concrete class available at compile time:
+**Implemented fix**: Replace reflection-based delegate helpers with delegates that require explicit generated
+factory references at the call site:
 
 ```kotlin
-inline fun <reified T : ViewBinding> bind(view: View): T = T::bind(view)
-inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T = T::inflate(inflater)
+private val binding by viewBinding(FragmentCounterBinding::bind)
+private val binding by viewBinding(ActivitySampleBinding::inflate)
 ```
 
 ---
@@ -67,24 +87,19 @@ inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T = T::i
 - `Mvi.Event` subtypes → `collectTyped` filter never matches
 - `Mvi.PartialChange` subtypes → state transitions fail
 
-**Recommended fix**: Add to `core/consumer-rules.pro`:
+**Implemented fix**: Add active rules to `core/consumer-rules.pro`:
 
 ```pro
-# Keep all MVI core public API — library consumers need these
+# Keep all MVI core public API.
 -keep class cc.colorcat.mvi.** { *; }
 
-# Keep all intent, state, event, and partial change subtypes
-# (used by IntentHandlerRegistry and collectTyped filtering)
+# Keep all intent, state, event, and partial change subtypes.
 -keep class ** implements cc.colorcat.mvi.Mvi$Intent { *; }
+-keep class ** implements cc.colorcat.mvi.Mvi$Intent$Concurrent { *; }
+-keep class ** implements cc.colorcat.mvi.Mvi$Intent$Sequential { *; }
 -keep class ** implements cc.colorcat.mvi.Mvi$State { *; }
 -keep class ** implements cc.colorcat.mvi.Mvi$Event { *; }
 -keep class ** implements cc.colorcat.mvi.Mvi$PartialChange { *; }
-
-# Keep ViewBinding generated classes and their static factory methods
--keep class * implements androidx.viewbinding.ViewBinding {
-    public static * bind(android.view.View);
-    public static * inflate(android.view.LayoutInflater);
-}
 ```
 
 ---
@@ -178,69 +193,54 @@ internal val Mvi.Intent.diagnosticName: String
 
 ---
 
-## Detailed Requirement vs. Actual Coverage
+## 1.4.1 Coverage
 
 | Protection Need | Current Status | Required Action |
 |---|---|---|
-| `consumer-rules.pro` for library consumers | Empty file | Add keep rules for `cc.colorcat.mvi.**` and MVI marker hierarchy |
-| ViewBinding reflection in sample app | Unprotected `getMethod("bind")` | Replace with `T::bind()` direct call or add `-keep` for ViewBinding types |
-| Intent handler type-based dispatch | Uses `Class` identity (safe from renaming) | Add `-keep class ** implements Mvi$Intent` for consumer safety |
-| Event type filtering via `KClass.isInstance` | Subject to R8 dead-class elimination | Annotate event subtypes with `@Keep` or add consumer rule |
+| `consumer-rules.pro` for library consumers | Active rules present | No release-blocking action |
+| ViewBinding reflection in sample app | Removed | No action |
+| Intent handler type-based dispatch | Uses `Class` identity; concrete intent subtypes kept by consumer rules | No release-blocking action |
+| Event type filtering via `KClass.isInstance` | Concrete event subtypes kept by consumer rules | No release-blocking action |
 | Logging / diagnostics class names | Documented as obfuscation-unstable | No action needed — intentional behavior |
 | `@Keep` annotations | Zero present | Consider adding `@Keep` to sealed interface subtypes in sample |
 
 ---
 
-## Recommended ProGuard Rules for `core/consumer-rules.pro`
+## Current Consumer Rules
 
 ```pro
-# ──────────────────────────────────────────────────────────────────
-# K-MVI Library — Consumer ProGuard / R8 Keep Rules
-# ──────────────────────────────────────────────────────────────────
-
-# Keep the complete public API surface of the library
+# K-MVI public API used by consumer projects.
 -keep class cc.colorcat.mvi.** { *; }
 
-# Keep all intent, state, event, and partial change subtypes.
-# These are resolved at runtime via Class identity (IntentHandlerRegistry)
-# and KClass.isInstance (collectTyped filtering).
--keep class ** extends cc.colorcat.mvi.Mvi$Intent { *; }
+# K-MVI resolves user-defined MVI types at runtime through exact Class/KClass identity.
+# Keep these subtypes reachable when consumer apps enable R8 shrinking.
 -keep class ** implements cc.colorcat.mvi.Mvi$Intent { *; }
+-keep class ** implements cc.colorcat.mvi.Mvi$Intent$Concurrent { *; }
+-keep class ** implements cc.colorcat.mvi.Mvi$Intent$Sequential { *; }
 -keep class ** implements cc.colorcat.mvi.Mvi$State { *; }
 -keep class ** implements cc.colorcat.mvi.Mvi$Event { *; }
 -keep class ** implements cc.colorcat.mvi.Mvi$PartialChange { *; }
-
-# Keep ViewBinding classes and their required static factory methods
--keep class * implements androidx.viewbinding.ViewBinding {
-    public static * bind(android.view.View);
-    public static * inflate(android.view.LayoutInflater);
-}
 ```
 
 ---
 
-## Recommended Fix: ViewBindingDelegate (sample app)
+## Implemented Fix: ViewBindingDelegate (sample app)
 
-Replace the reflective `getMethod` calls in `ViewBindingDelegate.kt` with direct method references:
+Replace the reflective reified helpers with delegate overloads that accept explicit generated factory
+references. This keeps the binding method references visible to the compiler and avoids runtime method-name
+lookup.
 
 ```kotlin
-// BEFORE (line 89-93):
-inline fun <reified T : ViewBinding> bind(view: View): T {
-    return T::class.java.getMethod("bind", View::class.java)
-        .invoke(null, view) as T
+fun <T : ViewBinding> Fragment.viewBinding(factory: (View) -> T): ReadOnlyProperty<Fragment, T> {
+    return FragmentViewBindingDelegate(factory)
 }
 
-// AFTER:
-inline fun <reified T : ViewBinding> bind(view: View): T = T::bind(view)
-
-// BEFORE (line 127-130):
-inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T {
-    return T::class.java.getMethod("inflate", LayoutInflater::class.java)
-        .invoke(null, inflater) as T
+fun <T : ViewBinding> Activity.viewBinding(factory: (LayoutInflater) -> T): ReadOnlyProperty<Activity, T> {
+    return ActivityViewBindingDelegate(factory)
 }
 
-// AFTER:
-inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T = T::inflate(inflater)
+private val fragmentBinding by viewBinding(FragmentCounterBinding::bind)
+private val activityBinding by viewBinding(ActivitySampleBinding::inflate)
 ```
 
 ---
@@ -249,8 +249,8 @@ inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T = T::i
 
 | File | Lines | Finding |
 |---|---|---|
-| `app/.../util/ViewBindingDelegate.kt` | 89-93, 127-130 | **H1** — Reflection on ViewBinding |
-| `core/consumer-rules.pro` | 1 (empty) | **H2** — No consumer rules |
+| `app/.../util/ViewBindingDelegate.kt` | Historical: 89-93, 127-130 | **H1** — Reflection on ViewBinding, fixed in 1.4.1 |
+| `core/consumer-rules.pro` | 1-11 | **H2** — Consumer rules added in 1.4.1 |
 | `core/proguard-rules.pro` | 1-21 (all comments) | **H2** — No library build rules |
 | `core/.../IntentHandlers.kt` | 259, 350, 373, 400 | **H3** — Intent handler Class dispatch |
 | `core/.../MviCollects.kt` | 401-408 | **M1** — Event type filtering |
@@ -263,12 +263,12 @@ inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T = T::i
 
 ---
 
-## Summary of Recommended Actions
+## Action Status
 
-| Priority | Action | Effort | Impact |
-|---|---|---|---|
-| **P0** | Add keep rules to `core/consumer-rules.pro` | 5 min | Prevents all consumer-side breakage |
-| **P1** | Fix `ViewBindingDelegate` reflection → direct calls | 5 min | Prevents crash in sample app |
-| **P1** | Refine consumer rules to be minimal (not `**`) | 15 min | Better for consumer's optimization |
-| **P2** | Add `@Keep` annotations to sample's sealed intent/event/state subtypes | 5 min | Self-documenting guard |
-| **P3** | Document R8/ProGuard requirements in README | 10 min | Developer guidance |
+| Priority | Action | Status |
+|---|---|---|
+| **P0** | Add keep rules to `core/consumer-rules.pro` | Done |
+| **P1** | Remove `ViewBindingDelegate` reflection | Done |
+| **P1** | Refine consumer rules after minified consumer testing | Optional follow-up |
+| **P2** | Add `@Keep` annotations to sample's sealed intent/event/state subtypes | Optional follow-up |
+| **P3** | Document R8/ProGuard requirements in README | Done |

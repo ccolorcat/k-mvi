@@ -41,7 +41,7 @@ import kotlinx.coroutines.flow.onEach
 class DashboardFragment : Fragment() {
 
     private val viewModel: DashboardViewModel by viewModels()
-    private val binding: FragmentDashboardBinding by viewBinding()
+    private val binding: FragmentDashboardBinding by viewBinding(FragmentDashboardBinding::bind)
 
     // ── Intent flows ──────────────────────────────────────────────────────────────────────
 

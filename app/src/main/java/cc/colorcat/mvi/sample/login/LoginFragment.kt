@@ -36,7 +36,7 @@ import kotlinx.coroutines.flow.onEach
  * - Auth intents (login/logout): 600 ms
  */
 class LoginFragment : Fragment() {
-    private val binding by viewBinding<FragmentLoginBinding>()
+    private val binding by viewBinding(FragmentLoginBinding::bind)
     private val viewModel: LoginViewModel by viewModels()
 
     private val intents: Flow<Intent>

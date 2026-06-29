@@ -201,8 +201,8 @@ enum class HandleStrategy {
  * ordered together. Intents with the same tag are processed sequentially within
  * that tag, while different tags process in parallel.
  *
- * The default selector uses the runtime [Class] object, which avoids grouping changes
- * caused by ProGuard/R8 class-name obfuscation.
+ * The default selector uses runtime [Class] object identity, so grouping is unaffected by
+ * ProGuard/R8 class-name obfuscation.
  *
  * ```kotlin
  * val selector = GroupTagSelector<MyIntent> { intent ->

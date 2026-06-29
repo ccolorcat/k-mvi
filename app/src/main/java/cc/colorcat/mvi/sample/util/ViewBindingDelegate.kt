@@ -74,25 +74,6 @@ fun <T : ViewBinding> Fragment.viewBinding(factory: (View) -> T): ReadOnlyProper
     return FragmentViewBindingDelegate(factory)
 }
 
-/** Creates a [FragmentViewBindingDelegate] using the reified type's `bind` method. */
-inline fun <reified T : ViewBinding> Fragment.viewBinding(): ReadOnlyProperty<Fragment, T> {
-    return FragmentViewBindingDelegate { bind(it) }
-}
-
-
-/**
- * Invokes the `bind(View)` static method on a view binding class via reflection.
- *
- * @param view The root view to bind
- * @return A new instance of [T]
- */
-inline fun <reified T : ViewBinding> bind(view: View): T {
-    return T::class.java.getMethod("bind", View::class.java)
-        .invoke(null, view) as T
-
-}
-
-
 /**
  * [ReadOnlyProperty] delegate that lazily binds a [ViewBinding] for an [Activity].
  *
@@ -118,15 +99,9 @@ class ActivityViewBindingDelegate<T : ViewBinding>(
     }
 }
 
-/** Creates an [ActivityViewBindingDelegate] using the reified type's `inflate` method. */
-inline fun <reified T : ViewBinding> Activity.viewBinding(): ReadOnlyProperty<Activity, T> {
-    return ActivityViewBindingDelegate { inflate(it) }
-}
-
-/** Invokes the `inflate(LayoutInflater)` static method on a view binding class via reflection. */
-inline fun <reified T : ViewBinding> inflate(inflater: LayoutInflater): T {
-    return T::class.java.getMethod("inflate", LayoutInflater::class.java)
-        .invoke(null, inflater) as T
+/** Creates an [ActivityViewBindingDelegate] with an explicit [factory] function. */
+fun <T : ViewBinding> Activity.viewBinding(factory: (LayoutInflater) -> T): ReadOnlyProperty<Activity, T> {
+    return ActivityViewBindingDelegate(factory)
 }
 
 

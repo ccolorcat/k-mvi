@@ -1,5 +1,6 @@
 package cc.colorcat.mvi.internal
 
+import cc.colorcat.mvi.FatalErrorHandler
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.HybridStrategyConfig
@@ -46,18 +47,23 @@ class KMviTest {
         assertEquals(BufferOverflow.SUSPEND, config.intentQueueConfig.onBufferOverflow)
         assertEquals(HybridStrategyConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD, config.hybridStrategyConfig.groupCountWarningThreshold)
         assertEquals(256, HybridStrategyConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD)
+        assertSame(FatalErrorHandler.Rethrow, config.fatalErrorHandler)
     }
 
     @Test
     fun `configure with custom values`() {
         val customLogger = Logger { _, _, _, _ -> }
+        val customFatalErrorHandler = FatalErrorHandler { throw it }
 
         KMvi.configure {
             copy(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
+                fatalErrorHandler = customFatalErrorHandler,
                 logger = customLogger,
             )
         }
+
+        assertSame(customFatalErrorHandler, KMvi.fatalErrorHandler)
     }
 
     @Test

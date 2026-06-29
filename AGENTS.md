@@ -54,13 +54,14 @@ UI → dispatch(intent) → intentsChannel (capacity 256, SUSPEND)
   → IntentTransformer (strategy routing)
   → IntentHandler.handle(intent): Flow<PartialChange>
   → scan(PartialChange::apply) → Snapshot
+  → catch { fatalErrorHandler.handle(cause) }
   → flowOn(Default) + buffer(64, DROP_OLDEST)  ┄ fused into one channel
   → shareIn (Eagerly) → stateFlow / eventFlow
 ```
 
 - **intentsChannel**: dispatch entry, default `IntentQueueConfig(capacity=256, SUSPEND)`
 - **snapshot buffer**: fused `flowOn+buffer(64, DROP_OLDEST)` — stale snapshots with their events discarded if downstream slow
-- `PartialChange.apply()` runs inside `scan` on `Dispatchers.Default` — **must be pure, non-throwing, no I/O**
+- `PartialChange.apply()` runs inside `scan` on `Dispatchers.Default` — **must be pure, non-throwing, no I/O**; exceptions are developer errors routed through `FatalErrorHandler` (default: rethrow, pipeline terminates)
 
 ### DispatchResult
 
@@ -79,7 +80,7 @@ UI → dispatch(intent) → intentsChannel (capacity 256, SUSPEND)
 
 ### Critical Gotchas
 
-- `PartialChange.apply` exceptions: previous snapshot retained, pipeline continues (`CancellationException` re-thrown)
+- `PartialChange.apply` exceptions: routed through `FatalErrorHandler` (default `Rethrow` — pipeline terminates); **not** retried by `RetryPolicy`
 - `eventFlow` is `SharedFlow` with **no replay** — start collecting before dispatching
 - `Snapshot.updateState` **clears the event** — use `updateWith(event) { copy(...) }` to set both
 - `Snapshot.withEvent(event).updateState { ... }` **drops the event** — the `updateState` clears it
@@ -111,6 +112,7 @@ UI → dispatch(intent) → intentsChannel (capacity 256, SUSPEND)
 | `HybridStrategyConfig` | `groupChannelCapacity`, `groupCountWarningThreshold` |
 | `GroupTagSelector<I>` | `fun interface`; default `byClass()` |
 | `RetryPolicy` | `(attempt: Long, cause: Throwable) -> Boolean` |
+| `FatalErrorHandler` | `fun interface`; handles unrecoverable pipeline failures; `handle(error): Nothing` |
 | `Logger` | `fun interface`; `Logger(threshold)` factory backed by `android.util.Log` |
 
 ---

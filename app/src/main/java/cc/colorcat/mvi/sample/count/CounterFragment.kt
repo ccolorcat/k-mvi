@@ -70,10 +70,9 @@ class CounterFragment : Fragment() {
 
     /**
      * ViewBinding instance for type-safe view access.
-     * Using nullable backing property with non-null getter for safe access.
-     * Must be cleared in onDestroyView to prevent memory leaks.
+     * The delegate clears the cached binding when the Fragment view is destroyed.
      */
-    private val binding: FragmentCounterBinding by viewBinding()
+    private val binding: FragmentCounterBinding by viewBinding(FragmentCounterBinding::bind)
 
     /**
      * Merged stream of every user intent, dispatched to the ViewModel in [setupViewModel].
@@ -168,4 +167,3 @@ class CounterFragment : Fragment() {
         intents.dispatchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
     }
 }
-

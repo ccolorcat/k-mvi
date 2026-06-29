@@ -34,7 +34,7 @@ import kotlin.random.Random
  * 1. [handleIncrement] — decides **inside** the change. The most concise form, acceptable here only
  *    because the branch is a trivial one-line guard.
  * 2. [handleDecrement] — also decides **inside** the change via `old.state`, the freshest
- *    accumulated value at `apply()` time. Its KDoc explains why reading [stateFlow.value] in
+ *    accumulated value at `apply()` time. Its KDoc explains why reading `stateFlow.value` in
  *    the handler body is unsafe under CONCURRENT/HYBRID strategies and how `old.state` avoids it.
  * 3. [handleReset] — returns an asynchronous [Flow] of changes (loading → success/error → done),
  *    for async work, multiple emissions, or cancellable operations.
