@@ -13,8 +13,10 @@ import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
@@ -157,10 +159,18 @@ class ReactiveContractImplTest {
     }
 
     @Test
-    fun `PartialChange apply exception keeps pipeline alive`() = runBlocking {
-        var callCount = 0
+    fun `PartialChange apply exception is reported to scope handler`() = runBlocking {
+        val failed = CompletableDeferred<Throwable>()
+        val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+            failed.complete(throwable)
+        }
+        val contractJob = Job()
+        contractJob.invokeOnCompletion { cause ->
+            if (cause != null) failed.complete(cause)
+        }
+        val contractScope = CoroutineScope(contractJob + exceptionHandler)
         val contract = CoreReactiveContract(
-            scope = testScope,
+            scope = contractScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
             retryPolicy = { _, _ -> false },
@@ -169,23 +179,23 @@ class ReactiveContractImplTest {
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
-                    callCount++
-                    if (callCount == 1) {
-                        Mvi.PartialChange<TestState, TestEvent> {
-                            throw RuntimeException("intentional apply error")
-                        }.asSingleFlow()
-                    } else {
-                        Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
-                            .asSingleFlow()
-                    }
+                    Mvi.PartialChange<TestState, TestEvent> {
+                        throw IllegalStateException("bad reducer")
+                    }.asSingleFlow()
                 },
             ),
         )
 
-        contract.dispatch(TestIntent.Increment)  // apply throws → state unchanged
-        contract.dispatch(TestIntent.Increment)  // apply succeeds → count = 1
-        val state = contract.stateFlow.first { it.count == 1 }
-        assertEquals(1, state.count)  // first dispatch had no effect; second did; pipeline alive
+        try {
+            contract.dispatch(TestIntent.Increment)
+
+            val thrown = withTimeout(1_000) { failed.await() }
+            assertTrue(thrown is IllegalStateException)
+            assertEquals("bad reducer", thrown.message)
+            assertEquals(TestState(), contract.stateFlow.value)
+        } finally {
+            contractScope.cancel()
+        }
     }
 
 
