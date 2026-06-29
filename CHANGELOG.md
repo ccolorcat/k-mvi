@@ -1,5 +1,7 @@
 # Changelog
 
+This changelog starts at version 1.4.1. Earlier release history is not recorded here.
+
 ## 1.4.1
 
 - Added `FatalErrorHandler` for unrecoverable pipeline failures.

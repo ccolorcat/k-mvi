@@ -111,12 +111,16 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * ## Usage Pattern
  *
  * ```kotlin
- * // Register a simple handler (single state change) - Kotlin style with extension
- * registry.register<LoadDataIntent> { intent ->
- *     Mvi.PartialChange { snapshot ->
- *         snapshot.updateState { copy(selectedId = intent.id) }
+ * // Register a simple handler (single state change)
+ * registry.register(LoadDataIntent::class.java, IntentHandler { intent ->
+ *     flow {
+ *         emit(
+ *             Mvi.PartialChange { snapshot ->
+ *                 snapshot.updateState { copy(selectedId = intent.id) }
+ *             },
+ *         )
  *     }
- * }
+ * })
  *
  * // Register a complex handler (flow of changes) - Java style
  * registry.register(RefreshIntent::class.java, IntentHandler { intent ->
@@ -126,8 +130,8 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *     }
  * })
  *
- * // Unregister when no longer needed - Kotlin style
- * registry.unregister<LoadDataIntent>()
+ * // Unregister when no longer needed
+ * registry.unregister(LoadDataIntent::class.java)
  * ```
  *
  * ## Thread Safety
@@ -187,41 +191,11 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  *   fallback dispatch is silent — see `LoginViewModel` in the sample app.
  * - Logs all intent handling (INFO level) to help users track processing state
  *
- * ## Why Log Every Intent?
+ * ## Intent Handling Logs
  *
- * Intent handling logs are kept intentionally to help users diagnose issues across
- * all three processing strategies supported by this framework:
- *
- * ### 1. CONCURRENT Strategy
- * - **Behavior**: All intents are processed in parallel using `flatMapMerge`
- * - **Logging Value**: Helps track concurrent operations and identify race conditions
- * - **Example**: Multiple user actions happening simultaneously
- *
- * ### 2. SEQUENTIAL Strategy
- * - **Behavior**: All intents are processed one-by-one in strict order using `flatMapConcat`
- * - **Logging Value**: **Critical** for identifying blocking intents. When a long-running
- *   intent blocks the queue, logs help pinpoint which intent is causing the delay
- * - **Example**: A slow network request blocking subsequent UI updates
- * - **Without Logs**: Users might think the framework is frozen
- *
- * ### 3. HYBRID Strategy (Most Common)
- * - **Behavior**: Intents are grouped based on their type:
- *   - [Mvi.Intent.Concurrent]: Processed in parallel (merged)
- *   - [Mvi.Intent.Sequential]: Processed one-by-one in a sequential group
- *   - Fallback intents: Grouped by custom tag, sequential within group, parallel between groups
- * - **Logging Value**: Essential for understanding the interplay between different processing modes
- * - **Example**: UI clicks (concurrent) mixed with data loading (sequential in group)
- * - **Complex Scenario**: Group A processes sequentially, Group B processes sequentially,
- *   but A and B run in parallel. Logs help trace which group is blocking
- *
- * ### Real-World Example
- * ```
- * [INFO] Handling intent: LoadUserProfile    (Sequential, starts at T0)
- * [INFO] Handling intent: UpdateTheme        (Concurrent, executes at T0)
- * [INFO] Handling intent: LoadSettings       (Sequential, waits until T3)
- * ```
- * Without logs, if `LoadUserProfile` takes 3 seconds, users would see `LoadSettings`
- * delayed without understanding why.
+ * Intent handling is logged at INFO level so users can see which handler accepted each intent.
+ * These logs are especially useful when diagnosing delayed sequential work or HYBRID groups where
+ * one tag may be waiting while unrelated tags continue processing.
  *
  * ## Performance Considerations
  *

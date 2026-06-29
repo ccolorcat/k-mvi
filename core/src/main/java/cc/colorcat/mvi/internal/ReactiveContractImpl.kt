@@ -71,7 +71,8 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * ```
  * intentsChannel        (explicit  : intentQueueConfig) — dispatch entry queue
  *     ↓ [Default coroutine] toPartialChange + retryWhen + scan
- * snapshot buffer       (fused     : 64, DROP_OLDEST) — flowOn(Default) + buffer fused into one
+ * snapshot buffer       (fused     : SNAPSHOT_BUFFER_CAPACITY, DROP_OLDEST)
+ *     — flowOn(Default) + buffer fused into one
  *     ↓
  * shareIn (Eagerly, replay = 0)
  * ```

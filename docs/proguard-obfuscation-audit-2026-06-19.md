@@ -5,6 +5,9 @@
 **Scope**: `core/` (library) + `app/` (sample) — all `.kt` source files
 **Minification status**: Disabled in both modules (`isMinifyEnabled = false`)
 
+> Line-number references in this document were captured when the audit was written and may drift as
+> source files change. Prefer the referenced symbol names when re-checking findings.
+
 > Status: The H1/H2 release blockers have been addressed for the 1.4.1 release by removing
 > reflection-based ViewBinding lookup from the sample app and adding active consumer R8 rules to
 > `core/consumer-rules.pro`. The remaining items are either covered by those rules or diagnostic-only.

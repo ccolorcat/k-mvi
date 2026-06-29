@@ -27,7 +27,7 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
  * This is the **low-level API** that gives you full control over Intent transformation.
  * The transformer is responsible for converting Intents into Flows of PartialChanges.
  *
- * The contract is lazily initialized - it won't be created until first access.
+ * The contract is lazily initialized - it will not be created until first access.
  * This ensures the contract is only created when needed and automatically uses
  * the ViewModel's [viewModelScope] for lifecycle management.
  *
@@ -114,7 +114,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * This is the **high-level API** that allows you to register Intent handlers with
  * different processing strategies (CONCURRENT, SEQUENTIAL, or HYBRID).
  *
- * The contract is lazily initialized - it won't be created until first access.
+ * The contract is lazily initialized - it will not be created until first access.
  * This ensures the contract is only created when needed and automatically uses
  * the ViewModel's [viewModelScope] for lifecycle management.
  *
