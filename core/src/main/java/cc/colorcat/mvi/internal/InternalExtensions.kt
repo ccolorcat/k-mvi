@@ -2,6 +2,7 @@ package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.Mvi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -176,10 +177,13 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
             }
             channel.send(intent)
         }
-    } catch (t: Throwable) {
-        logger.e(TAG, t) { "groupHandle failed, upstream will be cancelled" }
-        cause = t
-        throw t
+    } catch (e: CancellationException) {
+        cause = e
+        throw e
+    } catch (e: Exception) {
+        logger.e(TAG, e) { "groupHandle failed, upstream will be cancelled" }
+        cause = e
+        throw e
     } finally {
         // Close all remaining channels, propagating the upstream error (if any) so that
         // inner flows terminate with the same exception instead of silently completing.
