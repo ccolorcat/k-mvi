@@ -1,6 +1,7 @@
 package cc.colorcat.mvi.internal
 
 import cc.colorcat.mvi.DispatchResult
+import cc.colorcat.mvi.FatalErrorHandler
 import cc.colorcat.mvi.GroupTagSelector
 import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridStrategyConfig
@@ -10,11 +11,13 @@ import cc.colorcat.mvi.IntentHandlerRegistry
 import cc.colorcat.mvi.IntentHandlerScope
 import cc.colorcat.mvi.IntentQueueConfig
 import cc.colorcat.mvi.IntentTransformer
+import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.ReactiveContract
 import cc.colorcat.mvi.RetryPolicy
 import cc.colorcat.mvi.strategyTransformer
 import cc.colorcat.mvi.toPartialChange
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,6 +28,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
@@ -128,6 +132,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     initState: S,
     intentQueueConfig: IntentQueueConfig,
     retryPolicy: RetryPolicy,
+    fatalErrorHandler: FatalErrorHandler,
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
     private val scopeJob = requireNotNull(scope.coroutineContext[Job]) {
@@ -200,6 +205,12 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
             partialChange.apply(oldSnapshot)
+        }
+        .catch { cause ->
+            if (cause is CancellationException) throw cause
+
+            logger.e(TAG, cause) { "MVI pipeline failed." }
+            fatalErrorHandler.handle(cause)
         }
         .flowOn(Dispatchers.Default)
         .buffer(capacity = SNAPSHOT_BUFFER_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -354,6 +365,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     initState: S,
     intentQueueConfig: IntentQueueConfig,
     retryPolicy: RetryPolicy,
+    fatalErrorHandler: FatalErrorHandler,
     handleStrategy: HandleStrategy,
     hybridStrategyConfig: HybridStrategyConfig,
     groupTagSelector: GroupTagSelector<I>,
@@ -363,6 +375,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     initState = initState,
     intentQueueConfig = intentQueueConfig,
     retryPolicy = retryPolicy,
+    fatalErrorHandler = fatalErrorHandler,
     transformer = strategyTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, delegate),
 ) {
     /**
@@ -383,6 +396,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         initState: S,
         intentQueueConfig: IntentQueueConfig,
         retryPolicy: RetryPolicy,
+        fatalErrorHandler: FatalErrorHandler,
         handleStrategy: HandleStrategy,
         hybridStrategyConfig: HybridStrategyConfig,
         groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
@@ -392,6 +406,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         initState = initState,
         intentQueueConfig = intentQueueConfig,
         retryPolicy = retryPolicy,
+        fatalErrorHandler = fatalErrorHandler,
         handleStrategy = handleStrategy,
         hybridStrategyConfig = hybridStrategyConfig,
         groupTagSelector = groupTagSelector,
