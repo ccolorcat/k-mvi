@@ -105,8 +105,9 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  *
  * - Uses [retryWhen] with configurable [RetryPolicy] for transformer / handler failures
  *   before reducer application
- * - Does not catch [Mvi.PartialChange.apply] failures; reducer exceptions are developer
- *   errors and fail the processing coroutine
+ * - Routes unrecoverable failures to [FatalErrorHandler] after [RetryPolicy] gives up
+ * - Treats [Mvi.PartialChange.apply] failures as developer errors that fail the
+ *   processing coroutine through [FatalErrorHandler]
  * - Logs warnings when scope is inactive or the dispatch queue is full
  *
  * ## Lifecycle
@@ -187,10 +188,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * error recovery. [scan] and all downstream operators are unaffected by the restart.
      *
      * Exceptions thrown inside [Mvi.PartialChange.apply] are not handled by [retryWhen]
-     * because [scan] is downstream of the retry boundary. Reducer failures are treated
-     * as developer errors and are allowed to fail the processing coroutine; recoverable
-     * failures should be encoded by handlers or transformers before a [Mvi.PartialChange]
-     * is emitted.
+     * because [scan] is downstream of the retry boundary. The downstream [catch] routes
+     * reducer failures to [FatalErrorHandler], which must terminate by throwing or otherwise
+     * not returning. Recoverable failures should be encoded by handlers or transformers
+     * before a [Mvi.PartialChange] is emitted.
      *
      * ## Operator Fusion
      *

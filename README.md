@@ -22,7 +22,7 @@ Coroutines and Flow.
 
 ✅ **Testable**: Clear separation of concerns makes unit testing straightforward
 
-✅ **Production Ready**: Includes retry policies, error handling, and logging
+✅ **Production Ready**: Includes retry policies, fatal error hooks, R8 rules, and logging
 
 ## Table of Contents
 
@@ -34,6 +34,9 @@ Coroutines and Flow.
 - [Advanced Features](#advanced-features)
 - [Best Practices](#best-practices)
 - [Sample App](#sample-app)
+- [R8 / ProGuard](#r8--proguard)
+- [Requirements](#requirements)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## Installation
@@ -42,7 +45,7 @@ Add the dependency to your module's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("cc.colorcat.mvi:core:1.2.6")
+    implementation("cc.colorcat.mvi:core:1.4.1")
 }
 ```
 
@@ -436,8 +439,8 @@ class MyViewModel : ViewModel() {
 
 **How it works:**
 
-- All `SaveUser`, `UpdateUser`, and `DeleteUser` intents will execute sequentially (one after another) within the "
-  database" group
+- All `SaveUser`, `UpdateUser`, and `DeleteUser` intents will execute sequentially (one after another) within the
+  `"database"` group
 - All `FetchData` and `UploadData` intents will execute sequentially within the "network" group
 - Other intents use their class name as group key by default, ensuring same-type intents execute sequentially
 
@@ -463,7 +466,7 @@ class MyViewModel : ViewModel() {
     fun dispatch(intent: MyIntent) = contract.dispatch(intent)
 
     // All intent handling in one method - easy to read and maintain
-    private suspend fun handleIntent(intent: MyIntent): Flow<MyPartialChange> {
+    private fun handleIntent(intent: MyIntent): Flow<MyPartialChange> {
         return when (intent) {
             is MyIntent.Increment -> handleIncrement(intent)
             is MyIntent.Decrement -> handleDecrement(intent)
@@ -572,7 +575,7 @@ class MyViewModel : ViewModel() {
     fun dispatch(intent: MyContract.Intent) = contract.dispatch(intent)
 
     // Simple handler - just cast and return
-    private suspend fun handleIntent(intent: MyContract.Intent): Flow<MyContract.PartialChange> {
+    private fun handleIntent(intent: MyContract.Intent): Flow<MyContract.PartialChange> {
         return when (intent) {
             is MyContract.PartialChange -> intent.asSingleFlow()
         }
@@ -623,25 +626,26 @@ class UserViewModel : ViewModel() {
     private val contract by contract(
         initState = UserState(),
         handleStrategy = HandleStrategy.HYBRID,
-        config = HybridStrategyConfig(
-            groupTagSelector = { intent ->
-                when (intent) {
-                    // Group all database operations together
-                    is UserIntent.Save,
-                    is UserIntent.Update,
-                    is UserIntent.Delete
-                        -> "db_operations"
-
-                    // Group all sync operations together
-                    is UserIntent.SyncToServer,
-                    is UserIntent.DownloadFromServer
-                        -> "sync_operations"
-
-                    // Default: return class name so same type intents execute sequentially
-                    else -> intent::class.java.name
-                }
-            }
+        hybridStrategyConfig = HybridStrategyConfig(
+            groupChannelCapacity = Channel.BUFFERED,
         ),
+        groupTagSelector = { intent ->
+            when (intent) {
+                // Group all database operations together
+                is UserIntent.Save,
+                is UserIntent.Update,
+                is UserIntent.Delete
+                    -> "db_operations"
+
+                // Group all sync operations together
+                is UserIntent.SyncToServer,
+                is UserIntent.DownloadFromServer
+                    -> "sync_operations"
+
+                // Default: return class name so same type intents execute sequentially
+                else -> intent::class.java.name
+            }
+        },
         defaultHandler = ::handleIntent
     )
 
@@ -651,7 +655,7 @@ class UserViewModel : ViewModel() {
     fun dispatch(intent: UserIntent) = contract.dispatch(intent)
 
     // All intent routing in one place
-    private suspend fun handleIntent(intent: UserIntent): Flow<UserPartialChange> {
+    private fun handleIntent(intent: UserIntent): Flow<UserPartialChange> {
         return when (intent) {
             is UserIntent.Save -> handleSave(intent)
             is UserIntent.Update -> handleUpdate(intent)
@@ -710,20 +714,21 @@ class UserViewModel : ViewModel() {
     private val contract by contract(
         initState = UserState(),
         handleStrategy = HandleStrategy.HYBRID,
-        config = HybridStrategyConfig(
-            groupTagSelector = { intent ->
-                when (intent) {
-                    is UserIntent.Save,
-                    is UserIntent.Update,
-                    is UserIntent.Delete
-                        -> "db_operations"
-                    is UserIntent.SyncToServer,
-                    is UserIntent.DownloadFromServer
-                        -> "sync_operations"
-                    else -> intent::class.java.name
-                }
+        hybridStrategyConfig = HybridStrategyConfig(
+            groupChannelCapacity = Channel.BUFFERED,
+        ),
+        groupTagSelector = { intent ->
+            when (intent) {
+                is UserIntent.Save,
+                is UserIntent.Update,
+                is UserIntent.Delete
+                    -> "db_operations"
+                is UserIntent.SyncToServer,
+                is UserIntent.DownloadFromServer
+                    -> "sync_operations"
+                else -> intent::class.java.name
             }
-        )
+        },
     ) {
         register(UserIntent.Save::class.java, ::handleSave)
         register(UserIntent.Update::class.java, ::handleUpdate)
@@ -872,19 +877,13 @@ class MyApplication : Application() {
                     attempt < 3 && cause is IOException // attempt is 0-based
                 },
 
-                // Hybrid strategy configuration
+                // Hybrid strategy runtime configuration
                 hybridStrategyConfig = HybridStrategyConfig(
-                    groupTagSelector = { intent ->
-                        // Return a group key for intents that should be grouped
-                        when (intent) {
-                            is DatabaseIntent -> "database"
-                            is NetworkIntent -> "network"
-                            // Default: return class name so same type intents execute sequentially
-                            else -> intent::class.java.name
-                        }
-                    },
                     groupChannelCapacity = Channel.BUFFERED
                 ),
+
+                // Fatal pipeline errors are developer errors by default.
+                fatalErrorHandler = FatalErrorHandler.Rethrow,
 
                 // Logger configuration: WARN by default; use DEBUG in debug builds
                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
@@ -951,9 +950,30 @@ Default policy:
 
 Configuration for HYBRID strategy:
 
-- `groupTagSelector`: Function to assign a group tag to each fallback intent for sequential processing
 - `groupChannelCapacity`: Buffer size for grouped intent channels (default: `Channel.BUFFERED` = 64).
   Allowed values are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any positive `Int` (including `Channel.UNLIMITED`).
+
+#### GroupTagSelector
+
+`groupTagSelector` assigns a group tag to each fallback intent when using `HandleStrategy.HYBRID`.
+Intents with the same tag are processed sequentially; different tags can run concurrently. The default
+is `GroupTagSelector.byClass()`, which groups fallback intents by their exact runtime class.
+
+#### FatalErrorHandler
+
+`fatalErrorHandler` handles unrecoverable pipeline failures after `RetryPolicy` gives up, and
+developer errors thrown from `PartialChange.apply`. It is not a recovery hook. Its
+`handle(error): Nothing` contract means implementations must terminate by throwing or otherwise
+not returning.
+
+Default policy:
+
+```kotlin
+FatalErrorHandler.Rethrow
+```
+
+Reducer code should be pure, lightweight, and non-throwing. Recoverable business errors should be
+caught in handlers or transformers and encoded as state/event changes.
 
 #### Logger
 
@@ -1032,6 +1052,12 @@ KMvi.configure {
 }
 ```
 
+#### Fatal Pipeline Errors
+
+If `PartialChange.apply` throws, or if `retryPolicy` returns `false` for an unhandled handler /
+transformer exception, K-MVI logs the failure and delegates to `fatalErrorHandler`. The default
+`FatalErrorHandler.Rethrow` fails the processing coroutine with the original exception.
+
 ### Testing
 
 K-MVI's clean architecture makes testing straightforward:
@@ -1041,14 +1067,14 @@ K-MVI's clean architecture makes testing straightforward:
 ```kotlin
 @Test
 fun `increment intent increases count`() = runTest {
-        val viewModel = MyViewModel()
-        val initialState = viewModel.stateFlow.value
+    val viewModel = MyViewModel()
+    val initialState = viewModel.stateFlow.value
 
-        viewModel.dispatch(MyIntent.Increment)
+    viewModel.dispatch(MyIntent.Increment)
 
-        advanceUntilIdle()
-        assertEquals(initialState.count + 1, viewModel.stateFlow.value.count)
-    }
+    advanceUntilIdle()
+    assertEquals(initialState.count + 1, viewModel.stateFlow.value.count)
+}
 ```
 
 #### Testing State Flow
@@ -1056,21 +1082,21 @@ fun `increment intent increases count`() = runTest {
 ```kotlin
 @Test
 fun `loading state changes correctly`() = runTest {
-        val viewModel = MyViewModel()
-        val states = mutableListOf<MyState>()
+    val viewModel = MyViewModel()
+    val states = mutableListOf<MyState>()
 
-        val job = launch {
-            viewModel.stateFlow.collect { states.add(it) }
-        }
-
-        viewModel.dispatch(LoadDataIntent)
-        advanceUntilIdle()
-
-        assertTrue(states.any { it.loading })
-        assertFalse(states.last().loading)
-
-        job.cancel()
+    val job = launch {
+        viewModel.stateFlow.collect { states.add(it) }
     }
+
+    viewModel.dispatch(LoadDataIntent)
+    advanceUntilIdle()
+
+    assertTrue(states.any { it.loading })
+    assertFalse(states.last().loading)
+
+    job.cancel()
+}
 ```
 
 #### Testing Event Flow
@@ -1078,20 +1104,20 @@ fun `loading state changes correctly`() = runTest {
 ```kotlin
 @Test
 fun `error event is emitted on failure`() = runTest {
-        val viewModel = MyViewModel()
-        val events = mutableListOf<MyEvent>()
+    val viewModel = MyViewModel()
+    val events = mutableListOf<MyEvent>()
 
-        val job = launch {
-            viewModel.eventFlow.collect { events.add(it) }
-        }
-
-        viewModel.dispatch(FailingIntent)
-        advanceUntilIdle()
-
-        assertTrue(events.any { it is MyEvent.ShowError })
-
-        job.cancel()
+    val job = launch {
+        viewModel.eventFlow.collect { events.add(it) }
     }
+
+    viewModel.dispatch(FailingIntent)
+    advanceUntilIdle()
+
+    assertTrue(events.any { it is MyEvent.ShowError })
+
+    job.cancel()
+}
 ```
 
 ### Custom Logger
@@ -1240,6 +1266,16 @@ The project includes a sample app demonstrating various K-MVI features:
 
 Check the [`app`](app/) module for complete examples.
 
+## R8 / ProGuard
+
+The `core` AAR ships consumer R8 rules for K-MVI's public API and marker subtypes. If your app uses
+R8 with aggressive shrinking, keep your concrete `Intent`, `State`, `Event`, and `PartialChange`
+types reachable; these types are used for exact-class handler lookup and type-filtered event
+collection.
+
+For app-specific reflection, add your own keep rules. The sample app avoids reflection for
+ViewBinding delegates by passing generated binding factory references explicitly.
+
 ## Requirements
 
 - Android API 24+ (Android 7.0)
@@ -1256,7 +1292,8 @@ K-MVI has minimal dependencies:
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, tests, and pull
+request guidelines.
 
 ## License
 
@@ -1281,10 +1318,5 @@ limitations under the License.
 **ccolorcat**
 
 - GitHub: [@ccolorcat](https://github.com/ccolorcat)
-
-## Acknowledgments
-
-K-MVI is inspired by and builds upon concepts from:
----
 
 **Star this repo** ⭐ if you find it useful!

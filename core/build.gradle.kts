@@ -71,6 +71,35 @@ afterEvaluate {
                 version = libs.versions.versionName.get()
 
                 from(components["release"])
+
+                pom {
+                    name.set("K-MVI Core")
+                    description.set("A lightweight, type-safe Android MVI library built on Kotlin Coroutines and Flow.")
+                    url.set("https://github.com/ccolorcat/k-mvi")
+                    licenses {
+                        license {
+                            name.set("The Apache License, Version 2.0")
+                            url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                            distribution.set("repo")
+                        }
+                    }
+                    developers {
+                        developer {
+                            id.set("ccolorcat")
+                            name.set("ccolorcat")
+                            url.set("https://github.com/ccolorcat")
+                        }
+                    }
+                    scm {
+                        connection.set("scm:git:https://github.com/ccolorcat/k-mvi.git")
+                        developerConnection.set("scm:git:ssh://git@github.com/ccolorcat/k-mvi.git")
+                        url.set("https://github.com/ccolorcat/k-mvi")
+                    }
+                    issueManagement {
+                        system.set("GitHub Issues")
+                        url.set("https://github.com/ccolorcat/k-mvi/issues")
+                    }
+                }
             }
         }
 
