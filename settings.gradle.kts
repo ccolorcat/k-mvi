@@ -20,8 +20,8 @@ dependencyResolutionManagement {
             name = "GitHubPackages"
             url = uri("https://maven.pkg.github.com/ccolorcat/k-mvi")
             credentials {
-                username = extra["gpr.personal.user"]?.toString() ?: System.getenv("USERNAME")
-                password = extra["gpr.personal.key"]?.toString() ?: System.getenv("TOKEN")
+                username = providers.gradleProperty("gpr.personal.user").orNull ?: System.getenv("USERNAME") ?: ""
+                password = providers.gradleProperty("gpr.personal.key").orNull ?: System.getenv("TOKEN") ?: ""
             }
         }
     }
