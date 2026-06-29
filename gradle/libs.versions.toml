@@ -5,7 +5,7 @@ compileSdk = "34"
 minSdk = "24"
 targetSdk = "34"
 versionCode = "14"
-versionName = "1.4.4-SNAPSHOT"
+versionName = "1.4.4"
 
 # JAVA version
 java = "17"
