@@ -7,6 +7,7 @@ import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentQueueConfig
+import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
@@ -247,6 +248,35 @@ class ReactiveContractImplTest {
             assertTrue(contractScope.isActive)
             assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Decrement))
             assertEquals(TestState(), contract.stateFlow.value)
+        } finally {
+            contractScope.cancel()
+        }
+    }
+
+    @Test
+    fun `transformer completing while scope active invokes fatalErrorHandler`() = runBlocking {
+        val fatal = CompletableDeferred<Throwable>()
+        // SupervisorJob keeps the contract scope active after the sharing coroutine fails;
+        // the exception handler consumes the expected FatalErrorHandler rethrow in this test.
+        val contractScope = CoroutineScope(SupervisorJob() + CoroutineExceptionHandler { _, _ -> })
+        val contract = CoreReactiveContract<TestIntent, TestState, TestEvent>(
+            scope = contractScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            retryPolicy = { _, _ -> false },
+            fatalErrorHandler = recordingFatalHandler(fatal),
+            // A transformer that terminates while the scope is active would otherwise leave a
+            // zombie contract; the pipeline must detect this and route it to the fatal handler.
+            transformer = IntentTransformer { emptyFlow() },
+        )
+
+        try {
+            val fatalError = withTimeout(1_000) { fatal.await() }
+            assertTrue(fatalError is IllegalStateException)
+            assertTrue(fatalError.message.orEmpty().contains("IntentTransformer completed"))
+            assertTrue(contractScope.isActive)
+            // Queue is closed: dispatch no longer silently reports Submitted (the zombie symptom).
+            assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Increment))
         } finally {
             contractScope.cancel()
         }

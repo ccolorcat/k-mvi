@@ -40,10 +40,9 @@ sealed class DispatchResult {
     /**
      * The contract is no longer available, so the intent was not accepted and never will be.
      *
-     * This is a **terminal** result: the contract's coroutine scope has completed, which also
-     * closes the entry queue. It covers both ways that completion surfaces at dispatch time —
-     * the scope already being inactive, and the entry queue already being closed — because they
-     * share the same root cause and leave the caller with the same (in)action: do not retry.
+     * This is a **terminal** result: either the contract's coroutine scope has completed or its
+     * processing pipeline has terminated and closed the entry queue. In both cases no consumer
+     * remains that can process the intent, so callers should not retry against this contract.
      *
      * Contrast with [Full], which is **transient**: the contract is still alive and may accept
      * the intent if dispatched again later.

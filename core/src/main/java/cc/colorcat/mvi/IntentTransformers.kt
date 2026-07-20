@@ -47,6 +47,14 @@ import java.util.concurrent.ConcurrentHashMap
  * in which their returned flow is collected. Concurrency semantics are determined
  * by the flow operators used by the implementation.
  *
+ * **Lifetime contract**: the returned flow must stay open for the contract's lifetime.
+ * A transformer that completes normally while the contract scope is still active (e.g. by
+ * returning `emptyFlow()` or applying `take(n)`) would silently stop all further intent
+ * processing, so the pipeline treats such completion as a fatal [IllegalStateException]
+ * routed through the configured [FatalErrorHandler]. The fatal path cancels the intent queue,
+ * making subsequent [ReactiveContract.dispatch] calls return [DispatchResult.Unavailable].
+ * To shut a contract down normally, cancel its scope instead of completing the flow.
+ *
  * @param I The intent type
  * @param S The state type
  * @param E The event type

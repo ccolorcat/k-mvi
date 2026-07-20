@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.scan
@@ -108,6 +109,9 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * - Routes unrecoverable failures to [FatalErrorHandler] after [RetryPolicy] gives up
  * - Treats [Mvi.PartialChange.apply] failures as developer errors that fail the
  *   processing coroutine through [FatalErrorHandler]
+ * - Treats a transformer that completes while the scope is still active as a fatal
+ *   [IllegalStateException] (a terminating transformer would otherwise leave a zombie
+ *   contract), routed through [FatalErrorHandler]
  * - Logs warnings when scope is inactive or the dispatch queue is full
  *
  * ## Lifecycle
@@ -207,6 +211,18 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
             partialChange.apply(oldSnapshot)
+        }
+        .onCompletion { cause ->
+            // Flow completion is only valid when the contract scope is also ending. While the
+            // scope remains active it violates the transformer lifetime contract, so convert it
+            // to a fatal failure; the downstream catch closes the entry queue before reporting it.
+            if (cause == null && scopeJob.isActive) {
+                throw IllegalStateException(
+                    "IntentTransformer completed while the contract scope is still active. " +
+                        "A transformer must keep its PartialChange flow open for the contract " +
+                        "lifetime; cancel the scope to shut the contract down instead.",
+                )
+            }
         }
         .catch { cause ->
             if (cause is CancellationException && !scopeJob.isActive) throw cause
