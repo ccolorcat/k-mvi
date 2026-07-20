@@ -352,7 +352,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
  * ## Processing Strategy
  *
  * Intents are processed according to the configured [HandleStrategy]:
- * - **CONCURRENT**: All intents in parallel
+ * - **CONCURRENT**: Bounded concurrency, up to `flatMapMerge`'s default limit
  * - **SEQUENTIAL**: All intents one-by-one
  * - **HYBRID**: Mixed (based on intent type and grouping)
  *

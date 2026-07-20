@@ -127,7 +127,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  *
  * ## Strategy Comparison
  *
- * - **CONCURRENT**: All Intents are processed in parallel (fastest, but may cause race conditions)
+ * - **CONCURRENT**: Up to 16 Intents run concurrently by default (may cause race conditions)
  * - **SEQUENTIAL**: All Intents are processed one at a time (safest, but may cause delays)
  * - **HYBRID**: Intents are grouped, sequential within groups, concurrent between groups (balanced)
  *

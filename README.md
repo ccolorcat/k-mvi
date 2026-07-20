@@ -227,7 +227,8 @@ A user action or system event — the **entry point** to the pipeline. You dispa
 framework routes it to a handler, and the handler produces `PartialChange`s. Under the **HYBRID**
 strategy, marker sub-interfaces decide how an intent is scheduled relative to others:
 
-- `Mvi.Intent.Concurrent`: processed in parallel — for independent actions (a refresh, an analytics ping).
+- `Mvi.Intent.Concurrent`: eligible for bounded concurrent processing — for independent actions
+  (a refresh, an analytics ping).
 - `Mvi.Intent.Sequential`: processed one-at-a-time in a single FIFO queue — for order-dependent
   actions (incrementing a counter, submitting a form).
 - Neither marker: falls back to **group** scheduling — sequential within the same
@@ -355,7 +356,10 @@ K-MVI supports three strategies for processing intents:
 
 #### 1. CONCURRENT
 
-All intents are processed in parallel. Best for independent operations.
+Intents are processed concurrently with a bounded number of active handlers. K-MVI calls
+`flatMapMerge` without an explicit `concurrency`, so the project's Coroutines default allows up to
+16 active handler flows. Additional intents wait for a slot. On JVM,
+`kotlinx.coroutines.flow.defaultConcurrency` can override that Coroutines default.
 
 ```kotlin
 KMvi.configure {
@@ -377,7 +381,7 @@ KMvi.configure {
 
 Combines both approaches:
 
-- Intents marked with `Mvi.Intent.Concurrent` are processed in parallel
+- Intents marked with `Mvi.Intent.Concurrent` use the same bounded concurrency as CONCURRENT
 - Intents marked with `Mvi.Intent.Sequential` are processed sequentially
 - Intents can be grouped (group members process sequentially, groups process in parallel)
 
@@ -897,9 +901,9 @@ class MyApplication : Application() {
 
 #### HandleStrategy
 
-- `CONCURRENT`: All intents process in parallel
+- `CONCURRENT`: Bounded concurrency, up to 16 active handler flows by default
 - `SEQUENTIAL`: All intents process one-by-one
-- `HYBRID`: Mix of concurrent and sequential based on intent markers and grouping
+- `HYBRID`: Mix of bounded concurrency and sequential processing based on markers and grouping
 
 #### IntentQueueConfig
 

@@ -173,7 +173,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * 2. Processes each group according to its tag (via [handleByTag])
      * 3. Returns a flow of flows (outer flow = groups, inner flow = changes)
      *
-     * The result is then flattened by `flattenMerge()` to merge all groups in parallel.
+     * The result is then flattened by `flattenMerge(Int.MAX_VALUE)` to merge the groups.
      *
      * @return A flow of flows, where each inner flow represents a group's partial changes
      */
@@ -186,7 +186,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     /**
      * Processes a flow of intents within a group based on the group's tag.
      *
-     * - **Concurrent group**: Uses `flatMapMerge` for parallel processing
+     * - **Concurrent group**: Uses `flatMapMerge` with its default concurrency limit
      * - **Other groups** (sequential and fallback): Uses `flatMapConcat` for sequential processing
      *
      * This differentiation allows concurrent intents to be processed in parallel
@@ -219,7 +219,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * - **Concurrent Intent** ([Mvi.Intent.Concurrent] only):
      *   - Tag: private concurrent sentinel
-     *   - Processing: Parallel with all other concurrent intents
+     *   - Processing: Bounded concurrency; up to the `flatMapMerge` default are active at once
      *
      * - **Sequential Intent** ([Mvi.Intent.Sequential] only):
      *   - Tag: private sequential sentinel

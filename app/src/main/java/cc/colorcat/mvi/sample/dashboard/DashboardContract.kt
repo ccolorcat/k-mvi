@@ -12,7 +12,7 @@ import cc.colorcat.mvi.sample.dashboard.DashboardContract.Companion.CATEGORY_TAB
  *
  * 1. **Concurrent** ([Mvi.Intent.Concurrent]):
  *    Three independent data-loading tasks (Banners / Recommendations / Flash Sale).
- *    All three start at the same moment when triggered together, proving true parallelism.
+ *    All three can start before any one completes, demonstrating concurrent handling.
  *
  * 2. **Sequential** ([Mvi.Intent.Sequential]):
  *    Shopping-cart operations (AddToCart / RemoveLastFromCart / Checkout).
@@ -101,7 +101,7 @@ sealed interface DashboardContract {
 
     sealed interface Intent : Mvi.Intent {
 
-        // ── Concurrent: flatMapMerge → all launch immediately ─────────────────────────────
+        // ── Concurrent: flatMapMerge → up to 16 active by default ─────────────────────────
 
         /** Load promo banners. Independent of every other intent — runs in parallel. */
         data object LoadBanners : Intent, Mvi.Intent.Concurrent

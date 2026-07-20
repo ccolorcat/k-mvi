@@ -59,7 +59,7 @@ object Mvi {
      *
      * ## Intent Processing Modes
      *
-     * - **Concurrent**: Multiple intents of this type can be processed in parallel
+     * - **Concurrent**: Multiple intents of this type can run concurrently, subject to a limit
      * - **Sequential**: Intents of this type are processed one at a time in order
      * - **Fallback**: Intents that don't implement either interface (default behavior)
      *
@@ -84,8 +84,9 @@ object Mvi {
         /**
          * Marker interface for intents that can be processed concurrently.
          *
-         * Intents implementing this interface can be executed in parallel with
-         * other concurrent intents, enabling better performance for independent operations.
+         * Intents implementing this interface can be executed in parallel with other concurrent
+         * intents, subject to `Flow.flatMapMerge`'s default concurrency limit (16 with the project's
+         * Coroutines default).
          *
          * Use this for operations that:
          * - Don't depend on each other's results
