@@ -1,5 +1,12 @@
 # ProGuard / R8 Obfuscation Security Audit
 
+> **Superseded on 2026-07-20:** A follow-up review determined that the broad consumer rules added
+> by this audit were unnecessary. K-MVI uses direct `Class`/`KClass` references and identity checks,
+> not name-based reflection, so those rules only prevented valid shrinking, optimization, and
+> obfuscation. They have been removed; see the
+> [follow-up review](core-code-review-2026-07-20.md). The rule-related sections below are retained
+> only as historical context and are not current guidance.
+
 **Project**: K-MVI (`cc.colorcat.mvi:core`)
 **Date**: 2026-06-19
 **Scope**: `core/` (library) + `app/` (sample) — all `.kt` source files
@@ -8,17 +15,17 @@
 > Line-number references in this document were captured when the audit was written and may drift as
 > source files change. Prefer the referenced symbol names when re-checking findings.
 
-> Status: The H1/H2 release blockers have been addressed for the 1.4.1 release by removing
+> Historical 1.4.1 status: The H1/H2 release blockers were considered addressed by removing
 > reflection-based ViewBinding lookup from the sample app and adding active consumer R8 rules to
 > `core/consumer-rules.pro`. The remaining items are either covered by those rules or diagnostic-only.
 
 ---
 
-## Current Release Status
+## Release Status Recorded by the Original Audit
 
 For 1.4.1, there are no remaining R8 release blockers from this audit.
 
-| Finding | Current status |
+| Finding | Status recorded in the original audit |
 |---|---|
 | H1 ViewBinding reflection | Fixed. Sample delegates now require explicit generated factory references such as `FragmentCounterBinding::bind`. |
 | H2 Empty consumer rules | Fixed. `core/consumer-rules.pro` now ships active rules for the K-MVI API and MVI marker subtypes. |
@@ -28,7 +35,11 @@ For 1.4.1, there are no remaining R8 release blockers from this audit.
 
 ## Original Audit Summary
 
-At the time of the original audit, the project had **zero** active ProGuard/R8 keep rules across both modules. While minification was disabled, the library was published as an AAR with an **empty `consumer-rules.pro`**, meaning any downstream consumer that enabled R8 could corrupt the library's type-based dispatch and event filtering. The sample app's `ViewBindingDelegate` also used reflection that could crash under R8.
+At the time of the original audit, the project had **zero** active ProGuard/R8 keep rules across both
+modules. While minification was disabled, the library was published as an AAR with an empty
+`consumer-rules.pro`. This audit incorrectly concluded that the empty rules could corrupt type-based
+dispatch and event filtering; the follow-up review corrected that conclusion. The sample app's
+`ViewBindingDelegate` did use reflection that could crash under R8.
 
 **3 HIGH-risk, 2 MEDIUM-risk, 3 info items** were found.
 
@@ -206,7 +217,7 @@ internal val Mvi.Intent.diagnosticName: String
 
 ---
 
-## Current Consumer Rules
+## Consumer Rules Added for 1.4.1 (Later Removed)
 
 ```pro
 # K-MVI public API used by consumer projects.

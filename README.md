@@ -1272,13 +1272,13 @@ Check the [`app`](app/) module for complete examples.
 
 ## R8 / ProGuard
 
-The `core` AAR ships consumer R8 rules for K-MVI's public API and marker subtypes. If your app uses
-R8 with aggressive shrinking, keep your concrete `Intent`, `State`, `Event`, and `PartialChange`
-types reachable; these types are used for exact-class handler lookup and type-filtered event
-collection.
+K-MVI requires no consumer keep rules for normal use. Handler lookup, grouping, and typed event
+collection use direct `Class`/`KClass` references and identity checks rather than name-based
+reflection, so R8 can safely shrink, optimize, and obfuscate the library and app MVI types.
 
-For app-specific reflection, add your own keep rules. The sample app avoids reflection for
-ViewBinding delegates by passing generated binding factory references explicitly.
+Add app-specific keep rules only when your app accesses those types through reflection,
+serialization, or JNI. The sample app avoids reflection for ViewBinding delegates by passing
+generated binding factory references explicitly.
 
 ## Requirements
 
