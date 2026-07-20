@@ -37,7 +37,6 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 
 private const val SNAPSHOT_BUFFER_CAPACITY = 64
 
@@ -158,7 +157,8 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * The pipeline uses [receiveAsFlow] (not `consumeAsFlow`) so the channel is NOT closed when
      * [retryWhen] re-collects, allowing buffered intents to survive a retry. The channel is closed
-     * when [scope] completes so late [dispatch] calls fail deterministically.
+     * when [scope] completes or the pipeline fails fatally so late [dispatch] calls fail
+     * deterministically.
      */
     private val intentsChannel = Channel<I>(
         capacity = intentQueueConfig.capacity,
@@ -209,8 +209,9 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
             partialChange.apply(oldSnapshot)
         }
         .catch { cause ->
-            if (cause is CancellationException) throw cause
+            if (cause is CancellationException && !scopeJob.isActive) throw cause
 
+            intentsChannel.cancel()
             logger.e(TAG, cause) { "MVI pipeline failed." }
             fatalErrorHandler.handle(cause)
         }
@@ -286,7 +287,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @param intent The user intent to process.
      */
     override fun dispatch(intent: I): DispatchResult {
-        if (!scope.isActive) {
+        if (!scopeJob.isActive) {
             logger.w(TAG) { "Contract unavailable, intent discarded: ${intent.diagnosticName}" }
             return DispatchResult.Unavailable
         }
@@ -294,7 +295,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         val result = intentsChannel.trySend(intent)
         return when {
             result.isSuccess -> DispatchResult.Submitted
-            !scope.isActive || result.isClosed -> {
+            !scopeJob.isActive || result.isClosed -> {
                 logger.w(TAG, result.exceptionOrNull()) {
                     "Contract unavailable, intent discarded: ${intent.diagnosticName}"
                 }

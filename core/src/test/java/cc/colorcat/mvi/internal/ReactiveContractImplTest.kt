@@ -13,13 +13,13 @@ import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.strategyTransformer
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -217,10 +218,9 @@ class ReactiveContractImplTest {
     }
 
     @Test
-    fun `PartialChange apply cancellation does not invoke fatalErrorHandler`() = runBlocking {
+    fun `active handler cancellation invokes fatalErrorHandler and makes contract unavailable`() = runBlocking {
         val fatal = CompletableDeferred<Throwable>()
-        val started = CompletableDeferred<Unit>()
-        val contractScope = CoroutineScope(Job())
+        val contractScope = CoroutineScope(SupervisorJob())
         val contract = CoreReactiveContract(
             scope = contractScope,
             initState = TestState(),
@@ -232,24 +232,59 @@ class ReactiveContractImplTest {
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
-                    Mvi.PartialChange<TestState, TestEvent> {
-                        started.complete(Unit)
-                        throw CancellationException("cancel reducer")
-                    }.asSingleFlow()
+                    flow {
+                        withTimeout(1) { awaitCancellation() }
+                    }
                 },
             ),
         )
 
         try {
-            contract.dispatch(TestIntent.Increment)
+            assertEquals(DispatchResult.Submitted, contract.dispatch(TestIntent.Increment))
 
-            withTimeout(1_000) { started.await() }
-            delay(100)
-            assertFalse(fatal.isCompleted)
+            val fatalError = withTimeout(1_000) { fatal.await() }
+            assertTrue(fatalError is TimeoutCancellationException)
+            assertTrue(contractScope.isActive)
+            assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Decrement))
             assertEquals(TestState(), contract.stateFlow.value)
         } finally {
             contractScope.cancel()
         }
+    }
+
+    @Test
+    fun `parent scope cancellation does not invoke fatalErrorHandler`() = runBlocking {
+        val fatal = CompletableDeferred<Throwable>()
+        val started = CompletableDeferred<Unit>()
+        val contractJob = Job()
+        val contractScope = CoroutineScope(contractJob)
+        val contract = CoreReactiveContract(
+            scope = contractScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            retryPolicy = { _, _ -> false },
+            fatalErrorHandler = recordingFatalHandler(fatal),
+            transformer = strategyTransformer(
+                handleStrategy = HandleStrategy.SEQUENTIAL,
+                hybridStrategyConfig = HybridStrategyConfig(),
+                groupTagSelector = GroupTagSelector.byClass(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    flow {
+                        started.complete(Unit)
+                        awaitCancellation()
+                    }
+                },
+            ),
+        )
+
+        assertEquals(DispatchResult.Submitted, contract.dispatch(TestIntent.Increment))
+        withTimeout(1_000) { started.await() }
+
+        contractJob.cancel()
+        contractJob.join()
+
+        assertFalse(fatal.isCompleted)
+        assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Decrement))
     }
 
     @Test
