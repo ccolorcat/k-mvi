@@ -11,6 +11,7 @@ import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
+import cc.colorcat.mvi.RetryPolicy
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.strategyTransformer
@@ -135,6 +136,7 @@ class ReactiveContractImplTest {
                         }
                     }.asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -160,6 +162,7 @@ class ReactiveContractImplTest {
                     Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
                         .asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -197,6 +200,7 @@ class ReactiveContractImplTest {
                         throw IllegalStateException("bad reducer")
                     }.asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -234,6 +238,7 @@ class ReactiveContractImplTest {
                         withTimeout(1) { awaitCancellation() }
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -299,6 +304,7 @@ class ReactiveContractImplTest {
                         awaitCancellation()
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -427,6 +433,7 @@ class ReactiveContractImplTest {
                         throw IllegalStateException("local reducer failure")
                     }.asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -456,6 +463,7 @@ class ReactiveContractImplTest {
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -476,6 +484,7 @@ class ReactiveContractImplTest {
                     hybridStrategyConfig = HybridStrategyConfig(),
                     groupTagSelector = GroupTagSelector.byClass(),
                     handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                    retryPolicy = { _, _, _ -> false },
                 ),
             )
         }
@@ -497,6 +506,7 @@ class ReactiveContractImplTest {
                     hybridStrategyConfig = HybridStrategyConfig(),
                     groupTagSelector = GroupTagSelector.byClass(),
                     handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                    retryPolicy = { _, _, _ -> false },
                 ),
             )
         }
@@ -527,6 +537,7 @@ class ReactiveContractImplTest {
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
                     Mvi.PartialChange<TestState, TestEvent> { it.withEvent(TestEvent.Updated) }.asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -559,6 +570,7 @@ class ReactiveContractImplTest {
                     Mvi.PartialChange<TestState, TestEvent> { it.withEvent(TestEvent.Message("hello")) }
                         .asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -598,6 +610,7 @@ class ReactiveContractImplTest {
                         }
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
         val received = mutableListOf<Int>()
@@ -721,6 +734,7 @@ class ReactiveContractImplTest {
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                retryPolicy = RetryPolicy { _, _, _ -> false },
             ),
         )
 
@@ -750,6 +764,7 @@ class ReactiveContractImplTest {
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
                     flow { awaitCancellation() }
                 },
+                retryPolicy = RetryPolicy { _, _, _ -> false },
             ),
         )
 
@@ -802,6 +817,7 @@ class ReactiveContractImplTest {
                         )
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -859,6 +875,7 @@ class ReactiveContractImplTest {
                         )
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -909,6 +926,7 @@ class ReactiveContractImplTest {
                         )
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -959,6 +977,7 @@ class ReactiveContractImplTest {
                         )
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -996,6 +1015,7 @@ class ReactiveContractImplTest {
                         awaitCancellation()
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 

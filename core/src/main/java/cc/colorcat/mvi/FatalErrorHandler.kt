@@ -7,7 +7,7 @@ package cc.colorcat.mvi
  * It is not a recovery mechanism: implementations must not return normally.
  */
 fun interface FatalErrorHandler {
-    fun handle(error: Throwable): Nothing
+    fun handle(error: Throwable)
 
     companion object {
         /**
