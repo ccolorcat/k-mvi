@@ -12,7 +12,6 @@ import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
 import cc.colorcat.mvi.TestLogger
-import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.strategyTransformer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -29,6 +28,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -37,23 +37,17 @@ import org.junit.rules.TestRule
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Characterization tests for the two P1 findings in
- * `docs/reactive-contract-snapshots-review-2026-07-20.md`.
+ * Behavioral tests pinning down the pipeline's failure semantics so regressions stay visible.
  *
- * These are behavioral tests that pin down what the pipeline actually does for the two
- * failure modes raised in the review, so regressions become visible:
+ * 1. [normallyCompletingTransformerDoesNotLeaveZombieContract] — a transformer that completes
+ *    while the contract scope is still active is converted into a fatal [IllegalStateException]
+ *    and the intent queue is closed, so [dispatch] returns [DispatchResult.Unavailable] instead
+ *    of silently reporting `Submitted` forever (the "zombie contract" symptom).
  *
- * 1. [normallyCompletingTransformerDoesNotLeaveZombieContract] — verifies the **fix**:
- *    a transformer that completes while the contract scope is still active is converted
- *    into a fatal [IllegalStateException] and the intent queue is closed, so [dispatch]
- *    returns [DispatchResult.Unavailable] instead of silently reporting `Submitted`
- *    forever (the "zombie contract" symptom).
- *
- * 2. [concurrentHandlerFailureCancelsInFlightSiblingsWithoutReplay] — documents the
- *    still-open behavior: under [HandleStrategy.CONCURRENT], one handler failing tears
- *    down the merged pipeline and cancels in-flight siblings. A pipeline-level retry
- *    restarts processing but does **not** replay the already-consumed intents; the
- *    contract nevertheless stays alive for subsequent intents.
+ * 2. [retriableHandlerFailureDoesNotCancelInFlightSiblings] — retry is scoped to a single intent:
+ *    a retriable failure is retried inside that intent's own flow and never propagates to the
+ *    strategy's `flatMapMerge`, so a concurrent in-flight sibling keeps running and the failed
+ *    intent recovers on its own retry (no whole-pipeline restart, no silent loss of siblings).
  */
 class ScratchReviewTest {
 
@@ -66,7 +60,6 @@ class ScratchReviewTest {
     private sealed interface I : Mvi.Intent {
         data object A : I
         data object B : I
-        data object C : I
     }
 
     @Before
@@ -79,7 +72,7 @@ class ScratchReviewTest {
         KMvi.configure { KMvi.Configuration() }
     }
 
-    // Review finding #1 (fixed): a normally-completing transformer must not leave a zombie contract.
+    // A normally-completing transformer must not leave a zombie contract.
     @Test
     fun normallyCompletingTransformerDoesNotLeaveZombieContract() = runBlocking {
         val fatal = CompletableDeferred<Throwable>()
@@ -90,8 +83,7 @@ class ScratchReviewTest {
             scope = scope,
             initState = S(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler { error ->
+            errorHandler = FatalErrorHandler { error ->
                 fatal.complete(error)
                 throw error
             },
@@ -111,45 +103,42 @@ class ScratchReviewTest {
         }
     }
 
-    // Review finding #2 (open): under CONCURRENT, one handler failing cancels in-flight siblings,
-    // and a pipeline retry does NOT replay the already-consumed intents.
+    // Retry is per-intent: a retriable failure in one handler must not tear down the CONCURRENT
+    // merge, so an in-flight sibling survives and the failed intent recovers on its own retry.
     @Test
-    fun concurrentHandlerFailureCancelsInFlightSiblingsWithoutReplay() = runBlocking {
+    fun retriableHandlerFailureDoesNotCancelInFlightSiblings() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val aStartCount = AtomicInteger(0)
         val aStarted = CompletableDeferred<Unit>()
         val aCancelled = CompletableDeferred<Unit>()
-        val bStarted = CompletableDeferred<Unit>()
+        val bStartCount = AtomicInteger(0)
         val contract = CoreReactiveContract<I, S, E>(
             scope = scope,
             initState = S(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            // Retry once so B's failure restarts the pipeline (recoverable, not fatal).
-            retryPolicy = { attempt, _ -> attempt < 1 },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
+                // Retry the first failure of each intent's own flow.
+                retryPolicy = { _, attempt, _ -> attempt == 0L },
                 handler = IntentHandler<I, S, E> { intent ->
                     when (intent) {
-                        I.A -> flow<Mvi.PartialChange<S, E>> {
-                            aStartCount.incrementAndGet()
+                        I.A -> flow {
                             aStarted.complete(Unit)
                             try {
-                                awaitCancellation() // stays in-flight until a sibling failure tears it down
+                                awaitCancellation() // stays in-flight; only a merge teardown cancels it
                             } finally {
                                 aCancelled.complete(Unit)
                             }
                         }
 
-                        I.B -> flow<Mvi.PartialChange<S, E>> {
-                            bStarted.complete(Unit)
-                            throw RuntimeException("B fails first")
+                        I.B -> flow {
+                            if (bStartCount.getAndIncrement() == 0) {
+                                throw RuntimeException("B fails once, then recovers")
+                            }
+                            emit(Mvi.PartialChange { it.updateState { copy(count = count + 1) } })
                         }
-
-                        I.C -> Mvi.PartialChange<S, E> { it.updateState { copy(count = count + 1) } }
-                            .asSingleFlow()
                     }
                 },
             ),
@@ -159,16 +148,14 @@ class ScratchReviewTest {
             contract.dispatch(I.A)
             withTimeout(1_000) { aStarted.await() } // A is genuinely in-flight
             contract.dispatch(I.B)
-            withTimeout(1_000) { bStarted.await() }
-            // B's failure tears down the CONCURRENT merge, cancelling the in-flight sibling A.
-            withTimeout(1_000) { aCancelled.await() }
 
-            // The pipeline survives the retry: a newly dispatched intent is still processed.
-            contract.dispatch(I.C)
+            // B's first attempt throws, retryWhen re-runs B's own flow, and it recovers.
             val state = withTimeout(1_000) { contract.stateFlow.first { it.count == 1 } }
 
-            assertEquals(1, state.count) // only C applied; A/B produced no state change
-            assertEquals(1, aStartCount.get()) // A ran once and was NOT replayed after the retry
+            assertEquals(1, state.count)      // B recovered on retry
+            assertEquals(2, bStartCount.get()) // B ran exactly twice (fail, then succeed)
+            assertFalse(aCancelled.isCompleted) // the in-flight sibling A was never cancelled
+            assertTrue(scope.isActive)
         } finally {
             scope.cancel()
         }

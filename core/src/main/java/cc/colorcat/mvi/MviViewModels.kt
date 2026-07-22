@@ -81,8 +81,8 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
  * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
  *                          [KMvi.intentQueueConfig]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
- * @param fatalErrorHandler Handles unrecoverable pipeline failures. Defaults to global config
- *                          [KMvi.fatalErrorHandler]
+ * @param errorHandler Handles unrecoverable pipeline failures. Defaults to global config
+ *                          [KMvi.errorHandler]
  * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
  * @see ReactiveContract
@@ -92,8 +92,7 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
     intentQueueConfig: IntentQueueConfig = KMvi.intentQueueConfig,
-    retryPolicy: RetryPolicy = KMvi.retryPolicy,
-    fatalErrorHandler: FatalErrorHandler = KMvi.fatalErrorHandler,
+    errorHandler: FatalErrorHandler = KMvi.errorHandler,
     transformer: IntentTransformer<I, S, E>,
 ): Lazy<ReactiveContract<I, S, E>> {
     return ReactiveContractLazy {
@@ -101,8 +100,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
             scope = viewModelScope,
             initState = initState,
             intentQueueConfig = intentQueueConfig,
-            retryPolicy = retryPolicy,
-            fatalErrorHandler = fatalErrorHandler,
+            errorHandler = errorHandler,
             transformer = transformer,
         )
     }
@@ -172,8 +170,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
  *                          [KMvi.intentQueueConfig]
  * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
- * @param fatalErrorHandler Handles unrecoverable pipeline failures. Defaults to global config
- *                          [KMvi.fatalErrorHandler]
+ * @param errorHandler Handles unrecoverable pipeline failures. Defaults to global config
+ *                          [KMvi.errorHandler]
  * @param handleStrategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
  * @param hybridStrategyConfig The runtime configuration when using HYBRID strategy.
  *                     Defaults to [KMvi.hybridStrategyConfig].
@@ -195,8 +193,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
 fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
     initState: S,
     intentQueueConfig: IntentQueueConfig = KMvi.intentQueueConfig,
-    retryPolicy: RetryPolicy = KMvi.retryPolicy,
-    fatalErrorHandler: FatalErrorHandler = KMvi.fatalErrorHandler,
+    retryPolicy: RetryPolicy<I> = KMvi.retryPolicy,
+    errorHandler: FatalErrorHandler = KMvi.errorHandler,
     handleStrategy: HandleStrategy = KMvi.handleStrategy,
     hybridStrategyConfig: HybridStrategyConfig = KMvi.hybridStrategyConfig,
     groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
@@ -209,7 +207,7 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
             initState = initState,
             intentQueueConfig = intentQueueConfig,
             retryPolicy = retryPolicy,
-            fatalErrorHandler = fatalErrorHandler,
+            errorHandler = errorHandler,
             handleStrategy = handleStrategy,
             hybridStrategyConfig = hybridStrategyConfig,
             groupTagSelector = groupTagSelector,

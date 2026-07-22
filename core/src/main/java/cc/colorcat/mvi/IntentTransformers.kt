@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.flattenMerge
+import kotlinx.coroutines.flow.retryWhen
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -90,8 +91,9 @@ internal fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> strategyTransformer(
     hybridStrategyConfig: HybridStrategyConfig,
     groupTagSelector: GroupTagSelector<I>,
     handler: IntentHandler<I, S, E>,
+    retryPolicy: RetryPolicy<I>,
 ): IntentTransformer<I, S, E> {
-    return StrategyIntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, handler)
+    return StrategyIntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, handler, retryPolicy)
 }
 
 
@@ -155,8 +157,13 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     private val hybridStrategyConfig: HybridStrategyConfig,
     private val groupTagSelector: GroupTagSelector<I>,
     private val handler: IntentHandler<I, S, E>,
+    private val retryPolicy: RetryPolicy<I>,
 ) : IntentTransformer<I, S, E> {
     private val conflictIntentTypes = ConcurrentHashMap.newKeySet<Class<*>>()
+
+    private fun handleWithRetry(intent: I): Flow<Mvi.PartialChange<S, E>> {
+        return handler.handle(intent).retryWhen { cause, attempt -> retryPolicy.shouldRetry(intent, attempt, cause) }
+    }
 
     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
         logger.i(TAG) {
@@ -167,8 +174,8 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
             }
         }
         return when (handleStrategy) {
-            HandleStrategy.CONCURRENT -> intentFlow.flatMapMerge { handler.handle(it) }
-            HandleStrategy.SEQUENTIAL -> intentFlow.flatMapConcat { handler.handle(it) }
+            HandleStrategy.CONCURRENT -> intentFlow.flatMapMerge { handleWithRetry(it) }
+            HandleStrategy.SEQUENTIAL -> intentFlow.flatMapConcat { handleWithRetry(it) }
             HandleStrategy.HYBRID -> intentFlow.hybrid().flattenMerge(concurrency = Int.MAX_VALUE)
         }
     }
@@ -205,9 +212,9 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      */
     private fun Flow<I>.handleByTag(tag: Any): Flow<Mvi.PartialChange<S, E>> {
         return if (tag === ConcurrentGroup) {
-            flatMapMerge { handler.handle(it) }
+            flatMapMerge { handleWithRetry(it) }
         } else {
-            flatMapConcat { handler.handle(it) }
+            flatMapConcat { handleWithRetry(it) }
         }
     }
 
