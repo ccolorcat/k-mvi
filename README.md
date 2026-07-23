@@ -975,8 +975,8 @@ Configuration for HYBRID strategy:
   positive `Int` (including `Channel.UNLIMITED`).
 - The capacity is per group. A bounded group warns at 80% backlog, rearms after dropping to 50%, and
   warns again if it becomes full and suspends the shared router. These thresholds are internal constants.
-- `Channel.RENDEZVOUS` warns when no receiver is ready; `Channel.CONFLATED` has no capacity warning;
-  `Channel.UNLIMITED` warns at 256, 512, 1024, and subsequent doubled backlog thresholds.
+- `Channel.RENDEZVOUS`, `Channel.CONFLATED`, and `Channel.UNLIMITED` are not monitored because they
+  do not have a meaningful percentage-based fill level.
 - Handle warnings by throttling producers, checking group tags, and shortening handlers before increasing
   capacity. A full group can eventually fill the contract entry queue and make `dispatch()` return `Full`.
 

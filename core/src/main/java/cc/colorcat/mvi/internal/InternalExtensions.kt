@@ -8,20 +8,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
-
-private const val DEFAULT_BUFFERED_CHANNEL_CAPACITY = 64
-private const val GROUP_CAPACITY_WARNING_PERCENT = 80
-private const val GROUP_CAPACITY_WARNING_RESET_PERCENT = 50
-private const val UNLIMITED_GROUP_BACKLOG_WARNING_THRESHOLD = 256L
-
-private val defaultBufferedChannelCapacity: Int =
-    System.getProperty(Channel.DEFAULT_BUFFER_PROPERTY_NAME)
-        ?.toIntOrNull()
-        ?.takeIf { it in 1 until Channel.UNLIMITED }
-        ?: DEFAULT_BUFFERED_CHANNEL_CAPACITY
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Internal extension functions for MVI diagnostics and Flow processing.
@@ -44,152 +33,98 @@ private val defaultBufferedChannelCapacity: Int =
 internal val Mvi.Intent.diagnosticName: String
     get() = this::class.qualifiedName ?: this.javaClass.name
 
-/** Tracks intents handed to a group but not yet pulled by that group's handler Flow. */
-private class GroupBacklogTracker(
-    private val tagLabel: String,
-    private val configuredCapacity: Int,
-) {
-    private val backlog = AtomicLong()
-    private val nearCapacityWarningArmed = AtomicBoolean(true)
-    private val saturationWarningArmed = AtomicBoolean(true)
-    private val nextUnlimitedWarning = AtomicLong(UNLIMITED_GROUP_BACKLOG_WARNING_THRESHOLD)
+private const val DEFAULT_BUFFERED_CHANNEL_CAPACITY = 64
+private const val GROUP_CAPACITY_WARNING_PERCENT = 80
+private const val GROUP_CAPACITY_WARNING_RESET_PERCENT = 50
+private const val PERCENT_BASE = 100
 
-    private val boundedCapacity: Long? = when {
-        configuredCapacity == Channel.BUFFERED -> defaultBufferedChannelCapacity.toLong()
-        configuredCapacity > 0 && configuredCapacity != Channel.UNLIMITED -> configuredCapacity.toLong()
-        else -> null
-    }
-    private val warningCount: Long? = boundedCapacity?.percentageCeiling(GROUP_CAPACITY_WARNING_PERCENT)
-    private val resetCount: Long? = boundedCapacity?.percentageFloor(GROUP_CAPACITY_WARNING_RESET_PERCENT)
-
-    fun trackEnqueued() {
-        val pending = backlog.incrementAndGet()
-        when {
-            configuredCapacity == Channel.UNLIMITED -> warnIfUnlimitedBacklogHigh(pending)
-            boundedCapacity != null -> warnIfNearCapacity(pending)
-        }
-    }
-
-    fun trackRemoved() {
-        val pending = decrementBacklog()
-        val reset = resetCount ?: return
-        if (pending <= reset) {
-            nearCapacityWarningArmed.set(true)
-            saturationWarningArmed.set(true)
-        }
-    }
-
-    fun warnIfSendWillSuspend() {
-        if (configuredCapacity == Channel.CONFLATED || configuredCapacity == Channel.UNLIMITED) return
-        if (!saturationWarningArmed.compareAndSet(true, false)) return
-
-        val pending = backlog.get()
-        if (configuredCapacity == Channel.RENDEZVOUS) {
-            logger.w(TAG) {
-                "HYBRID rendezvous group has no ready receiver (pending=$pending, group=$tagLabel). " +
-                    "Intent routing is suspended, so unrelated groups are blocked until a receiver is ready."
-            }
-        } else {
-            logger.w(TAG) {
-                "HYBRID group channel is full (pending=$pending, capacity=$boundedCapacity, group=$tagLabel). " +
-                    "Intent routing is suspended, so unrelated groups are blocked until capacity is available. " +
-                    "Throttle producers, review grouping, or increase groupChannelCapacity."
-            }
-        }
-    }
-
-    private fun warnIfNearCapacity(pending: Long) {
-        val capacity = requireNotNull(boundedCapacity)
-        val threshold = requireNotNull(warningCount)
-        if (pending < threshold || !nearCapacityWarningArmed.compareAndSet(true, false)) return
-
-        val percent = pending * 100L / capacity
-        logger.w(TAG) {
-            "HYBRID group backlog reached $pending/$capacity ($percent%, warningAt=" +
-                "$GROUP_CAPACITY_WARNING_PERCENT%, group=$tagLabel). This group is nearing capacity; " +
-                "a full group blocks routing for unrelated groups. Throttle producers, review grouping, " +
-                "or increase groupChannelCapacity."
-        }
-    }
-
-    private fun warnIfUnlimitedBacklogHigh(pending: Long) {
-        while (true) {
-            val threshold = nextUnlimitedWarning.get()
-            if (pending < threshold || threshold == Long.MAX_VALUE) return
-            val next = if (threshold <= Long.MAX_VALUE / 2L) threshold * 2L else Long.MAX_VALUE
-            if (!nextUnlimitedWarning.compareAndSet(threshold, next)) continue
-
-            logger.w(TAG) {
-                "HYBRID unlimited group backlog reached $pending intents " +
-                    "(warningThreshold=$threshold, group=$tagLabel). The queue has no capacity bound; " +
-                    "throttle producers or use a bounded groupChannelCapacity to prevent memory growth."
-            }
-            return
-        }
-    }
-
-    private fun decrementBacklog(): Long {
-        while (true) {
-            val current = backlog.get()
-            if (current == 0L) return 0L
-            if (backlog.compareAndSet(current, current - 1L)) return current - 1L
-        }
-    }
-}
-
-private class TrackedIntent<I : Mvi.Intent>(
-    val intent: I,
-    private val tracker: GroupBacklogTracker,
-) {
-    private val released = AtomicBoolean(false)
-
-    fun release() {
-        if (released.compareAndSet(false, true)) {
-            tracker.trackRemoved()
-        }
-    }
-}
-
+/**
+ * Lightweight fill monitor for a single HYBRID group channel.
+ *
+ * Counts intents buffered but not yet consumed, and emits sparse WARN logs at two thresholds:
+ * 1. **Near-full (>=80%)** — early hint that the handler lags behind the arrival rate
+ * 2. **Full (send would suspend)** — confirmation that the shared router is now blocked
+ *
+ * Both warnings re-arm when depth drops to 50% or below, avoiding log spam during
+ * sustained congestion. Depth may read transiently off by one under concurrent
+ * send/consume — acceptable for a diagnostic hint.
+ *
+ * Monitoring is skipped entirely for [Channel.UNLIMITED], [Channel.RENDEZVOUS], and
+ * [Channel.CONFLATED] where percentage-based fill has no meaningful interpretation.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
-private class IntentGroup<I : Mvi.Intent>(tag: Any, capacity: Int) {
-    private val tracker = GroupBacklogTracker(tag.tagLabel, capacity)
-    private val channel = Channel<TrackedIntent<I>>(
-        capacity = capacity,
-        onUndeliveredElement = TrackedIntent<I>::release,
-    )
+private class GroupChannel<I>(tag: Any, capacity: Int) {
+    val channel = Channel<I>(capacity)
 
-    val isClosedForSend: Boolean
-        get() = channel.isClosedForSend
-
-    fun asFlow(): Flow<I> = channel.consumeAsFlow().map { tracked ->
-        tracked.release()
-        tracked.intent
+    // Resolve fixed capacity for percentage thresholds; negative means "skip monitoring".
+    // Uses the Coroutines default for BUFFERED; monitoring remains a diagnostic hint.
+    private val fixedCapacity = when (capacity) {
+        Channel.BUFFERED -> DEFAULT_BUFFERED_CHANNEL_CAPACITY
+        in 1 until Channel.UNLIMITED -> capacity
+        else -> -1
+    }
+    private val warnAt = if (fixedCapacity > 0) {
+        fixedCapacity.percentageCeiling(GROUP_CAPACITY_WARNING_PERCENT)
+    } else {
+        -1
+    }
+    private val rearmAt = if (fixedCapacity > 0) {
+        fixedCapacity.percentageFloor(GROUP_CAPACITY_WARNING_RESET_PERCENT)
+    } else {
+        -1
     }
 
-    suspend fun send(intent: I) {
-        tracker.trackEnqueued()
-        val tracked = TrackedIntent(intent, tracker)
-        try {
-            val result = channel.trySend(tracked)
-            if (result.isSuccess) return
-            if (!result.isClosed) tracker.warnIfSendWillSuspend()
-            channel.send(tracked)
-        } catch (error: Throwable) {
-            tracked.release()
-            throw error
+    private val depth = AtomicInteger(0)
+    private val nearFullWarned = AtomicBoolean(false)
+    private val fullWarned = AtomicBoolean(false)
+    private val tagLabel = tag.tagLabel
+
+    /** Called right after an intent is accepted into [channel] (router coroutine). */
+    fun onBuffered() {
+        if (fixedCapacity <= 0) return
+        val current = depth.incrementAndGet()
+        if (current >= warnAt && nearFullWarned.compareAndSet(false, true)) {
+            logger.w(TAG) {
+                "HYBRID group $tagLabel channel at $current/$fixedCapacity (>=80%). " +
+                    "Handler is slower than intent arrival; the shared router will block " +
+                    "when this channel fills. Throttle producers, review grouping, " +
+                    "or increase groupChannelCapacity."
+            }
         }
     }
 
-    fun close(cause: Throwable?) {
-        channel.close(cause)
+    /** Called when [channel] is full and [send] will suspend (router coroutine). */
+    fun onWillSuspend() {
+        if (fixedCapacity <= 0) return
+        if (fullWarned.compareAndSet(false, true)) {
+            logger.w(TAG) {
+                "HYBRID group $tagLabel channel is FULL (capacity=$fixedCapacity). " +
+                    "Routing suspended — ALL groups are now blocked. " +
+                    "Increase groupChannelCapacity or use Channel.UNLIMITED."
+            }
+        }
     }
+
+    /** Called when an intent leaves [channel]'s buffer (consumer flow, via [onEach]). */
+    fun onConsumed() {
+        if (fixedCapacity <= 0) return
+        if (depth.decrementAndGet() <= rearmAt) {
+            nearFullWarned.set(false)
+            fullWarned.set(false)
+        }
+    }
+
+    // Delegate channel lifecycle to groupHandle
+    val isClosedForSend get() = channel.isClosedForSend
+
+    fun close(cause: Throwable?) = channel.close(cause)
 }
 
-private fun Long.percentageCeiling(percent: Int): Long =
-    (this * percent + 99L) / 100L
+private fun Int.percentageCeiling(percent: Int): Int =
+    ((toLong() * percent + PERCENT_BASE - 1L) / PERCENT_BASE).toInt()
 
-private fun Long.percentageFloor(percent: Int): Long =
-    this * percent / 100L
+private fun Int.percentageFloor(percent: Int): Int =
+    (toLong() * percent / PERCENT_BASE).toInt()
 
 /**
  * Groups intents by tag and handles each group independently with parallel processing.
@@ -222,16 +157,14 @@ private fun Long.percentageFloor(percent: Int): Long =
  *
  * ## Group Backlog Diagnostics
  *
- * A bounded group logs once when its pending backlog reaches 80% of capacity, then rearms
- * only after the backlog falls to 50% or lower. A second warning is logged if the channel
- * becomes full and routing must suspend. These percentages are internal constants and do
- * not change queue behavior. [Channel.BUFFERED] uses the Coroutines runtime capacity
- * (64 unless `kotlinx.coroutines.channels.defaultBuffer` overrides it).
+ * Bounded groups (including the default [Channel.BUFFERED]) log a single WARN when buffered
+ * depth reaches 80% of capacity, and re-arm after depth drops to 50% or lower. A second
+ * warning is logged if the channel becomes full and routing must suspend. These thresholds
+ * are internal constants and do not change queue behavior. [Channel.UNLIMITED],
+ * [Channel.RENDEZVOUS], and [Channel.CONFLATED] are not monitored because their capacities
+ * have no meaningful percentage-based fill level.
  *
- * [Channel.RENDEZVOUS] logs when no receiver is ready. [Channel.CONFLATED] does not log
- * capacity warnings because it replaces pending values instead of filling. [Channel.UNLIMITED]
- * logs sparse absolute backlog warnings at 256, 512, 1024, and subsequent doubled thresholds.
- * Logs use the tag type and hash only; raw tag values are never included.
+ * Diagnostics log the tag type and hash only; raw tag values are never included.
  *
  * ## Active Group Lifetime
  *
@@ -300,7 +233,7 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     tagSelector: (I) -> Any,
     handler: Flow<I>.(tag: Any) -> Flow<R>,
 ): Flow<Flow<R>> = flow {
-    val activeGroups = linkedMapOf<Any, IntentGroup<I>>()
+    val activeGroups = linkedMapOf<Any, GroupChannel<I>>()
     var cause: Throwable? = null
     var nextWarningThreshold = config.groupCountWarningThreshold
 
@@ -321,14 +254,15 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
         }
     }
 
-    // Local function: creates a fresh Channel for [tag], registers it in [activeGroups]
+    // Local function: creates a fresh GroupChannel for [tag], registers it in [activeGroups]
     // BEFORE calling emit so that if emit suspends the map already holds the new entry.
     // The inner flow produced by [handler] is immediately subscribed by the downstream
-    // (e.g. flattenMerge) when emit returns, so subsequent sends are safely received.
-    suspend fun openGroup(tag: Any): IntentGroup<I> {
-        val group = IntentGroup<I>(tag, config.groupChannelCapacity)
+    // (e.g. flattenMerge) when emit returns; its onEach decrements the fill monitor as each
+    // intent leaves the channel buffer.
+    suspend fun openGroup(tag: Any): GroupChannel<I> {
+        val group = GroupChannel<I>(tag, config.groupChannelCapacity)
         activeGroups[tag] = group
-        emit(group.asFlow().handler(tag))
+        emit(group.channel.consumeAsFlow().onEach { group.onConsumed() }.handler(tag))
         warnIfGroupCountHigh(tag)
         return group
     }
@@ -353,7 +287,23 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
             } else {
                 existingGroup
             }
-            group.send(intent)
+
+            // Try non-suspending send first to detect a full channel before blocking.
+            val result = group.channel.trySend(intent)
+            when {
+                result.isSuccess -> group.onBuffered()
+                result.isClosed -> {
+                    // Channel closed externally — let send throw so stale detection reopens it.
+                    group.channel.send(intent)
+                    group.onBuffered()
+                }
+
+                else -> {
+                    group.onWillSuspend()   // warn before blocking the shared router
+                    group.channel.send(intent)
+                    group.onBuffered()
+                }
+            }
         }
     } catch (e: CancellationException) {
         cause = e

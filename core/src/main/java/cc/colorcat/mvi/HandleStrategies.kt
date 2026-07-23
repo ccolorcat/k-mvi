@@ -306,9 +306,8 @@ fun interface GroupTagSelector<in I : Mvi.Intent> {
  * Backlog warnings use internal constants and require no configuration:
  * - Bounded groups warn once at 80% capacity and rearm after falling to 50% or lower
  * - A full group warns when routing is about to suspend
- * - [Channel.RENDEZVOUS] warns when no receiver is ready
- * - [Channel.CONFLATED] does not warn because it replaces pending values
- * - [Channel.UNLIMITED] warns at backlog sizes 256, 512, 1024, and subsequent doubled thresholds
+ * - [Channel.UNLIMITED], [Channel.RENDEZVOUS], and [Channel.CONFLATED] are not monitored
+ *   (these capacities have no meaningful percentage-based fill level)
  *
  * These diagnostics do not change buffering, dropping, ordering, or dispatch results. Logs identify
  * groups only by tag type and hash; raw tag values are not logged.

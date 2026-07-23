@@ -177,7 +177,9 @@ class InternalExtensionsTest {
             copy(logger = Logger { priority, _, _, message ->
                 if (priority == Logger.WARN) {
                     val value = message()
-                    if (value.contains("HYBRID group backlog reached")) backlogWarnings += value
+                    if (value.contains("HYBRID group") && value.contains(">=80%")) {
+                        backlogWarnings += value
+                    }
                 }
             })
         }
@@ -194,7 +196,7 @@ class InternalExtensionsTest {
                 repeat(6) { emit(TaggedIntent("hot", it + 6)) }
             }.groupHandle(
                 config = HybridStrategyConfig(
-                    groupChannelCapacity = 5,
+                    groupChannelCapacity = 6,
                     groupCountWarningThreshold = Int.MAX_VALUE,
                 ),
                 tagSelector = { it.tag },
@@ -224,8 +226,8 @@ class InternalExtensionsTest {
 
         assertEquals((0 until 12).toList(), collection.await())
         assertEquals(2, backlogWarnings.size)
-        assertTrue(backlogWarnings.all { it.contains("4/5 (80%, warningAt=80%") })
-        assertTrue(backlogWarnings.all { it.contains("group=tag(type=java.lang.String") })
+        assertTrue(backlogWarnings.all { it.contains("channel at 5/6 (>=80%)") })
+        assertTrue(backlogWarnings.all { it.contains("tag(type=java.lang.String") })
     }
 
     @OptIn(FlowPreview::class)
@@ -257,151 +259,14 @@ class InternalExtensionsTest {
         }
 
         withTimeout(5_000) {
-            while (warnings.none { it.contains("HYBRID group channel is full") }) yield()
+            while (warnings.none { it.contains("is FULL") }) yield()
         }
         gate.complete(Unit)
 
         assertEquals(listOf(0, 1, 2), collection.await())
-        val saturationWarnings = warnings.filter { it.contains("HYBRID group channel is full") }
+        val saturationWarnings = warnings.filter { it.contains("is FULL") }
         assertEquals(1, saturationWarnings.size)
         assertTrue(saturationWarnings.single().contains("capacity=1"))
-        assertTrue(saturationWarnings.single().contains("unrelated groups are blocked"))
-    }
-
-    @OptIn(FlowPreview::class)
-    @Test
-    fun `groupHandle unlimited backlog warns at absolute threshold`() = runBlocking {
-        val warnings = CopyOnWriteArrayList<String>()
-        KMvi.configure {
-            copy(logger = Logger { priority, _, _, message ->
-                if (priority == Logger.WARN) warnings += message()
-            })
-        }
-        val firstPulled = CompletableDeferred<Unit>()
-        val gate = CompletableDeferred<Unit>()
-
-        val collection = async {
-            flow {
-                emit(TaggedIntent("hot", 0))
-                firstPulled.await()
-                repeat(256) { emit(TaggedIntent("hot", it + 1)) }
-            }.groupHandle(
-                config = HybridStrategyConfig(
-                    groupChannelCapacity = Channel.UNLIMITED,
-                    groupCountWarningThreshold = Int.MAX_VALUE,
-                ),
-                tagSelector = { it.tag },
-            ) {
-                map { intent ->
-                    if (intent.id == 0) {
-                        firstPulled.complete(Unit)
-                        gate.await()
-                    }
-                    intent.id
-                }
-            }.flattenMerge(Int.MAX_VALUE).toList()
-        }
-
-        withTimeout(5_000) {
-            while (warnings.none { it.contains("HYBRID unlimited group backlog reached") }) yield()
-        }
-        gate.complete(Unit)
-
-        assertEquals((0..256).toList(), collection.await())
-        val backlogWarnings = warnings.filter { it.contains("HYBRID unlimited group backlog reached") }
-        assertEquals(1, backlogWarnings.size)
-        assertTrue(backlogWarnings.single().contains("reached 256 intents"))
-        assertTrue(backlogWarnings.single().contains("warningThreshold=256"))
-    }
-
-    @OptIn(FlowPreview::class)
-    @Test
-    fun `groupHandle rendezvous group warns once when send suspends`() = runBlocking {
-        val warnings = CopyOnWriteArrayList<String>()
-        KMvi.configure {
-            copy(logger = Logger { priority, _, _, message ->
-                if (priority == Logger.WARN) warnings += message()
-            })
-        }
-        val firstPulled = CompletableDeferred<Unit>()
-        val gate = CompletableDeferred<Unit>()
-
-        val collection = async {
-            flow {
-                emit(TaggedIntent("hot", 0))
-                firstPulled.await()
-                emit(TaggedIntent("hot", 1))
-                emit(TaggedIntent("hot", 2))
-            }.groupHandle(
-                config = HybridStrategyConfig(
-                    groupChannelCapacity = Channel.RENDEZVOUS,
-                    groupCountWarningThreshold = Int.MAX_VALUE,
-                ),
-                tagSelector = { it.tag },
-            ) {
-                map { intent ->
-                    if (intent.id == 0) {
-                        firstPulled.complete(Unit)
-                        gate.await()
-                    }
-                    intent.id
-                }
-            }.flattenMerge(Int.MAX_VALUE).toList()
-        }
-
-        withTimeout(5_000) {
-            while (warnings.none { it.contains("HYBRID rendezvous group has no ready receiver") }) yield()
-        }
-        gate.complete(Unit)
-
-        assertEquals(listOf(0, 1, 2), collection.await())
-        val rendezvousWarnings = warnings.filter {
-            it.contains("HYBRID rendezvous group has no ready receiver")
-        }
-        assertEquals(1, rendezvousWarnings.size)
-        assertTrue(rendezvousWarnings.single().contains("unrelated groups are blocked"))
-    }
-
-    @OptIn(FlowPreview::class)
-    @Test
-    fun `groupHandle conflated group does not log capacity warnings`() = runBlocking {
-        val warnings = CopyOnWriteArrayList<String>()
-        KMvi.configure {
-            copy(logger = Logger { priority, _, _, message ->
-                if (priority == Logger.WARN) warnings += message()
-            })
-        }
-        val firstPulled = CompletableDeferred<Unit>()
-        val gate = CompletableDeferred<Unit>()
-
-        val collection = async {
-            flow {
-                emit(TaggedIntent("hot", 0))
-                firstPulled.await()
-                repeat(100) { emit(TaggedIntent("hot", it + 1)) }
-            }.groupHandle(
-                config = HybridStrategyConfig(
-                    groupChannelCapacity = Channel.CONFLATED,
-                    groupCountWarningThreshold = Int.MAX_VALUE,
-                ),
-                tagSelector = { it.tag },
-            ) {
-                map { intent ->
-                    if (intent.id == 0) {
-                        firstPulled.complete(Unit)
-                        gate.await()
-                    }
-                    intent.id
-                }
-            }.flattenMerge(Int.MAX_VALUE).toList()
-        }
-
-        yield()
-        gate.complete(Unit)
-        val results = collection.await()
-
-        assertEquals(0, results.first())
-        assertEquals(100, results.last())
-        assertTrue(warnings.none { it.contains("group backlog") || it.contains("channel is full") })
+        assertTrue(saturationWarnings.single().contains("ALL groups are now blocked"))
     }
 }

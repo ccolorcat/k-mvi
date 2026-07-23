@@ -9,6 +9,7 @@ import cc.colorcat.mvi.strategyTransformer
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
+import cc.colorcat.mvi.RetryPolicy
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.toPartialChange
@@ -52,6 +53,8 @@ class IntentTransformersTest {
         Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }.asSingleFlow()
     }
 
+    private val noRetry = RetryPolicy<Mvi.Intent> { _, _, _ -> false }
+
     // Intent that implements BOTH Concurrent and Sequential — edge case for assignGroupTag
     private sealed interface BothIntent : TestIntent, Mvi.Intent.Concurrent, Mvi.Intent.Sequential {
         data object Ambiguous : BothIntent
@@ -81,6 +84,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
 
         val intents = flow {
@@ -99,6 +103,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
 
         val intents = flow {
@@ -124,6 +129,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = trackingHandler,
+            retryPolicy = noRetry,
         )
 
         val intents = flow {
@@ -146,6 +152,7 @@ class IntentTransformersTest {
             ),
             groupTagSelector = GroupTagSelector { it::class.java.name },
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
 
         assertNotNull(transformer)
@@ -158,18 +165,21 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
         val sequential = strategyTransformer(
             handleStrategy = HandleStrategy.SEQUENTIAL,
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
         val hybrid = strategyTransformer(
             handleStrategy = HandleStrategy.HYBRID,
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
 
         assertNotNull(concurrent)
@@ -186,6 +196,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
 
         val results = emptyFlow<TestIntent>().toPartialChange(transformer).toList()
@@ -200,6 +211,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = silentHandler,
+            retryPolicy = noRetry,
         )
 
         val results = flow {
@@ -223,6 +235,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector { handledTag = it::class.java; it::class.java },
             handler = trackingHandler,
+            retryPolicy = noRetry,
         )
 
         val results = flow {
@@ -254,6 +267,7 @@ class IntentTransformersTest {
                 Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
                     .asSingleFlow()
             },
+            retryPolicy = noRetry,
         )
 
         val intents = flow {
@@ -280,6 +294,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
 
         val results = flow {
@@ -297,6 +312,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = echoHandler,
+            retryPolicy = noRetry,
         )
 
         val results = flow {
@@ -327,6 +343,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = trackingHandler,
+            retryPolicy = noRetry,
         )
 
         flow {
@@ -361,6 +378,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = handler,
+            retryPolicy = noRetry,
         )
 
         flow {
@@ -392,6 +410,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = handler,
+            retryPolicy = noRetry,
         )
 
         flow {
@@ -424,6 +443,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector.byClass(),
             handler = handler,
+            retryPolicy = noRetry,
         )
 
         flow {
@@ -463,6 +483,7 @@ class IntentTransformersTest {
             hybridStrategyConfig = HybridStrategyConfig(),
             groupTagSelector = GroupTagSelector { "fallback" },
             handler = handler,
+            retryPolicy = noRetry,
         )
 
         val results = flow {
