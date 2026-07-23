@@ -381,9 +381,18 @@ KMvi.configure {
 
 Combines both approaches:
 
-- Intents marked with `Mvi.Intent.Concurrent` use the same bounded concurrency as CONCURRENT
-- Intents marked with `Mvi.Intent.Sequential` are processed sequentially
-- Intents can be grouped (group members process sequentially, groups process in parallel)
+- All intents marked with `Mvi.Intent.Concurrent` share one concurrent group and use the same bounded
+  concurrency as CONCURRENT.
+- All intents marked with `Mvi.Intent.Sequential` share one global sequential group.
+- Intents with neither marker use `GroupTagSelector`: the same tag is sequential, different tags run
+  in parallel. Prefer stable, low-cardinality business buckets; do not use raw IDs or queries unless
+  per-value ordering is required.
+
+All groups share one routing coroutine. If one group fills its channel, later intents for every group
+wait until that group has capacity. Throttle high-frequency sources and prevent duplicate submissions
+before increasing `groupChannelCapacity`; reserve `Channel.UNLIMITED` for externally bounded traffic.
+See [HYBRID grouping and backpressure](docs/hybrid-grouping-and-backpressure.md) for the complete
+grouping guide, overload playbook, and diagnostic-log behavior.
 
 ##### Global Configuration (Application-wide)
 
@@ -962,7 +971,14 @@ Default policy:
 Configuration for HYBRID strategy:
 
 - `groupChannelCapacity`: Buffer size for grouped intent channels (default: `Channel.BUFFERED` = 64).
-  Allowed values are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any positive `Int` (including `Channel.UNLIMITED`).
+  Allowed values are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any
+  positive `Int` (including `Channel.UNLIMITED`).
+- The capacity is per group. A bounded group warns at 80% backlog, rearms after dropping to 50%, and
+  warns again if it becomes full and suspends the shared router. These thresholds are internal constants.
+- `Channel.RENDEZVOUS` warns when no receiver is ready; `Channel.CONFLATED` has no capacity warning;
+  `Channel.UNLIMITED` warns at 256, 512, 1024, and subsequent doubled backlog thresholds.
+- Handle warnings by throttling producers, checking group tags, and shortening handlers before increasing
+  capacity. A full group can eventually fill the contract entry queue and make `dispatch()` return `Full`.
 
 #### GroupTagSelector
 
