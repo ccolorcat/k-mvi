@@ -87,11 +87,16 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * for correctness. The DROP_OLDEST policy is intentional — stale snapshots (including their
  * events) should be discarded rather than delivered late, keeping events timely and relevant.
  *
- * **Warning**: Because snapshots carry events, DROP_OLDEST may silently drop events when
- * [eventFlow]'s downstream collector is slower than the state pipeline. For example, if
- * the UI thread is busy and the buffer is full, the oldest snapshot (with its event) is
- * dropped before the collector can read it. Ensure [eventFlow] collectors are lightweight
- * (no heavy computation, I/O, or blocking calls inside `collect`).
+ * **Event delivery is best-effort**: Because snapshots carry events, DROP_OLDEST may silently drop
+ * an event even when [eventFlow] has an active collector. This happens when producers outrun the
+ * downstream pipeline long enough to fill the snapshot buffer, for example while the UI thread is
+ * busy or an event collector is suspended. This is intentional: Event is intended for low-frequency,
+ * time-sensitive UI effects, and dropping a stale effect is preferable to blocking state processing
+ * or delivering a backlog after the UI recovers.
+ *
+ * Keep [eventFlow] collectors lightweight; do not perform blocking I/O or long-running work in
+ * `collect`. Data or work that must not be lost belongs in persistent state with acknowledgement,
+ * or in a durable queue if it must survive lifecycle gaps or process death.
  *
  * ## Intent Dispatching
  *
@@ -265,8 +270,9 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *    producers, the snapshot buffer ([SNAPSHOT_BUFFER_CAPACITY], DROP_OLDEST)
      *    discards the oldest snapshots, including their events.
      *
-     * Both are by design — events represent one-time side effects (navigation,
-     * toasts, dialogs) that should not be re-delivered after the fact.
+     * Both are by design. Event is a best-effort transport for low-frequency, time-sensitive UI
+     * effects (navigation, toasts, dialogs), not a reliable command queue. Dropping a stale event
+     * avoids blocking state processing and avoids replaying a backlog after the UI recovers.
      *
      * **Correct pattern**: subscribe to `eventFlow` before any `dispatch()` call
      * that may produce events (e.g., in `onViewCreated`, before any initial intent).
@@ -280,6 +286,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * viewModel.dispatch(MyIntent.Initialize)
      * viewModel.eventFlow.collectEvent(viewLifecycleOwner) { ... }
      * ```
+     *
+     * Keep the collector lightweight. If an outcome must not be lost, encode it in [stateFlow] with
+     * explicit acknowledgement, or use a durable queue when it must survive lifecycle gaps or process
+     * death.
      */
     override val eventFlow: Flow<E> = snapshots.mapNotNull { it.event }
         .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000), 0)

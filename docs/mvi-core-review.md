@@ -66,9 +66,10 @@
 
  证据 ReactiveContractImpl.kt:235：buffer(64, DROP_OLDEST)，而 eventFlow = snapshots.mapNotNull { it.event }（:287）。
 
- State 用 StateFlow（取最新、可跳过中间值，合理）；但 Event 与 State 同处一个 Snapshot，在拥塞时携带 event 的旧 snapshot 会被 DROP_OLDEST
- 丢掉，事件永久丢失。一次性事件容忍丢失可理解，但把“不可重放的关键副作用”耦合到一个会丢帧的缓冲上，是结构性风险。类 KDoc 已警示，但仍建议：让 event
- 走独立的、不与 state 帧共享丢弃策略的通道。
+ State 用 StateFlow（取最新、可跳过中间值，合理）；Event 与 State 同处一个 Snapshot，在拥塞时携带 event 的旧 snapshot 会被 DROP_OLDEST
+ 丢掉，事件永久丢失。该行为成立，但结合实际用途复核后决定保留：Event 定位为低频、时效优先、允许偶发丢失的 best-effort UI effect，丢弃过期事件优于阻塞
+ state/intent 管线或在 UI 恢复后集中投递旧事件。文档须明确：即使已有活跃 collector，拥塞仍可能丢事件；collector 应保持轻量；不可丢失的结果应建模为带确认的
+ State，需要跨生命周期或进程存活的工作应使用持久化队列。因此不采用独立 event 通道方案。
 
  ### 5. HYBRID 单路由协程瓶颈
 

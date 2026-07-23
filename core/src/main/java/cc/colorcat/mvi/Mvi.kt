@@ -152,12 +152,16 @@ object Mvi {
      *
      * In the frame model (see [PartialChange]), an Event is the **fleeting** part of a
      * frame: it exists in **exactly one frame** and is cleared or replaced the moment the
-     * next frame is produced (any [Snapshot.updateState] drops it). While it is present it
-     * is delivered to whatever consumer is currently subscribed; if there is no consumer,
-     * it is simply dropped — events are never retained or replayed.
+     * next frame is produced (any [Snapshot.updateState] drops it). While it is present it is
+     * eligible for delivery to current [Contract.eventFlow] collectors; events are never retained
+     * or replayed. Delivery is best-effort: an event is dropped when there is no active collector,
+     * and may also be dropped if the shared snapshot pipeline is congested.
      *
      * Use Events for actions that should happen once and not be retained in state, such as
      * showing a toast, navigating to another screen, or playing a sound.
+     * Keep collectors lightweight and use Event only for low-frequency, time-sensitive UI effects
+     * whose occasional loss is acceptable. Model work that must be observed or acknowledged as
+     * [State], or persist it in a durable queue when it must survive lifecycle or process loss.
      *
      * Contrast with [State], which is the persistent part that carries across frames.
      *
@@ -313,10 +317,11 @@ object Mvi {
      * ## Key Characteristics
      *
      * - **Immutable**: All methods return new instances; the original is never modified
-     * - **Event Lifecycle**: The [event] lives in exactly one frame. It is delivered to the
-     *   current subscriber (if any) and must be cleared when the next frame is produced —
+     * - **Event Lifecycle**: The [event] lives in exactly one frame. It is offered to current
+     *   subscribers on a best-effort basis and must be cleared when the next frame is produced —
      *   that is why [updateState] drops it. Letting an event carry into a later frame would
-     *   re-deliver it, so a non-null [event] is meant to survive only a single frame.
+     *   re-deliver it, so a non-null [event] is meant to survive only a single frame. See
+     *   [Contract.eventFlow] for absence and congestion loss semantics.
      * - **Type-Safe**: Compiler ensures state and event types match
      *
      * ## Construction

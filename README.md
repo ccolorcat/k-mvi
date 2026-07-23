@@ -342,7 +342,7 @@ flow {
 The read-only interface exposed to the UI:
 
 - `stateFlow: StateFlow<S>`: Hot flow of state changes
-- `eventFlow: Flow<E>`: Flow of one-time events
+- `eventFlow: Flow<E>`: Best-effort flow of one-time, time-sensitive UI events
 
 #### 7. ReactiveContract
 
@@ -817,6 +817,13 @@ viewModel.eventFlow.collectEvent(this) {
     }
 }
 ```
+
+> `eventFlow` is a best-effort UI-effect stream, not a reliable command queue. Events are not replayed:
+> they are lost without an active collector, and an active collector can still miss older events when
+> producers fill the bounded snapshot buffer (`DROP_OLDEST`). Subscribe before dispatching event-producing
+> intents and keep collectors lightweight—avoid blocking I/O or long-running work. Put outcomes that must
+> not be lost in `stateFlow` with explicit acknowledgement, or use a durable queue when they must survive
+> lifecycle gaps or process death.
 
 ### Converting UI Events to Intents
 
