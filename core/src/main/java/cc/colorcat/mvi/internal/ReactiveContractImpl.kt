@@ -185,7 +185,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * 3. Accumulate changes into snapshots via [scan] on [Dispatchers.Default]
      * 4. Buffer snapshots between Default computation and [shareIn] ([SNAPSHOT_BUFFER_CAPACITY]
      *    capacity, drop oldest on overflow — see class KDoc for rationale)
-     * 5. Share among collectors (started eagerly, no replay)
+     * 5. Share among collectors (started lazily on the first subscriber, no replay)
      *
      * ## Retry Strategy
      *
@@ -208,6 +208,17 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * order — `flowOn(Default)` then `buffer` — is chosen for readability (mirrors data-flow
      * direction), not because order affects correctness. No redundant intermediate channel is
      * created; DROP_OLDEST applies precisely at the boundary between Default coroutine and [shareIn].
+     *
+     * ## Startup Ordering
+     *
+     * Sharing is [SharingStarted.Lazily], not `Eagerly`: the upstream (intent consumption) begins
+     * only when the first subscriber attaches. Because [stateFlow] is an eager, permanent subscriber
+     * created during construction, it is guaranteed to be subscribed before the shared flow produces
+     * any snapshot. This removes a dispatcher-dependent race in which this `replay = 0` shared flow
+     * could emit the first snapshot before [stateFlow] had subscribed and thus drop the first state
+     * (possible on multi-threaded contract scopes; never on the `Main.immediate` viewModelScope).
+     * Intents dispatched before subscription simply wait buffered in [intentsChannel] and are
+     * delivered once sharing starts.
      */
     private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intentsChannel.receiveAsFlow()
         .toPartialChange(transformer)
@@ -235,7 +246,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         }
         .flowOn(Dispatchers.Default)
         .buffer(capacity = SNAPSHOT_BUFFER_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-        .shareIn(scope, SharingStarted.Eagerly, 0)
+        .shareIn(scope, SharingStarted.Lazily, 0)
 
     /**
      * Extracts state from snapshots and converts to [StateFlow].

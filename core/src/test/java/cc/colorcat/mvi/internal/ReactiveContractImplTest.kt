@@ -175,6 +175,37 @@ class ReactiveContractImplTest {
     }
 
     @Test
+    fun `state from intent dispatched before external collection is not lost on multithreaded scope`() = runBlocking {
+        // testScope is backed by a 2-thread pool. snapshots is started lazily by stateFlow's
+        // (eager, permanent) stateIn subscriber, so the shared upstream begins consuming intents
+        // only after that subscriber has attached — the replay=0 SharedFlow can no longer drop the
+        // first snapshot regardless of dispatcher. The intent below is dispatched before any
+        // external stateFlow collector, so its state must still be observable.
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            errorHandler = FatalErrorHandler.Rethrow,
+            transformer = strategyTransformer(
+                handleStrategy = HandleStrategy.CONCURRENT,
+                hybridStrategyConfig = HybridStrategyConfig(),
+                groupTagSelector = GroupTagSelector.byClass(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    Mvi.PartialChange<TestState, TestEvent> {
+                        it.updateState { if (this is TestState) copy(count = count + 1) else this }
+                    }.asSingleFlow()
+                },
+                retryPolicy = { _, _, _ -> false },
+            ),
+        )
+
+        assertEquals(DispatchResult.Submitted, contract.dispatch(TestIntent.Increment))
+
+        val state = withTimeout(2_000) { contract.stateFlow.first { it.count == 1 } }
+        assertEquals(1, state.count)
+    }
+
+    @Test
     fun `PartialChange apply exception invokes fatalErrorHandler and terminates pipeline`() = runBlocking {
         val fatal = CompletableDeferred<Throwable>()
         val failed = CompletableDeferred<Throwable>()
