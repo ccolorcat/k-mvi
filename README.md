@@ -227,7 +227,8 @@ A user action or system event — the **entry point** to the pipeline. You dispa
 framework routes it to a handler, and the handler produces `PartialChange`s. Under the **HYBRID**
 strategy, marker sub-interfaces decide how an intent is scheduled relative to others:
 
-- `Mvi.Intent.Concurrent`: processed in parallel — for independent actions (a refresh, an analytics ping).
+- `Mvi.Intent.Concurrent`: eligible for bounded concurrent processing — for independent actions
+  (a refresh, an analytics ping).
 - `Mvi.Intent.Sequential`: processed one-at-a-time in a single FIFO queue — for order-dependent
   actions (incrementing a counter, submitting a form).
 - Neither marker: falls back to **group** scheduling — sequential within the same
@@ -341,7 +342,7 @@ flow {
 The read-only interface exposed to the UI:
 
 - `stateFlow: StateFlow<S>`: Hot flow of state changes
-- `eventFlow: Flow<E>`: Flow of one-time events
+- `eventFlow: Flow<E>`: Best-effort flow of one-time, time-sensitive UI events
 
 #### 7. ReactiveContract
 
@@ -355,7 +356,10 @@ K-MVI supports three strategies for processing intents:
 
 #### 1. CONCURRENT
 
-All intents are processed in parallel. Best for independent operations.
+Intents are processed concurrently with a bounded number of active handlers. K-MVI calls
+`flatMapMerge` without an explicit `concurrency`, so the project's Coroutines default allows up to
+16 active handler flows. Additional intents wait for a slot. On JVM,
+`kotlinx.coroutines.flow.defaultConcurrency` can override that Coroutines default.
 
 ```kotlin
 KMvi.configure {
@@ -377,9 +381,18 @@ KMvi.configure {
 
 Combines both approaches:
 
-- Intents marked with `Mvi.Intent.Concurrent` are processed in parallel
-- Intents marked with `Mvi.Intent.Sequential` are processed sequentially
-- Intents can be grouped (group members process sequentially, groups process in parallel)
+- All intents marked with `Mvi.Intent.Concurrent` share one concurrent group and use the same bounded
+  concurrency as CONCURRENT.
+- All intents marked with `Mvi.Intent.Sequential` share one global sequential group.
+- Intents with neither marker use `GroupTagSelector`: the same tag is sequential, different tags run
+  in parallel. Prefer stable, low-cardinality business buckets; do not use raw IDs or queries unless
+  per-value ordering is required.
+
+All groups share one routing coroutine. If one group fills its channel, later intents for every group
+wait until that group has capacity. Throttle high-frequency sources and prevent duplicate submissions
+before increasing `groupChannelCapacity`; reserve `Channel.UNLIMITED` for externally bounded traffic.
+See [HYBRID grouping and backpressure](docs/hybrid-grouping-and-backpressure.md) for the complete
+grouping guide, overload playbook, and diagnostic-log behavior.
 
 ##### Global Configuration (Application-wide)
 
@@ -814,6 +827,13 @@ viewModel.eventFlow.collectEvent(this) {
 }
 ```
 
+> `eventFlow` is a best-effort UI-effect stream, not a reliable command queue. Events are not replayed:
+> they are lost without an active collector, and an active collector can still miss older events when
+> producers fill the bounded snapshot buffer (`DROP_OLDEST`). Subscribe before dispatching event-producing
+> intents and keep collectors lightweight—avoid blocking I/O or long-running work. Put outcomes that must
+> not be lost in `stateFlow` with explicit acknowledgement, or use a durable queue when they must survive
+> lifecycle gaps or process death.
+
 ### Converting UI Events to Intents
 
 K-MVI provides convenient extensions for common UI events:
@@ -897,9 +917,9 @@ class MyApplication : Application() {
 
 #### HandleStrategy
 
-- `CONCURRENT`: All intents process in parallel
+- `CONCURRENT`: Bounded concurrency, up to 16 active handler flows by default
 - `SEQUENTIAL`: All intents process one-by-one
-- `HYBRID`: Mix of concurrent and sequential based on intent markers and grouping
+- `HYBRID`: Mix of bounded concurrency and sequential processing based on markers and grouping
 
 #### IntentQueueConfig
 
@@ -951,7 +971,14 @@ Default policy:
 Configuration for HYBRID strategy:
 
 - `groupChannelCapacity`: Buffer size for grouped intent channels (default: `Channel.BUFFERED` = 64).
-  Allowed values are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any positive `Int` (including `Channel.UNLIMITED`).
+  Allowed values are `Channel.BUFFERED`, `Channel.CONFLATED`, `Channel.RENDEZVOUS`, and any
+  positive `Int` (including `Channel.UNLIMITED`).
+- The capacity is per group. A bounded group warns at 80% backlog, rearms after dropping to 50%, and
+  warns again if it becomes full and suspends the shared router. These thresholds are internal constants.
+- `Channel.RENDEZVOUS`, `Channel.CONFLATED`, and `Channel.UNLIMITED` are not monitored because they
+  do not have a meaningful percentage-based fill level.
+- Handle warnings by throttling producers, checking group tags, and shortening handlers before increasing
+  capacity. A full group can eventually fill the contract entry queue and make `dispatch()` return `Full`.
 
 #### GroupTagSelector
 
@@ -1268,13 +1295,13 @@ Check the [`app`](app/) module for complete examples.
 
 ## R8 / ProGuard
 
-The `core` AAR ships consumer R8 rules for K-MVI's public API and marker subtypes. If your app uses
-R8 with aggressive shrinking, keep your concrete `Intent`, `State`, `Event`, and `PartialChange`
-types reachable; these types are used for exact-class handler lookup and type-filtered event
-collection.
+K-MVI requires no consumer keep rules for normal use. Handler lookup, grouping, and typed event
+collection use direct `Class`/`KClass` references and identity checks rather than name-based
+reflection, so R8 can safely shrink, optimize, and obfuscate the library and app MVI types.
 
-For app-specific reflection, add your own keep rules. The sample app avoids reflection for
-ViewBinding delegates by passing generated binding factory references explicitly.
+Add app-specific keep rules only when your app accesses those types through reflection,
+serialization, or JNI. The sample app avoids reflection for ViewBinding delegates by passing
+generated binding factory references explicitly.
 
 ## Requirements
 

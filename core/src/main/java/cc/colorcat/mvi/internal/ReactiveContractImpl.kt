@@ -32,12 +32,11 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 
 private const val SNAPSHOT_BUFFER_CAPACITY = 64
 
@@ -88,11 +87,16 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * for correctness. The DROP_OLDEST policy is intentional — stale snapshots (including their
  * events) should be discarded rather than delivered late, keeping events timely and relevant.
  *
- * **Warning**: Because snapshots carry events, DROP_OLDEST may silently drop events when
- * [eventFlow]'s downstream collector is slower than the state pipeline. For example, if
- * the UI thread is busy and the buffer is full, the oldest snapshot (with its event) is
- * dropped before the collector can read it. Ensure [eventFlow] collectors are lightweight
- * (no heavy computation, I/O, or blocking calls inside `collect`).
+ * **Event delivery is best-effort**: Because snapshots carry events, DROP_OLDEST may silently drop
+ * an event even when [eventFlow] has an active collector. This happens when producers outrun the
+ * downstream pipeline long enough to fill the snapshot buffer, for example while the UI thread is
+ * busy or an event collector is suspended. This is intentional: Event is intended for low-frequency,
+ * time-sensitive UI effects, and dropping a stale effect is preferable to blocking state processing
+ * or delivering a backlog after the UI recovers.
+ *
+ * Keep [eventFlow] collectors lightweight; do not perform blocking I/O or long-running work in
+ * `collect`. Data or work that must not be lost belongs in persistent state with acknowledgement,
+ * or in a durable queue if it must survive lifecycle gaps or process death.
  *
  * ## Intent Dispatching
  *
@@ -109,6 +113,9 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * - Routes unrecoverable failures to [FatalErrorHandler] after [RetryPolicy] gives up
  * - Treats [Mvi.PartialChange.apply] failures as developer errors that fail the
  *   processing coroutine through [FatalErrorHandler]
+ * - Treats a transformer that completes while the scope is still active as a fatal
+ *   [IllegalStateException] (a terminating transformer would otherwise leave a zombie
+ *   contract), routed through [FatalErrorHandler]
  * - Logs warnings when scope is inactive or the dispatch queue is full
  *
  * ## Lifecycle
@@ -133,8 +140,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     private val scope: CoroutineScope,
     initState: S,
     intentQueueConfig: IntentQueueConfig,
-    retryPolicy: RetryPolicy,
-    fatalErrorHandler: FatalErrorHandler,
+    errorHandler: FatalErrorHandler,
     transformer: IntentTransformer<I, S, E>,
 ) : ReactiveContract<I, S, E> {
     private val scopeJob = requireNotNull(scope.coroutineContext[Job]) {
@@ -158,7 +164,8 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * The pipeline uses [receiveAsFlow] (not `consumeAsFlow`) so the channel is NOT closed when
      * [retryWhen] re-collects, allowing buffered intents to survive a retry. The channel is closed
-     * when [scope] completes so late [dispatch] calls fail deterministically.
+     * when [scope] completes or the pipeline fails fatally so late [dispatch] calls fail
+     * deterministically.
      */
     private val intentsChannel = Channel<I>(
         capacity = intentQueueConfig.capacity,
@@ -178,7 +185,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * 3. Accumulate changes into snapshots via [scan] on [Dispatchers.Default]
      * 4. Buffer snapshots between Default computation and [shareIn] ([SNAPSHOT_BUFFER_CAPACITY]
      *    capacity, drop oldest on overflow — see class KDoc for rationale)
-     * 5. Share among collectors (started eagerly, no replay)
+     * 5. Share among collectors (started lazily on the first subscriber, no replay)
      *
      * ## Retry Strategy
      *
@@ -201,22 +208,45 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * order — `flowOn(Default)` then `buffer` — is chosen for readability (mirrors data-flow
      * direction), not because order affects correctness. No redundant intermediate channel is
      * created; DROP_OLDEST applies precisely at the boundary between Default coroutine and [shareIn].
+     *
+     * ## Startup Ordering
+     *
+     * Sharing is [SharingStarted.Lazily], not `Eagerly`: the upstream (intent consumption) begins
+     * only when the first subscriber attaches. Because [stateFlow] is an eager, permanent subscriber
+     * created during construction, it is guaranteed to be subscribed before the shared flow produces
+     * any snapshot. This removes a dispatcher-dependent race in which this `replay = 0` shared flow
+     * could emit the first snapshot before [stateFlow] had subscribed and thus drop the first state
+     * (possible on multi-threaded contract scopes; never on the `Main.immediate` viewModelScope).
+     * Intents dispatched before subscription simply wait buffered in [intentsChannel] and are
+     * delivered once sharing starts.
      */
     private val snapshots: SharedFlow<Mvi.Snapshot<S, E>> = intentsChannel.receiveAsFlow()
         .toPartialChange(transformer)
-        .retryWhen { cause, attempt -> retryPolicy(attempt, cause) }
         .scan(Mvi.Snapshot<S, E>(initState)) { oldSnapshot, partialChange ->
             partialChange.apply(oldSnapshot)
         }
+        .onCompletion { cause ->
+            // Flow completion is only valid when the contract scope is also ending. While the
+            // scope remains active it violates the transformer lifetime contract, so convert it
+            // to a fatal failure; the downstream catch closes the entry queue before reporting it.
+            if (cause == null && scopeJob.isActive) {
+                throw IllegalStateException(
+                    "IntentTransformer completed while the contract scope is still active. " +
+                        "A transformer must keep its PartialChange flow open for the contract " +
+                        "lifetime; cancel the scope to shut the contract down instead.",
+                )
+            }
+        }
         .catch { cause ->
-            if (cause is CancellationException) throw cause
+            if (cause is CancellationException && !scopeJob.isActive) throw cause
 
+            intentsChannel.cancel()
             logger.e(TAG, cause) { "MVI pipeline failed." }
-            fatalErrorHandler.handle(cause)
+            errorHandler.handle(cause)
         }
         .flowOn(Dispatchers.Default)
         .buffer(capacity = SNAPSHOT_BUFFER_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-        .shareIn(scope, SharingStarted.Eagerly, 0)
+        .shareIn(scope, SharingStarted.Lazily, 0)
 
     /**
      * Extracts state from snapshots and converts to [StateFlow].
@@ -251,8 +281,9 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *    producers, the snapshot buffer ([SNAPSHOT_BUFFER_CAPACITY], DROP_OLDEST)
      *    discards the oldest snapshots, including their events.
      *
-     * Both are by design — events represent one-time side effects (navigation,
-     * toasts, dialogs) that should not be re-delivered after the fact.
+     * Both are by design. Event is a best-effort transport for low-frequency, time-sensitive UI
+     * effects (navigation, toasts, dialogs), not a reliable command queue. Dropping a stale event
+     * avoids blocking state processing and avoids replaying a backlog after the UI recovers.
      *
      * **Correct pattern**: subscribe to `eventFlow` before any `dispatch()` call
      * that may produce events (e.g., in `onViewCreated`, before any initial intent).
@@ -266,6 +297,10 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * viewModel.dispatch(MyIntent.Initialize)
      * viewModel.eventFlow.collectEvent(viewLifecycleOwner) { ... }
      * ```
+     *
+     * Keep the collector lightweight. If an outcome must not be lost, encode it in [stateFlow] with
+     * explicit acknowledgement, or use a durable queue when it must survive lifecycle gaps or process
+     * death.
      */
     override val eventFlow: Flow<E> = snapshots.mapNotNull { it.event }
         .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000), 0)
@@ -286,7 +321,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * @param intent The user intent to process.
      */
     override fun dispatch(intent: I): DispatchResult {
-        if (!scope.isActive) {
+        if (!scopeJob.isActive) {
             logger.w(TAG) { "Contract unavailable, intent discarded: ${intent.diagnosticName}" }
             return DispatchResult.Unavailable
         }
@@ -294,7 +329,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
         val result = intentsChannel.trySend(intent)
         return when {
             result.isSuccess -> DispatchResult.Submitted
-            !scope.isActive || result.isClosed -> {
+            !scopeJob.isActive || result.isClosed -> {
                 logger.w(TAG, result.exceptionOrNull()) {
                     "Contract unavailable, intent discarded: ${intent.diagnosticName}"
                 }
@@ -351,7 +386,7 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
  * ## Processing Strategy
  *
  * Intents are processed according to the configured [HandleStrategy]:
- * - **CONCURRENT**: All intents in parallel
+ * - **CONCURRENT**: Bounded concurrency, up to `flatMapMerge`'s default limit
  * - **SEQUENTIAL**: All intents one-by-one
  * - **HYBRID**: Mixed (based on intent type and grouping)
  *
@@ -366,8 +401,8 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     scope: CoroutineScope,
     initState: S,
     intentQueueConfig: IntentQueueConfig,
-    retryPolicy: RetryPolicy,
-    fatalErrorHandler: FatalErrorHandler,
+    retryPolicy: RetryPolicy<I>,
+    errorHandler: FatalErrorHandler,
     handleStrategy: HandleStrategy,
     hybridStrategyConfig: HybridStrategyConfig,
     groupTagSelector: GroupTagSelector<I>,
@@ -376,9 +411,8 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
     scope = scope,
     initState = initState,
     intentQueueConfig = intentQueueConfig,
-    retryPolicy = retryPolicy,
-    fatalErrorHandler = fatalErrorHandler,
-    transformer = strategyTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, delegate),
+    errorHandler = errorHandler,
+    transformer = strategyTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, delegate, retryPolicy),
 ) {
     /**
      * Public constructor that creates the delegate internally.
@@ -397,8 +431,8 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         scope: CoroutineScope,
         initState: S,
         intentQueueConfig: IntentQueueConfig,
-        retryPolicy: RetryPolicy,
-        fatalErrorHandler: FatalErrorHandler,
+        retryPolicy: RetryPolicy<I>,
+        errorHandler: FatalErrorHandler,
         handleStrategy: HandleStrategy,
         hybridStrategyConfig: HybridStrategyConfig,
         groupTagSelector: GroupTagSelector<I> = GroupTagSelector.byClass(),
@@ -408,7 +442,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
         initState = initState,
         intentQueueConfig = intentQueueConfig,
         retryPolicy = retryPolicy,
-        fatalErrorHandler = fatalErrorHandler,
+        errorHandler = errorHandler,
         handleStrategy = handleStrategy,
         hybridStrategyConfig = hybridStrategyConfig,
         groupTagSelector = groupTagSelector,

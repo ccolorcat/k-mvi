@@ -29,6 +29,43 @@ import java.util.concurrent.ConcurrentHashMap
  * Intent → IntentHandler.handle() → Flow<PartialChange> → State Updates
  * ```
  *
+ * ## Recommended: Defer Fallible Work to the Flow
+ *
+ * Treat [handle] as a **cold Flow factory**. It should return immediately; put validation,
+ * request preparation, network/database access, and any other code that may throw inside
+ * `flow { ... }`:
+ *
+ * ```kotlin
+ * val loadDataHandler = IntentHandler<LoadDataIntent, MyState, MyEvent> { intent ->
+ *     flow {
+ *         emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
+ *         val data = repository.loadData(intent.id)
+ *         emit(Mvi.PartialChange { snapshot ->
+ *             snapshot.updateState { copy(loading = false, data = data) }
+ *         })
+ *     }
+ * }
+ * ```
+ *
+ * Strategy-based contracts attach [RetryPolicy] to the returned Flow. An exception thrown
+ * while that Flow is being collected can therefore be evaluated by the policy. Code executed
+ * before the Flow is returned is outside that retry boundary:
+ *
+ * ```kotlin
+ * // Avoid: prepareRequest runs synchronously before RetryPolicy is attached.
+ * val handler = IntentHandler<LoadDataIntent, MyState, MyEvent> { intent ->
+ *     val request = repository.prepareRequest(intent.id)
+ *     flow {
+ *         val data = request.execute()
+ *         emit(Mvi.PartialChange { it.updateState { copy(data = data) } })
+ *     }
+ * }
+ * ```
+ *
+ * A retry collects the same cold Flow again from the beginning. Work and [Mvi.PartialChange]
+ * emissions before the failure may therefore run again; keep pre-failure operations idempotent
+ * or handle their recovery explicitly inside the Flow.
+ *
  * ## Usage Examples
  *
  * ### Simple Handler (Single State Change)
@@ -38,37 +75,6 @@ import java.util.concurrent.ConcurrentHashMap
  *     flowOf(Mvi.PartialChange { snapshot ->
  *         snapshot.updateState { copy(data = emptyList()) }
  *     })
- * }
- * ```
- *
- * ### Complex Handler (Multiple State Changes)
- *
- * ```kotlin
- * val loadDataHandler = IntentHandler<LoadDataIntent, MyState, MyEvent> { intent ->
- *     flow {
- *         // First: Set loading state
- *         emit(Mvi.PartialChange { it.updateState { copy(loading = true) } })
- *
- *         try {
- *             // Isolate blocking network, database, or file work from the Default pipeline.
- *             val data = withContext(Dispatchers.IO) {
- *                 repository.loadData(intent.id)
- *             }
- *             // Second: Update with loaded data
- *             emit(Mvi.PartialChange { snapshot ->
- *                 snapshot.updateWith(MyEvent.ShowSuccess) {
- *                     copy(loading = false, data = data)
- *                 }
- *             })
- *         } catch (e: Exception) {
- *             // Third: Handle error
- *             emit(Mvi.PartialChange { snapshot ->
- *                 snapshot.updateWith(MyEvent.ShowError(e.message)) {
- *                     copy(loading = false)
- *                 }
- *             })
- *         }
- *     }
  * }
  * ```
  *
@@ -88,9 +94,10 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
      * - Build a Flow that emits multiple state changes over time
      * - Build a Flow that emits events alongside state changes
      *
-     * Keep this method synchronous and lightweight. Expensive or suspend work must be
-     * placed inside the returned Flow so [HandleStrategy] operators can control the
-     * complete lifecycle of each intent.
+     * Keep this method synchronous and lightweight. Expensive, fallible, or suspend work must be
+     * placed inside the returned Flow so [HandleStrategy] and [RetryPolicy] can control the
+     * complete lifecycle of each intent. See "Recommended: Defer Fallible Work to the Flow"
+     * in [IntentHandler].
      *
      * @param intent The intent to handle
      * @return A flow of partial changes to be applied to the current state

@@ -74,9 +74,9 @@ UI → dispatch(intent) → intentsChannel (capacity 256, SUSPEND)
 
 | Strategy | Operator | Behavior |
 |---|---|---|
-| `CONCURRENT` | `flatMapMerge` | All parallel |
+| `CONCURRENT` | `flatMapMerge` | Bounded concurrency (16 active by default) |
 | `SEQUENTIAL` | `flatMapConcat` | All serial |
-| `HYBRID` (default) | `groupHandle` + `flattenMerge(MAX_VALUE)` | Concurrent→parallel, Sequential→serial, Fallback→grouped |
+| `HYBRID` (default) | `groupHandle` + `flattenMerge(MAX_VALUE)` | Concurrent→bounded concurrency, Sequential→serial, Fallback→grouped |
 
 ### Critical Gotchas
 

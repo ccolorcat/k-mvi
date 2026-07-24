@@ -4,8 +4,8 @@ groupId = "cc.colorcat.mvi"
 compileSdk = "34"
 minSdk = "24"
 targetSdk = "34"
-versionCode = "14"
-versionName = "1.4.4-SNAPSHOT"
+versionCode = "15"
+versionName = "1.5.0-SNAPSHOT"
 
 # JAVA version
 java = "17"
@@ -27,6 +27,7 @@ navigationUiKtx = "2.9.6"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }

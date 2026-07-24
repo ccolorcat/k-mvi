@@ -3,6 +3,7 @@ package cc.colorcat.mvi
 import cc.colorcat.mvi.KMvi.configure
 import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.d
+import cc.colorcat.mvi.internal.diagnosticName
 import cc.colorcat.mvi.internal.e
 import cc.colorcat.mvi.internal.w
 import java.io.IOException
@@ -48,7 +49,9 @@ import java.io.IOException
  *
  * @see KMvi.Configuration.retryPolicy
  */
-typealias RetryPolicy = (attempt: Long, cause: Throwable) -> Boolean
+fun interface RetryPolicy<in I : Mvi.Intent> {
+    fun shouldRetry(intent: I, attempt: Long, cause: Throwable): Boolean
+}
 
 /**
  * Global configuration manager for the K-MVI framework.
@@ -116,14 +119,14 @@ object KMvi {
      *
      * Determines whether to restart the pipeline subscription after a failure.
      */
-    internal val retryPolicy: RetryPolicy
+    internal val retryPolicy: RetryPolicy<Mvi.Intent>
         get() = config.retryPolicy
 
     /**
      * The global fatal error handler for unrecoverable pipeline failures.
      */
-    internal val fatalErrorHandler: FatalErrorHandler
-        get() = config.fatalErrorHandler
+    internal val errorHandler: FatalErrorHandler
+        get() = config.errorHandler
 
     /**
      * The global dispatch queue configuration.
@@ -211,12 +214,12 @@ object KMvi {
      * @param cause The throwable that caused the failure
      * @return `true` if should retry (attempt < 3 and cause is [IOException]), `false` otherwise
      */
-    private fun defaultRetryPolicy(attempt: Long, cause: Throwable): Boolean {
+    private fun defaultRetryPolicy(intent: Mvi.Intent, attempt: Long, cause: Throwable): Boolean {
         if (attempt < 3 && cause is IOException) {
-            logger.w(TAG, cause) { "retry count: $attempt" }
+            logger.w(TAG, cause) { "retry count: $attempt for ${intent.diagnosticName}" }
             return true
         }
-        logger.e(TAG, cause) { "give up retry after $attempt attempts" }
+        logger.e(TAG, cause) { "give up retry after $attempt attempts for ${intent.diagnosticName}" }
         return false
     }
 
@@ -253,7 +256,7 @@ object KMvi {
      * @property hybridStrategyConfig Runtime configuration for [HandleStrategy.HYBRID].
      * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
      *                       Default: retry on [IOException] when `attempt < 3` (up to 3 retries)
-     * @property fatalErrorHandler Handles unrecoverable pipeline failures after retry gives up,
+     * @property errorHandler Handles unrecoverable pipeline failures after retry gives up,
      *                             and developer errors thrown from [Mvi.PartialChange.apply].
      *                             Default: [FatalErrorHandler.Rethrow]
      * @property logger The logger instance. Default: Logger with WARN level
@@ -267,10 +270,10 @@ object KMvi {
         val intentQueueConfig: IntentQueueConfig = IntentQueueConfig(),
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
         val hybridStrategyConfig: HybridStrategyConfig = HybridStrategyConfig(),
-        val retryPolicy: RetryPolicy = { attempt: Long, cause: Throwable ->
-            defaultRetryPolicy(attempt, cause)
+        val retryPolicy: RetryPolicy<Mvi.Intent> = RetryPolicy { intent, attempt, cause ->
+            defaultRetryPolicy(intent, attempt, cause)
         },
-        val fatalErrorHandler: FatalErrorHandler = FatalErrorHandler.Rethrow,
+        val errorHandler: FatalErrorHandler = FatalErrorHandler.Rethrow,
         val logger: Logger = Logger(),
     ) {
         override fun toString(): String {

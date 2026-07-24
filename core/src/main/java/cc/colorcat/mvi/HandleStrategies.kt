@@ -14,13 +14,13 @@ import kotlinx.coroutines.channels.Channel
  *
  * | Strategy | Processing Model | Performance | Ordering | Use Case |
  * |----------|-----------------|-------------|----------|----------|
- * | [CONCURRENT] | All parallel | Highest | No guarantee | Independent operations |
+ * | [CONCURRENT] | Bounded concurrency | High | No guarantee | Independent operations |
  * | [SEQUENTIAL] | All serial | Lowest | Strict | Order-dependent operations |
  * | [HYBRID] | Mixed | Balanced | Configurable | Most applications ⭐ |
  *
  * ## Implementation Details
  *
- * - **CONCURRENT**: Uses `Flow.flatMapMerge` to process all intents in parallel
+ * - **CONCURRENT**: Uses `Flow.flatMapMerge` with its default concurrency limit
  * - **SEQUENTIAL**: Uses `Flow.flatMapConcat` to process intents one-by-one
  * - **HYBRID**: Combines both approaches based on intent type and grouping
  *
@@ -43,13 +43,15 @@ import kotlinx.coroutines.channels.Channel
  */
 enum class HandleStrategy {
     /**
-     * All intents are processed concurrently (in parallel).
+     * Intents are processed concurrently up to `Flow.flatMapMerge`'s default concurrency limit.
      *
      * ## Behavior
      * - Uses `Flow.flatMapMerge` internally
-     * - All intents execute in parallel without waiting for each other
-     * - No ordering guarantees between intents
-     * - Maximum throughput and responsiveness
+     * - At most 16 handler flows run at once with the project's Coroutines default
+     * - Additional intents wait until an active handler flow completes
+     * - No ordering guarantees between active intents
+     * - The JVM system property `kotlinx.coroutines.flow.defaultConcurrency` can override the
+     *   Coroutines default; K-MVI does not set an explicit limit
      *
      * ## Use Cases
      * - Independent UI interactions (clicks, scrolls)
@@ -64,7 +66,7 @@ enum class HandleStrategy {
      *
      * ## Example
      * ```kotlin
-     * // All these intents execute in parallel
+     * // These intents can execute together while concurrency slots are available
      * viewModel.dispatch(ClickButton)
      * viewModel.dispatch(ScrollList)
      * viewModel.dispatch(LoadMoreData)
@@ -118,11 +120,14 @@ enum class HandleStrategy {
      * Intents are categorized into three groups:
      *
      * ### 1. Concurrent Intents ([Mvi.Intent.Concurrent])
-     * - Processed in parallel using `flatMapMerge`
-     * - All concurrent intents execute simultaneously
+     * - All concurrent intents share one fixed concurrent group; they are not grouped by class
+     * - Processed in parallel using `flatMapMerge` with its default concurrency limit
+     * - At most 16 handler flows run at once with the project's Coroutines default
+     * - Additional concurrent intents wait for an available slot
      * - Best for independent UI interactions
      *
      * ### 2. Sequential Intents ([Mvi.Intent.Sequential])
+     * - All sequential intents share one fixed global sequential group; they are not grouped by class
      * - Processed one-by-one using `flatMapConcat`
      * - All sequential intents form a single queue
      * - Best for operations requiring strict order
@@ -132,6 +137,25 @@ enum class HandleStrategy {
      * - **Within each group**: Processed sequentially
      * - **Between groups**: Processed in parallel
      * - Best for operations that need partial ordering
+     *
+     * ## Choosing a Group
+     *
+     * - Use [Mvi.Intent.Concurrent] for independent work that may overlap.
+     * - Use [Mvi.Intent.Sequential] only when the operation must be ordered with every other
+     *   sequential intent in the contract.
+     * - Use fallback grouping when ordering is required only within a business category. Give
+     *   operations that must be ordered together the same stable, low-cardinality tag; use different
+     *   tags for unrelated work.
+     * - Avoid raw user IDs, item IDs, queries, timestamps, and other high-cardinality tags unless
+     *   per-value ordering is required. Each distinct tag keeps a group channel alive.
+     *
+     * ## Backpressure
+     *
+     * All groups share one routing coroutine. If one group fills its channel, routing pauses for every
+     * group until that channel has capacity again. High-frequency inputs should be throttled, sampled,
+     * or conflated before dispatch; submission UI should normally disable duplicate actions. Increase
+     * [HybridStrategyConfig.groupChannelCapacity] only after measuring sustained backlog, and use
+     * [Channel.UNLIMITED] only when the producer is externally bounded.
      *
      * ## Example
      *
@@ -152,7 +176,7 @@ enum class HandleStrategy {
      *
      * ## Visual Representation
      * ```
-     * CONCURRENT Group    ─→ [Click] [Scroll] [Refresh]  (all parallel)
+     * CONCURRENT Group    ─→ [Click] [Scroll] [Refresh]  (up to 16 active by default)
      *
      * SEQUENTIAL Group    ─→ [LoadUser(1)] → [LoadUser(2)]  (strict order)
      *
@@ -184,7 +208,7 @@ enum class HandleStrategy {
      * - ✅ Flexible: Supports different processing needs
      * - ✅ Balanced: Good performance without sacrificing safety
      * - ✅ Fine-grained control: Per-intent type strategy
-     * - ✅ Prevents blocking: Parallel groups avoid total queue blocking
+     * - ✅ Parallel groups normally isolate handler execution; see Backpressure for routing limits
      *
      * @see HybridStrategyConfig
      * @see Mvi.Intent.Concurrent
@@ -246,15 +270,23 @@ fun interface GroupTagSelector<in I : Mvi.Intent> {
  *
  * ## Channel Capacity
  *
- * The [groupChannelCapacity] parameter controls the buffer size of internal channels
- * used for grouping. The default value ([Channel.BUFFERED] = 64) is suitable for
- * most use cases.
+ * The [groupChannelCapacity] parameter controls the **per-group** buffer size of internal channels.
+ * It is not a shared capacity across all groups. The default value ([Channel.BUFFERED]) uses the
+ * Coroutines runtime default (64 unless `kotlinx.coroutines.channels.defaultBuffer` overrides it)
+ * and is suitable for most low-frequency UI workloads.
  *
  * ### When to Adjust
- * - **Increase** if you have high-frequency intents and see backpressure
+ * - **Throttle first** with debounce, sampling, conflation, or duplicate-action prevention
+ * - **Review grouping** so unrelated work does not share one fallback tag
+ * - **Keep handlers non-blocking** and isolate blocking I/O on the appropriate dispatcher
+ * - **Increase** only when diagnostics show legitimate, bounded bursts
  * - **Decrease** if you want to limit buffering and apply backpressure earlier
- * - **Use [Channel.UNLIMITED]** if you never want to drop intents (may cause memory issues)
+ * - **Use [Channel.UNLIMITED]** only for externally bounded traffic (otherwise memory is unbounded)
  * - **Use [Channel.RENDEZVOUS]** (0) for strict backpressure
+ *
+ * A full group channel suspends the single HYBRID router, temporarily preventing unrelated groups
+ * from receiving later intents. If the contract entry queue then fills, [ReactiveContract.dispatch]
+ * returns [DispatchResult.Full].
  *
  * ## Group Count Diagnostics
  *
@@ -269,10 +301,21 @@ fun interface GroupTagSelector<in I : Mvi.Intent> {
  * The warning observes all active HYBRID group channels, including
  * the fixed concurrent and sequential groups when they have been opened.
  *
+ * ## Backlog Diagnostics
+ *
+ * Backlog warnings use internal constants and require no configuration:
+ * - Bounded groups warn once at 80% capacity and rearm after falling to 50% or lower
+ * - A full group warns when routing is about to suspend
+ * - [Channel.UNLIMITED], [Channel.RENDEZVOUS], and [Channel.CONFLATED] are not monitored
+ *   (these capacities have no meaningful percentage-based fill level)
+ *
+ * These diagnostics do not change buffering, dropping, ordering, or dispatch results. Logs identify
+ * groups only by tag type and hash; raw tag values are not logged.
+ *
  * @param groupChannelCapacity The capacity of internal channels used for grouping.
  *                             Allowed values: [Channel.BUFFERED], [Channel.CONFLATED],
  *                             [Channel.RENDEZVOUS], or any positive Int.
- *                             Defaults to [Channel.BUFFERED] (64).
+ *                             Defaults to [Channel.BUFFERED] (runtime default 64).
  *                             Adjust based on your intent frequency and backpressure needs.
  * @param groupCountWarningThreshold The active group channel count that triggers the first
  *                                   warning log. Warnings repeat only when the count reaches

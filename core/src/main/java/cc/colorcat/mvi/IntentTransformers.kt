@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.flattenMerge
+import kotlinx.coroutines.flow.retryWhen
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -46,6 +47,14 @@ import java.util.concurrent.ConcurrentHashMap
  * Implementations should be stateless or otherwise safe for the coroutine context
  * in which their returned flow is collected. Concurrency semantics are determined
  * by the flow operators used by the implementation.
+ *
+ * **Lifetime contract**: the returned flow must stay open for the contract's lifetime.
+ * A transformer that completes normally while the contract scope is still active (e.g. by
+ * returning `emptyFlow()` or applying `take(n)`) would silently stop all further intent
+ * processing, so the pipeline treats such completion as a fatal [IllegalStateException]
+ * routed through the configured [FatalErrorHandler]. The fatal path cancels the intent queue,
+ * making subsequent [ReactiveContract.dispatch] calls return [DispatchResult.Unavailable].
+ * To shut a contract down normally, cancel its scope instead of completing the flow.
  *
  * @param I The intent type
  * @param S The state type
@@ -82,8 +91,9 @@ internal fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> strategyTransformer(
     hybridStrategyConfig: HybridStrategyConfig,
     groupTagSelector: GroupTagSelector<I>,
     handler: IntentHandler<I, S, E>,
+    retryPolicy: RetryPolicy<I>,
 ): IntentTransformer<I, S, E> {
-    return StrategyIntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, handler)
+    return StrategyIntentTransformer(handleStrategy, hybridStrategyConfig, groupTagSelector, handler, retryPolicy)
 }
 
 
@@ -147,8 +157,13 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     private val hybridStrategyConfig: HybridStrategyConfig,
     private val groupTagSelector: GroupTagSelector<I>,
     private val handler: IntentHandler<I, S, E>,
+    private val retryPolicy: RetryPolicy<I>,
 ) : IntentTransformer<I, S, E> {
     private val conflictIntentTypes = ConcurrentHashMap.newKeySet<Class<*>>()
+
+    private fun handleWithRetry(intent: I): Flow<Mvi.PartialChange<S, E>> {
+        return handler.handle(intent).retryWhen { cause, attempt -> retryPolicy.shouldRetry(intent, attempt, cause) }
+    }
 
     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
         logger.i(TAG) {
@@ -159,8 +174,8 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
             }
         }
         return when (handleStrategy) {
-            HandleStrategy.CONCURRENT -> intentFlow.flatMapMerge { handler.handle(it) }
-            HandleStrategy.SEQUENTIAL -> intentFlow.flatMapConcat { handler.handle(it) }
+            HandleStrategy.CONCURRENT -> intentFlow.flatMapMerge { handleWithRetry(it) }
+            HandleStrategy.SEQUENTIAL -> intentFlow.flatMapConcat { handleWithRetry(it) }
             HandleStrategy.HYBRID -> intentFlow.hybrid().flattenMerge(concurrency = Int.MAX_VALUE)
         }
     }
@@ -173,7 +188,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * 2. Processes each group according to its tag (via [handleByTag])
      * 3. Returns a flow of flows (outer flow = groups, inner flow = changes)
      *
-     * The result is then flattened by `flattenMerge()` to merge all groups in parallel.
+     * The result is then flattened by `flattenMerge(Int.MAX_VALUE)` to merge the groups.
      *
      * @return A flow of flows, where each inner flow represents a group's partial changes
      */
@@ -186,7 +201,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     /**
      * Processes a flow of intents within a group based on the group's tag.
      *
-     * - **Concurrent group**: Uses `flatMapMerge` for parallel processing
+     * - **Concurrent group**: Uses `flatMapMerge` with its default concurrency limit
      * - **Other groups** (sequential and fallback): Uses `flatMapConcat` for sequential processing
      *
      * This differentiation allows concurrent intents to be processed in parallel
@@ -197,9 +212,9 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      */
     private fun Flow<I>.handleByTag(tag: Any): Flow<Mvi.PartialChange<S, E>> {
         return if (tag === ConcurrentGroup) {
-            flatMapMerge { handler.handle(it) }
+            flatMapMerge { handleWithRetry(it) }
         } else {
-            flatMapConcat { handler.handle(it) }
+            flatMapConcat { handleWithRetry(it) }
         }
     }
 
@@ -219,7 +234,7 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * - **Concurrent Intent** ([Mvi.Intent.Concurrent] only):
      *   - Tag: private concurrent sentinel
-     *   - Processing: Parallel with all other concurrent intents
+     *   - Processing: Bounded concurrency; up to the `flatMapMerge` default are active at once
      *
      * - **Sequential Intent** ([Mvi.Intent.Sequential] only):
      *   - Tag: private sequential sentinel

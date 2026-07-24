@@ -7,19 +7,21 @@ import cc.colorcat.mvi.HandleStrategy
 import cc.colorcat.mvi.HybridStrategyConfig
 import cc.colorcat.mvi.IntentHandler
 import cc.colorcat.mvi.IntentQueueConfig
+import cc.colorcat.mvi.IntentTransformer
 import cc.colorcat.mvi.KMvi
 import cc.colorcat.mvi.Logger
 import cc.colorcat.mvi.Mvi
+import cc.colorcat.mvi.RetryPolicy
 import cc.colorcat.mvi.TestLogger
 import cc.colorcat.mvi.asSingleFlow
 import cc.colorcat.mvi.strategyTransformer
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -30,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -47,6 +50,7 @@ import org.junit.rules.TestRule
 import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.EmptyCoroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -119,8 +123,7 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -133,6 +136,7 @@ class ReactiveContractImplTest {
                         }
                     }.asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -149,8 +153,7 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -159,6 +162,7 @@ class ReactiveContractImplTest {
                     Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } }
                         .asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -168,6 +172,37 @@ class ReactiveContractImplTest {
 
         val state = contract.stateFlow.first { it.count == 3 }
         assertEquals(3, state.count)
+    }
+
+    @Test
+    fun `state from intent dispatched before external collection is not lost on multithreaded scope`() = runBlocking {
+        // testScope is backed by a 2-thread pool. snapshots is started lazily by stateFlow's
+        // (eager, permanent) stateIn subscriber, so the shared upstream begins consuming intents
+        // only after that subscriber has attached — the replay=0 SharedFlow can no longer drop the
+        // first snapshot regardless of dispatcher. The intent below is dispatched before any
+        // external stateFlow collector, so its state must still be observable.
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            errorHandler = FatalErrorHandler.Rethrow,
+            transformer = strategyTransformer(
+                handleStrategy = HandleStrategy.CONCURRENT,
+                hybridStrategyConfig = HybridStrategyConfig(),
+                groupTagSelector = GroupTagSelector.byClass(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    Mvi.PartialChange<TestState, TestEvent> {
+                        it.updateState { if (this is TestState) copy(count = count + 1) else this }
+                    }.asSingleFlow()
+                },
+                retryPolicy = { _, _, _ -> false },
+            ),
+        )
+
+        assertEquals(DispatchResult.Submitted, contract.dispatch(TestIntent.Increment))
+
+        val state = withTimeout(2_000) { contract.stateFlow.first { it.count == 1 } }
+        assertEquals(1, state.count)
     }
 
     @Test
@@ -186,8 +221,7 @@ class ReactiveContractImplTest {
             scope = contractScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = recordingFatalHandler(fatal),
+            errorHandler = recordingFatalHandler(fatal),
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -197,6 +231,7 @@ class ReactiveContractImplTest {
                         throw IllegalStateException("bad reducer")
                     }.asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -217,35 +252,34 @@ class ReactiveContractImplTest {
     }
 
     @Test
-    fun `PartialChange apply cancellation does not invoke fatalErrorHandler`() = runBlocking {
+    fun `active handler cancellation invokes fatalErrorHandler and makes contract unavailable`() = runBlocking {
         val fatal = CompletableDeferred<Throwable>()
-        val started = CompletableDeferred<Unit>()
-        val contractScope = CoroutineScope(Job())
+        val contractScope = CoroutineScope(SupervisorJob())
         val contract = CoreReactiveContract(
             scope = contractScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = recordingFatalHandler(fatal),
+            errorHandler = recordingFatalHandler(fatal),
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
-                    Mvi.PartialChange<TestState, TestEvent> {
-                        started.complete(Unit)
-                        throw CancellationException("cancel reducer")
-                    }.asSingleFlow()
+                    flow {
+                        withTimeout(1) { awaitCancellation() }
+                    }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
         try {
-            contract.dispatch(TestIntent.Increment)
+            assertEquals(DispatchResult.Submitted, contract.dispatch(TestIntent.Increment))
 
-            withTimeout(1_000) { started.await() }
-            delay(100)
-            assertFalse(fatal.isCompleted)
+            val fatalError = withTimeout(1_000) { fatal.await() }
+            assertTrue(fatalError is TimeoutCancellationException)
+            assertTrue(contractScope.isActive)
+            assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Decrement))
             assertEquals(TestState(), contract.stateFlow.value)
         } finally {
             contractScope.cancel()
@@ -253,25 +287,89 @@ class ReactiveContractImplTest {
     }
 
     @Test
-    fun `handler exception retried by retryPolicy does not invoke fatalErrorHandler`() = runBlocking {
+    fun `transformer completing while scope active invokes fatalErrorHandler`() = runBlocking {
         val fatal = CompletableDeferred<Throwable>()
-        val retryCauses = Collections.synchronizedList(mutableListOf<Throwable>())
-        val contract = CoreReactiveContract(
-            scope = testScope,
+        // SupervisorJob keeps the contract scope active after the sharing coroutine fails;
+        // the exception handler consumes the expected FatalErrorHandler rethrow in this test.
+        val contractScope = CoroutineScope(SupervisorJob() + CoroutineExceptionHandler { _, _ -> })
+        val contract = CoreReactiveContract<TestIntent, TestState, TestEvent>(
+            scope = contractScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { attempt, cause ->
-                retryCauses += cause
-                attempt == 0L
-            },
-            fatalErrorHandler = recordingFatalHandler(fatal),
+            errorHandler = recordingFatalHandler(fatal),
+            // A transformer that terminates while the scope is active would otherwise leave a
+            // zombie contract; the pipeline must detect this and route it to the fatal handler.
+            transformer = IntentTransformer { emptyFlow() },
+        )
+
+        try {
+            val fatalError = withTimeout(1_000) { fatal.await() }
+            assertTrue(fatalError is IllegalStateException)
+            assertTrue(fatalError.message.orEmpty().contains("IntentTransformer completed"))
+            assertTrue(contractScope.isActive)
+            // Queue is closed: dispatch no longer silently reports Submitted (the zombie symptom).
+            assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Increment))
+        } finally {
+            contractScope.cancel()
+        }
+    }
+
+    @Test
+    fun `parent scope cancellation does not invoke fatalErrorHandler`() = runBlocking {
+        val fatal = CompletableDeferred<Throwable>()
+        val started = CompletableDeferred<Unit>()
+        val contractJob = Job()
+        val contractScope = CoroutineScope(contractJob)
+        val contract = CoreReactiveContract(
+            scope = contractScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            errorHandler = recordingFatalHandler(fatal),
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    flow {
+                        started.complete(Unit)
+                        awaitCancellation()
+                    }
+                },
+                retryPolicy = { _, _, _ -> false },
+            ),
+        )
+
+        assertEquals(DispatchResult.Submitted, contract.dispatch(TestIntent.Increment))
+        withTimeout(1_000) { started.await() }
+
+        contractJob.cancel()
+        contractJob.join()
+
+        assertFalse(fatal.isCompleted)
+        assertEquals(DispatchResult.Unavailable, contract.dispatch(TestIntent.Decrement))
+    }
+
+    @Test
+    fun `transient handler failure is retried per intent and recovers without fatal`() = runBlocking {
+        val fatal = CompletableDeferred<Throwable>()
+        val retryCauses = Collections.synchronizedList(mutableListOf<Throwable>())
+        val attempts = AtomicInteger(0)
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            errorHandler = recordingFatalHandler(fatal),
+            transformer = strategyTransformer(
+                handleStrategy = HandleStrategy.SEQUENTIAL,
+                hybridStrategyConfig = HybridStrategyConfig(),
+                groupTagSelector = GroupTagSelector.byClass(),
+                retryPolicy = { intent, attempt, cause ->
+                    retryCauses += cause
+                    intent is TestIntent.Increment && attempt == 0L
+                },
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { intent ->
                     flow {
-                        if (intent == TestIntent.Increment) {
+                        if (intent == TestIntent.Increment && attempts.getAndIncrement() == 0) {
                             throw IllegalStateException("temporary handler failure")
                         }
                         emit(Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = 1) } })
@@ -281,13 +379,6 @@ class ReactiveContractImplTest {
         )
 
         contract.dispatch(TestIntent.Increment)
-        withTimeout(1_000) {
-            while (retryCauses.isEmpty()) {
-                delay(1)
-            }
-        }
-        contract.dispatch(TestIntent.Decrement)
-
         val state = contract.stateFlow.first { it.count == 1 }
         assertEquals(1, state.count)
         assertFalse(fatal.isCompleted)
@@ -295,8 +386,9 @@ class ReactiveContractImplTest {
     }
 
     @Test
-    fun `handler exception after retryPolicy gives up invokes fatalErrorHandler`() = runBlocking {
+    fun `handler exception after per-intent retry gives up invokes fatalErrorHandler`() = runBlocking {
         val fatal = CompletableDeferred<Throwable>()
+        val attempts = AtomicInteger(0)
         val failed = CompletableDeferred<Throwable>()
         val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
             failed.complete(throwable)
@@ -310,14 +402,15 @@ class ReactiveContractImplTest {
             scope = contractScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = recordingFatalHandler(fatal),
+            errorHandler = recordingFatalHandler(fatal),
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
+                retryPolicy = { _, attempt, _ -> attempt < 2L },
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
                     flow {
+                        attempts.incrementAndGet()
                         throw IllegalStateException("permanent handler failure")
                     }
                 },
@@ -330,6 +423,7 @@ class ReactiveContractImplTest {
             val fatalError = withTimeout(1_000) { fatal.await() }
             assertTrue(fatalError is IllegalStateException)
             assertEquals("permanent handler failure", fatalError.message)
+            assertEquals(3, attempts.get()) // initial run + 2 retries, then give up
 
             val thrown = withTimeout(1_000) { failed.await() }
             assertTrue(thrown is IllegalStateException)
@@ -346,7 +440,7 @@ class ReactiveContractImplTest {
         val localFatal = CompletableDeferred<Throwable>()
         val failed = CompletableDeferred<Throwable>()
         KMvi.configure {
-            copy(fatalErrorHandler = recordingFatalHandler(globalFatal))
+            copy(errorHandler = recordingFatalHandler(globalFatal))
         }
         val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
             failed.complete(throwable)
@@ -360,8 +454,7 @@ class ReactiveContractImplTest {
             scope = contractScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = recordingFatalHandler(localFatal),
+            errorHandler = recordingFatalHandler(localFatal),
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -371,6 +464,7 @@ class ReactiveContractImplTest {
                         throw IllegalStateException("local reducer failure")
                     }.asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -394,13 +488,13 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(count = 99, data = "init"),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -415,13 +509,13 @@ class ReactiveContractImplTest {
                 scope = testScope,
                 initState = TestState(),
                 intentQueueConfig = IntentQueueConfig(capacity = -3),
-                retryPolicy = { _, _ -> false },
-                fatalErrorHandler = FatalErrorHandler.Rethrow,
+                errorHandler = FatalErrorHandler.Rethrow,
                 transformer = strategyTransformer(
                     handleStrategy = HandleStrategy.CONCURRENT,
                     hybridStrategyConfig = HybridStrategyConfig(),
                     groupTagSelector = GroupTagSelector.byClass(),
                     handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                    retryPolicy = { _, _, _ -> false },
                 ),
             )
         }
@@ -437,13 +531,13 @@ class ReactiveContractImplTest {
                 scope = scopeWithoutJob,
                 initState = TestState(),
                 intentQueueConfig = IntentQueueConfig(capacity = 64),
-                retryPolicy = { _, _ -> false },
-                fatalErrorHandler = FatalErrorHandler.Rethrow,
+                errorHandler = FatalErrorHandler.Rethrow,
                 transformer = strategyTransformer(
                     handleStrategy = HandleStrategy.CONCURRENT,
                     hybridStrategyConfig = HybridStrategyConfig(),
                     groupTagSelector = GroupTagSelector.byClass(),
                     handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                    retryPolicy = { _, _, _ -> false },
                 ),
             )
         }
@@ -466,8 +560,7 @@ class ReactiveContractImplTest {
             scope = contractScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -475,6 +568,7 @@ class ReactiveContractImplTest {
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
                     Mvi.PartialChange<TestState, TestEvent> { it.withEvent(TestEvent.Updated) }.asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -498,8 +592,7 @@ class ReactiveContractImplTest {
             scope = contractScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -508,6 +601,7 @@ class ReactiveContractImplTest {
                     Mvi.PartialChange<TestState, TestEvent> { it.withEvent(TestEvent.Message("hello")) }
                         .asSingleFlow()
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -529,8 +623,7 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -548,6 +641,7 @@ class ReactiveContractImplTest {
                         }
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
         val received = mutableListOf<Int>()
@@ -586,8 +680,8 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            retryPolicy = { _, _, _ -> false },
+            errorHandler = FatalErrorHandler.Rethrow,
             handleStrategy = HandleStrategy.CONCURRENT,
             hybridStrategyConfig = HybridStrategyConfig(),
             defaultHandler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -607,8 +701,8 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            retryPolicy = { _, _, _ -> false },
+            errorHandler = FatalErrorHandler.Rethrow,
             handleStrategy = HandleStrategy.CONCURRENT,
             hybridStrategyConfig = HybridStrategyConfig(),
             defaultHandler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
@@ -636,8 +730,8 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            retryPolicy = { _, _, _ -> false },
+            errorHandler = FatalErrorHandler.Rethrow,
             handleStrategy = HandleStrategy.CONCURRENT,
             hybridStrategyConfig = HybridStrategyConfig(),
             defaultHandler = IntentHandler<TestIntent, TestState, TestEvent> {
@@ -665,13 +759,13 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 64),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.CONCURRENT,
                 hybridStrategyConfig = HybridStrategyConfig(),
                 groupTagSelector = GroupTagSelector.byClass(),
                 handler = IntentHandler<TestIntent, TestState, TestEvent> { emptyFlow() },
+                retryPolicy = RetryPolicy { _, _, _ -> false },
             ),
         )
 
@@ -693,8 +787,7 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = 0),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -702,6 +795,7 @@ class ReactiveContractImplTest {
                 handler = IntentHandler<TestIntent, TestState, TestEvent> {
                     flow { awaitCancellation() }
                 },
+                retryPolicy = RetryPolicy { _, _, _ -> false },
             ),
         )
 
@@ -735,8 +829,7 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = Channel.RENDEZVOUS),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -755,6 +848,7 @@ class ReactiveContractImplTest {
                         )
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -793,8 +887,7 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = Channel.CONFLATED),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -813,6 +906,7 @@ class ReactiveContractImplTest {
                         )
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -844,8 +938,7 @@ class ReactiveContractImplTest {
                 capacity = 1,
                 onBufferOverflow = BufferOverflow.DROP_LATEST,
             ),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -864,6 +957,7 @@ class ReactiveContractImplTest {
                         )
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -895,8 +989,7 @@ class ReactiveContractImplTest {
                 capacity = 1,
                 onBufferOverflow = BufferOverflow.DROP_OLDEST,
             ),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -915,6 +1008,7 @@ class ReactiveContractImplTest {
                         )
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 
@@ -941,8 +1035,7 @@ class ReactiveContractImplTest {
             scope = testScope,
             initState = TestState(),
             intentQueueConfig = IntentQueueConfig(capacity = Channel.UNLIMITED),
-            retryPolicy = { _, _ -> false },
-            fatalErrorHandler = FatalErrorHandler.Rethrow,
+            errorHandler = FatalErrorHandler.Rethrow,
             transformer = strategyTransformer(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
                 hybridStrategyConfig = HybridStrategyConfig(),
@@ -953,6 +1046,7 @@ class ReactiveContractImplTest {
                         awaitCancellation()
                     }
                 },
+                retryPolicy = { _, _, _ -> false },
             ),
         )
 

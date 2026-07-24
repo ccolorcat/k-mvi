@@ -8,6 +8,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Internal extension functions for MVI diagnostics and Flow processing.
@@ -30,6 +33,100 @@ import kotlinx.coroutines.flow.flow
 internal val Mvi.Intent.diagnosticName: String
     get() = this::class.qualifiedName ?: this.javaClass.name
 
+private const val DEFAULT_BUFFERED_CHANNEL_CAPACITY = 64
+private const val GROUP_CAPACITY_WARNING_PERCENT = 80
+private const val GROUP_CAPACITY_WARNING_RESET_PERCENT = 50
+private const val PERCENT_BASE = 100
+
+/**
+ * Lightweight fill monitor for a single HYBRID group channel.
+ *
+ * Counts intents buffered but not yet consumed, and emits sparse WARN logs at two thresholds:
+ * 1. **Near-full (>=80%)** — early hint that the handler lags behind the arrival rate
+ * 2. **Full (send would suspend)** — confirmation that the shared router is now blocked
+ *
+ * Both warnings re-arm when depth drops to 50% or below, avoiding log spam during
+ * sustained congestion. Depth may read transiently off by one under concurrent
+ * send/consume — acceptable for a diagnostic hint.
+ *
+ * Monitoring is skipped entirely for [Channel.UNLIMITED], [Channel.RENDEZVOUS], and
+ * [Channel.CONFLATED] where percentage-based fill has no meaningful interpretation.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+private class GroupChannel<I>(tag: Any, capacity: Int) {
+    val channel = Channel<I>(capacity)
+
+    // Delegate channel lifecycle to groupHandle
+    val isClosedForSend: Boolean
+        get() = channel.isClosedForSend
+
+    // Resolve fixed capacity for percentage thresholds; negative means "skip monitoring".
+    // Uses the Coroutines default for BUFFERED; monitoring remains a diagnostic hint.
+    private val fixedCapacity = when (capacity) {
+        Channel.BUFFERED -> DEFAULT_BUFFERED_CHANNEL_CAPACITY
+        in 1 until Channel.UNLIMITED -> capacity
+        else -> -1
+    }
+    private val warnAt = if (fixedCapacity > 0) {
+        fixedCapacity.percentageCeiling(GROUP_CAPACITY_WARNING_PERCENT)
+    } else {
+        -1
+    }
+    private val rearmAt = if (fixedCapacity > 0) {
+        fixedCapacity.percentageFloor(GROUP_CAPACITY_WARNING_RESET_PERCENT)
+    } else {
+        -1
+    }
+
+    private val depth = AtomicInteger(0)
+    private val nearFullWarned = AtomicBoolean(false)
+    private val fullWarned = AtomicBoolean(false)
+    private val tagLabel = tag.tagLabel
+
+    /** Called right after an intent is accepted into [channel] (router coroutine). */
+    fun onBuffered() {
+        if (fixedCapacity <= 0) return
+        val current = depth.incrementAndGet()
+        if (current >= warnAt && nearFullWarned.compareAndSet(false, true)) {
+            logger.w(TAG) {
+                "HYBRID group $tagLabel channel at $current/$fixedCapacity (>=80%). " +
+                    "Handler is slower than intent arrival; the shared router will block " +
+                    "when this channel fills. Throttle producers, review grouping, " +
+                    "or increase groupChannelCapacity."
+            }
+        }
+    }
+
+    /** Called when [channel] is full and [send] will suspend (router coroutine). */
+    fun onWillSuspend() {
+        if (fixedCapacity <= 0) return
+        if (fullWarned.compareAndSet(false, true)) {
+            logger.w(TAG) {
+                "HYBRID group $tagLabel channel is FULL (capacity=$fixedCapacity). " +
+                    "Routing suspended — ALL groups are now blocked. " +
+                    "Increase groupChannelCapacity or use Channel.UNLIMITED."
+            }
+        }
+    }
+
+    /** Called when an intent leaves [channel]'s buffer (consumer flow, via [onEach]). */
+    fun onConsumed() {
+        if (fixedCapacity <= 0) return
+        if (depth.decrementAndGet() <= rearmAt) {
+            nearFullWarned.set(false)
+            fullWarned.set(false)
+        }
+    }
+
+    fun close(cause: Throwable?) = channel.close(cause)
+}
+
+private fun Int.percentageCeiling(percent: Int): Int =
+    ((toLong() * percent + PERCENT_BASE - 1L) / PERCENT_BASE).toInt()
+
+private fun Int.percentageFloor(percent: Int): Int =
+    (toLong() * percent / PERCENT_BASE).toInt()
+
 /**
  * Groups intents by tag and handles each group independently with parallel processing.
  *
@@ -48,14 +145,27 @@ internal val Mvi.Intent.diagnosticName: String
  * ## ⚠️ Bottleneck: All Groups Share One Sender Coroutine
  *
  * The outer `collect { }` loop is a **single coroutine** shared by all groups. When
- * [channel.send] suspends because a particular group's channel is full (backpressure
+ * [Channel.send] suspends because a particular group's channel is full (backpressure
  * from a slow handler), **all groups** are blocked — even groups whose channels have
  * free capacity. New intents for unrelated groups cannot be routed until the blocked
  * send completes.
  *
- * **Mitigation**: Choose [capacity] large enough for your peak per-group throughput
- * (default [Channel.BUFFERED] = 64). Consider [Channel.UNLIMITED] if you never want
- * group-level backpressure to block the router (at the cost of unbounded memory).
+ * **Mitigation order**: throttle or conflate high-frequency producers first; verify that
+ * unrelated work does not share a fallback tag; keep handlers non-blocking; then increase
+ * [HybridStrategyConfig.groupChannelCapacity] from measurements. Use [Channel.UNLIMITED]
+ * only when traffic is externally bounded because a slow group can otherwise grow memory
+ * without limit.
+ *
+ * ## Group Backlog Diagnostics
+ *
+ * Bounded groups (including the default [Channel.BUFFERED]) log a single WARN when buffered
+ * depth reaches 80% of capacity, and re-arm after depth drops to 50% or lower. A second
+ * warning is logged if the channel becomes full and routing must suspend. These thresholds
+ * are internal constants and do not change queue behavior. [Channel.UNLIMITED],
+ * [Channel.RENDEZVOUS], and [Channel.CONFLATED] are not monitored because their capacities
+ * have no meaningful percentage-based fill level.
+ *
+ * Diagnostics log the tag type and hash only; raw tag values are never included.
  *
  * ## Active Group Lifetime
  *
@@ -103,7 +213,7 @@ internal val Mvi.Intent.diagnosticName: String
  * @param config Runtime configuration for the HYBRID strategy.
  *
  *   **Performance note**: When a group's channel is full (e.g. handler is slow),
- *   [channel.send] suspends the single outer `collect` coroutine, blocking *all*
+ *   [Channel.send] suspends the single outer `collect` coroutine, blocking *all*
  *   groups (see ⚠️ above). Increase [HybridStrategyConfig.groupChannelCapacity] for
  *   high-throughput scenarios, or use [Channel.UNLIMITED] to eliminate per-group
  *   backpressure (risk: unbounded memory).
@@ -124,17 +234,19 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     tagSelector: (I) -> Any,
     handler: Flow<I>.(tag: Any) -> Flow<R>,
 ): Flow<Flow<R>> = flow {
-    val activeChannels = linkedMapOf<Any, Channel<I>>()
+    val activeGroups = linkedMapOf<Any, GroupChannel<I>>()
     var cause: Throwable? = null
     var nextWarningThreshold = config.groupCountWarningThreshold
 
     fun warnIfGroupCountHigh(tag: Any) {
         if (nextWarningThreshold == Int.MAX_VALUE) return
-        val count = activeChannels.size
+        val count = activeGroups.size
         if (count < nextWarningThreshold) return
         logger.w(TAG) {
-            "groupHandle active groups reached $count (threshold=$nextWarningThreshold, openedTag=${tag.tagLabel}). " +
-                "High-cardinality group tags keep channels active; use bucketed tags unless per-value ordering is required."
+            "groupHandle active groups reached $count " +
+                "(threshold=$nextWarningThreshold, openedTag=${tag.tagLabel}). " +
+                "High-cardinality group tags keep channels active; use bucketed tags unless " +
+                "per-value ordering is required."
         }
         nextWarningThreshold = if (nextWarningThreshold <= Int.MAX_VALUE / 2) {
             nextWarningThreshold * 2
@@ -143,39 +255,56 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
         }
     }
 
-    // Local function: creates a fresh Channel for [tag], registers it in [activeChannels]
+    // Local function: creates a fresh GroupChannel for [tag], registers it in [activeGroups]
     // BEFORE calling emit so that if emit suspends the map already holds the new entry.
     // The inner flow produced by [handler] is immediately subscribed by the downstream
-    // (e.g. flattenMerge) when emit returns, so subsequent sends are safely received.
-    suspend fun openChannel(tag: Any): Channel<I> {
-        val channel = Channel<I>(config.groupChannelCapacity)
-        activeChannels[tag] = channel
-        emit(channel.consumeAsFlow().handler(tag))
+    // (e.g. flattenMerge) when emit returns; its onEach decrements the fill monitor as each
+    // intent leaves the channel buffer.
+    suspend fun openGroup(tag: Any): GroupChannel<I> {
+        val group = GroupChannel<I>(tag, config.groupChannelCapacity)
+        activeGroups[tag] = group
+        emit(group.channel.consumeAsFlow().onEach { group.onConsumed() }.handler(tag))
         warnIfGroupCountHigh(tag)
-        return channel
+        return group
     }
 
     try {
         collect { intent ->
             val tag = tagSelector(intent)
-            val existingChannel = activeChannels[tag]
+            val existingGroup = activeGroups[tag]
             // Re-open a fresh channel when:
             //   • no channel exists yet for this tag (first intent in the group), OR
             //   • the existing channel was closed/cancelled externally (stale channel).
             //     A stale channel can occur if flattenMerge cancelled an inner flow while
             //     the outer pipeline was still running.  Sending to a closed channel would
             //     otherwise throw ClosedSendChannelException and kill the entire pipeline.
-            val channel = if (existingChannel == null || existingChannel.isClosedForSend) {
-                // Remove the stale entry first so openChannel writes a clean new mapping.
-                if (existingChannel != null) {
-                    activeChannels.remove(tag)
+            val group = if (existingGroup == null || existingGroup.isClosedForSend) {
+                // Remove the stale entry first so openGroup writes a clean new mapping.
+                if (existingGroup != null) {
+                    activeGroups.remove(tag)
                     logger.w(TAG) { "Stale channel detected for group ${tag.tagLabel}, reopening." }
                 }
-                openChannel(tag)
+                openGroup(tag)
             } else {
-                existingChannel
+                existingGroup
             }
-            channel.send(intent)
+
+            // Try non-suspending send first to detect a full channel before blocking.
+            val result = group.channel.trySend(intent)
+            when {
+                result.isSuccess -> group.onBuffered()
+                result.isClosed -> {
+                    // Channel closed externally — let send throw so stale detection reopens it.
+                    group.channel.send(intent)
+                    group.onBuffered()
+                }
+
+                else -> {
+                    group.onWillSuspend()   // warn before blocking the shared router
+                    group.channel.send(intent)
+                    group.onBuffered()
+                }
+            }
         }
     } catch (e: CancellationException) {
         cause = e
@@ -187,8 +316,8 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
     } finally {
         // Close all remaining channels, propagating the upstream error (if any) so that
         // inner flows terminate with the same exception instead of silently completing.
-        val channels = activeChannels.values.toList()
-        activeChannels.clear()
-        channels.forEach { it.close(cause) }
+        val groups = activeGroups.values.toList()
+        activeGroups.clear()
+        groups.forEach { it.close(cause) }
     }
 }

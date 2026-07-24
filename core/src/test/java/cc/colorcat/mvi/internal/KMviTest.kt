@@ -47,7 +47,7 @@ class KMviTest {
         assertEquals(BufferOverflow.SUSPEND, config.intentQueueConfig.onBufferOverflow)
         assertEquals(HybridStrategyConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD, config.hybridStrategyConfig.groupCountWarningThreshold)
         assertEquals(256, HybridStrategyConfig.DEFAULT_GROUP_COUNT_WARNING_THRESHOLD)
-        assertSame(FatalErrorHandler.Rethrow, config.fatalErrorHandler)
+        assertSame(FatalErrorHandler.Rethrow, config.errorHandler)
     }
 
     @Test
@@ -58,12 +58,12 @@ class KMviTest {
         KMvi.configure {
             copy(
                 handleStrategy = HandleStrategy.SEQUENTIAL,
-                fatalErrorHandler = customFatalErrorHandler,
+                errorHandler = customFatalErrorHandler,
                 logger = customLogger,
             )
         }
 
-        assertSame(customFatalErrorHandler, KMvi.fatalErrorHandler)
+        assertSame(customFatalErrorHandler, KMvi.errorHandler)
     }
 
     @Test
@@ -293,19 +293,19 @@ class KMviTest {
         val policy = KMvi.retryPolicy
 
         // attempt is 0-based from Flow.retryWhen
-        assertTrue("IOException attempt 0 should retry", policy(0, IOException("network")))
-        assertTrue("IOException attempt 1 should retry", policy(1, IOException("network")))
-        assertTrue("IOException attempt 2 should retry", policy(2, IOException("network")))
-        assertFalse("IOException attempt 3 should stop", policy(3, IOException("network")))
+        assertTrue("IOException attempt 0 should retry", policy.shouldRetry(TestIntent.LoadUser, 0, IOException("network")))
+        assertTrue("IOException attempt 1 should retry", policy.shouldRetry(TestIntent.LoadUser, 1, IOException("network")))
+        assertTrue("IOException attempt 2 should retry", policy.shouldRetry(TestIntent.LoadUser, 2, IOException("network")))
+        assertFalse("IOException attempt 3 should stop", policy.shouldRetry(TestIntent.LoadUser, 3, IOException("network")))
 
         // cause is IOException, attempt > 2 — stop
-        assertFalse("IOException attempt 4 should stop", policy(4, IOException("network")))
+        assertFalse("IOException attempt 4 should stop", policy.shouldRetry(TestIntent.LoadUser, 4, IOException("network")))
 
         // programming/runtime exceptions are not considered transient by default
-        assertFalse("RuntimeException should not retry", policy(0, RuntimeException("bug")))
-        assertFalse("IllegalArgumentException should not retry", policy(0, IllegalArgumentException("bad input")))
+        assertFalse("RuntimeException should not retry", policy.shouldRetry(TestIntent.LoadUser, 0, RuntimeException("bug")))
+        assertFalse("IllegalArgumentException should not retry", policy.shouldRetry(TestIntent.LoadUser, 0, IllegalArgumentException("bad input")))
 
         // cause is Error — don't retry
-        assertFalse("Error should not retry", policy(1, Error("fatal")))
+        assertFalse("Error should not retry", policy.shouldRetry(TestIntent.LoadUser, 1, Error("fatal")))
     }
 }

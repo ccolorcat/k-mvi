@@ -97,15 +97,16 @@ interface Contract<S : Mvi.State, E : Mvi.Event> {
     /**
      * A flow that emits one-time events (side effects).
      *
-     * Events represent actions that should happen once, such as showing a toast,
-     * navigating to another screen, or displaying a dialog. Events are not retained
-     * and are only emitted to active collectors.
+     * Events represent low-frequency, time-sensitive UI effects that should happen once, such as
+     * showing a toast, navigating to another screen, or displaying a dialog. Events are not retained
+     * and delivery is best-effort; this flow is not a reliable command or message queue.
      *
      * ## Characteristics
      * - **Hot**: Shared among collectors
      * - **No state**: Doesn't retain values
      * - **No replay**: Late collectors don't receive past events
      * - **One-time**: Each event should be consumed once
+     * - **Best-effort**: Events may be dropped when there is no collector or the pipeline is congested
      *
      * ## Collection Pattern
      * ```kotlin
@@ -120,9 +121,16 @@ interface Contract<S : Mvi.State, E : Mvi.Event> {
      * ```
      *
      * ## Important: Event Lifecycle
-     * Events are emitted only to active collectors. If no collector is active when
-     * an event is emitted, the event is lost. Make sure to start collecting before
-     * dispatching intents that may produce events.
+     * Events share the bounded snapshot pipeline used for state propagation. An event is permanently
+     * lost if no collector is active when it is produced. Even with an active collector, a producer
+     * burst or a busy UI thread can fill the snapshot buffer; its `DROP_OLDEST` policy then discards
+     * older snapshots and their events. This is intentional: stale UI effects are discarded instead
+     * of delaying state processing or being delivered as a backlog after the UI recovers.
+     *
+     * Subscribe before dispatching an intent that may produce events, and keep collection lightweight:
+     * do not perform blocking I/O, long-running work, or unnecessary suspension in `collect`. If an
+     * outcome must not be lost, represent it in [stateFlow] with explicit acknowledgement, or use a
+     * durable queue for work that must survive lifecycle gaps or process death.
      */
     val eventFlow: Flow<E>
 }
