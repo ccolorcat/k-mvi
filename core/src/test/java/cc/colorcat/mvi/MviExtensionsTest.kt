@@ -126,6 +126,32 @@ class DebounceLeadingTest {
         assertEquals(listOf(1, 3), results)
     }
 
+    @Test
+    fun `debounceLeading emits first value when nanoTime is negative`() = runBlocking {
+        val timestamps = listOf(
+            -TimeUnit.MILLISECONDS.toNanos(1_000L),
+            -TimeUnit.MILLISECONDS.toNanos(950L),
+            -TimeUnit.MILLISECONDS.toNanos(800L),
+        ).iterator()
+
+        val results = flow {
+            emit(1)
+            emit(2)
+            emit(3)
+        }.debounceLeading(100L) { timestamps.next() }.toList()
+
+        assertEquals(listOf(1, 3), results)
+    }
+
+    @Test
+    fun `debounceLeading emits first value near Long max value`() = runBlocking {
+        val results = flow {
+            emit(1)
+        }.debounceLeading(windowMs) { Long.MAX_VALUE }.toList()
+
+        assertEquals(listOf(1), results)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `debounceLeading with zero millis throws`() = runBlocking<Unit> {
         flow { emit(1) }.debounceLeading(0L).collect {}

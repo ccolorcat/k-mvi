@@ -138,11 +138,14 @@ fun <T> Flow<T>.debounceLeading(timeMillis: Long): Flow<T> = debounceLeading(tim
 internal fun <T> Flow<T>.debounceLeading(timeMillis: Long, nanoTimeSource: () -> Long): Flow<T> = flow {
     require(timeMillis > 0L) { "timeMillis must be positive" }
     val windowNanos = TimeUnit.MILLISECONDS.toNanos(timeMillis)
-    var time = -windowNanos
+    var isFirst = true
+    var previousTime = 0L
     collect { value ->
-        val prev = time
-        time = nanoTimeSource()
-        if (time - prev >= windowNanos) {
+        val currentTime = nanoTimeSource()
+        val shouldEmit = isFirst || currentTime - previousTime >= windowNanos
+        isFirst = false
+        previousTime = currentTime
+        if (shouldEmit) {
             emit(value)
         }
     }
