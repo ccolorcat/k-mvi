@@ -56,6 +56,10 @@ private const val PERCENT_BASE = 100
 private class GroupChannel<I>(tag: Any, capacity: Int) {
     val channel = Channel<I>(capacity)
 
+    // Delegate channel lifecycle to groupHandle
+    val isClosedForSend: Boolean
+        get() = channel.isClosedForSend
+
     // Resolve fixed capacity for percentage thresholds; negative means "skip monitoring".
     // Uses the Coroutines default for BUFFERED; monitoring remains a diagnostic hint.
     private val fixedCapacity = when (capacity) {
@@ -113,9 +117,6 @@ private class GroupChannel<I>(tag: Any, capacity: Int) {
             fullWarned.set(false)
         }
     }
-
-    // Delegate channel lifecycle to groupHandle
-    val isClosedForSend get() = channel.isClosedForSend
 
     fun close(cause: Throwable?) = channel.close(cause)
 }
