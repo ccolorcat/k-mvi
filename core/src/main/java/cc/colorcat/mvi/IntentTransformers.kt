@@ -84,6 +84,7 @@ fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
  * @param groupTagSelector Selects fallback group tags for HYBRID strategy
  * @param handler The intent handler to delegate to
+ * @param retryPolicy Per-intent policy for failures thrown while the returned handler Flow is collected
  * @return An IntentTransformer that applies the specified strategy
  */
 internal fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> strategyTransformer(
@@ -147,6 +148,7 @@ private object SequentialGroup
  * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
  * @param groupTagSelector Selects fallback group tags for HYBRID strategy
  * @param handler The intent handler that processes individual intents
+ * @param retryPolicy Per-intent policy for handler Flow collection failures
  * @see HandleStrategy
  * @see HybridStrategyConfig
  * @see GroupTagSelector

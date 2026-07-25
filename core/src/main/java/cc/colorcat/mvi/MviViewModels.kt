@@ -80,10 +80,11 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
  * @param initState The initial state of the contract
  * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
  *                          [KMvi.intentQueueConfig]
- * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
  * @param errorHandler Handles unrecoverable pipeline failures. Defaults to global config
  *                          [KMvi.errorHandler]
- * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges
+ * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges.
+ *                    This low-level API does not attach [RetryPolicy]; the transformer owns any
+ *                    retry behavior it needs.
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
  * @see ReactiveContract
  * @see IntentTransformer
@@ -169,7 +170,9 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param initState The initial state of the contract
  * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
  *                          [KMvi.intentQueueConfig]
- * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
+ * @param retryPolicy Per-intent policy for exceptions thrown while a returned handler Flow is
+ *                    collected. It does not cover synchronous exceptions thrown before
+ *                    [IntentHandler.handle] returns. Defaults to global config [KMvi.retryPolicy].
  * @param errorHandler Handles unrecoverable pipeline failures. Defaults to global config
  *                          [KMvi.errorHandler]
  * @param handleStrategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
