@@ -8,6 +8,7 @@ import cc.colorcat.mvi.internal.groupHandle
 import cc.colorcat.mvi.internal.i
 import cc.colorcat.mvi.internal.logger
 import cc.colorcat.mvi.internal.w
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
@@ -164,7 +165,9 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     private val conflictIntentTypes = ConcurrentHashMap.newKeySet<Class<*>>()
 
     private fun handleWithRetry(intent: I): Flow<Mvi.PartialChange<S, E>> {
-        return handler.handle(intent).retryWhen { cause, attempt -> retryPolicy.shouldRetry(intent, attempt, cause) }
+        return handler.handle(intent).retryWhen { cause, attempt ->
+            cause !is CancellationException && retryPolicy.shouldRetry(intent, attempt, cause)
+        }
     }
 
     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
