@@ -405,8 +405,8 @@ KMvi.configure {
         hybridStrategyConfig = HybridStrategyConfig(
             groupChannelCapacity = Channel.BUFFERED,
         ),
-        retryPolicy = { _, attempt, cause ->
-            attempt < 3 && cause is IOException
+        retryPolicy = { intent, attempt, cause ->
+            attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent
         },
         logger = Logger(Logger.DEBUG),
     )
@@ -896,8 +896,8 @@ class MyApplication : Application() {
                 handleStrategy = HandleStrategy.HYBRID,
 
                 // Retry policy for failed intent processing
-                retryPolicy = { _, attempt, cause ->
-                    attempt < 3 && cause is IOException // attempt is 0-based
+                retryPolicy = { intent, attempt, cause ->
+                    attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent // attempt is 0-based
                 },
 
                 // Hybrid strategy runtime configuration
@@ -994,17 +994,24 @@ fun handle(intent: LoadIntent): Flow<MyPartialChange> =
 exists and constructing it cannot fail. They simply have no fallible collection-time work for the
 policy to retry. Code inside the `PartialChange` reducer is a separate downstream stage.
 
-Default policy:
+Default policy — **no automatic retry**:
 
 ```kotlin
-{ _, attempt, cause ->
-    attempt < 3 && cause is IOException // Retries transient I/O failures on attempt 0..2
-}
+{ _, _, _ -> false }
 ```
 
-> The default policy does not retry programming errors such as `IllegalStateException`,
-> `IllegalArgumentException`, or `NullPointerException`. Override it if your app has
-> additional domain-specific transient failures.
+Retry is opt-in: a retry re-collects the whole handler Flow and replays every `PartialChange`
+emitted before the failure (see the re-collection warning below), so enabling it globally for all
+intents is unsafe. Turn it on only for handlers that are safe to re-collect, gating on an intent
+type you control:
+
+```kotlin
+KMvi.configure {
+    copy(retryPolicy = { intent, attempt, cause ->
+        attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent
+    })
+}
+```
 
 ##### Re-collection warning
 
