@@ -1,5 +1,7 @@
 package cc.colorcat.mvi
 
+import cc.colorcat.mvi.internal.chunkForLogcat
+import cc.colorcat.mvi.internal.formatLogText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -7,6 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestRule
+import java.net.UnknownHostException
 
 class LoggerTest {
 
@@ -136,5 +139,50 @@ class LoggerTest {
         log.log(Logger.VERBOSE, "t", null) { "v" }
 
         assertEquals(3, captured.size)
+    }
+
+    @Test
+    fun `format log text preserves nested causes including unknown host`() {
+        val cause = UnknownHostException("offline")
+        val error = IllegalStateException("wrapper", cause)
+
+        val text = formatLogText("request failed", error)
+
+        assertTrue(text.startsWith("request failed\njava.lang.IllegalStateException: wrapper"))
+        assertTrue(text.contains("Caused by: java.net.UnknownHostException: offline"))
+    }
+
+    @Test
+    fun `chunking preserves complete long text`() {
+        val text = "line one\n" + "x".repeat(2_500) + "tail"
+
+        val chunks = text.chunkForLogcat(maxChunkSize = 1_000)
+
+        assertEquals(text, chunks.joinToString(separator = ""))
+        assertEquals("line one\n", chunks.first())
+        assertTrue(chunks.all { it.length <= 1_000 })
+        assertTrue(chunks.last().endsWith("tail"))
+    }
+
+    @Test
+    fun `chunking does not split surrogate pair`() {
+        val text = "a😀b"
+
+        val chunks = text.chunkForLogcat(maxChunkSize = 1)
+
+        assertEquals(text, chunks.joinToString(separator = ""))
+        assertEquals(listOf("a", "😀", "b"), chunks)
+    }
+
+    @Test
+    fun `chunking rejects non-positive size`() {
+        val error = runCatching { "message".chunkForLogcat(maxChunkSize = 0) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+    }
+
+    @Test
+    fun `chunking accepts maximum size without integer overflow`() {
+        assertEquals(listOf("message"), "message".chunkForLogcat(maxChunkSize = Int.MAX_VALUE))
     }
 }

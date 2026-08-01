@@ -1,7 +1,9 @@
 package cc.colorcat.mvi
 
 import android.util.Log
-import cc.colorcat.mvi.internal.getStackTraceString
+import cc.colorcat.mvi.internal.chunkForLogcat
+import cc.colorcat.mvi.internal.formatLogText
+
 
 /**
  * A functional interface for logging.
@@ -68,12 +70,12 @@ fun interface Logger {
         /** Assert log level - use for assertion failures that should never happen */
         const val ASSERT = Log.ASSERT
 
-
         /**
          * Creates a default Logger implementation with priority-based filtering.
          *
          * The returned Logger is thread-safe and stateless, so it can be safely
-         * used concurrently from multiple threads without synchronization.
+         * used concurrently from multiple threads without synchronization. Long messages and
+         * formatted stack traces are split across Logcat entries to avoid payload truncation.
          *
          * @param threshold The minimum priority level to log (default: WARN).
          *                  Messages below this level will be ignored.
@@ -83,15 +85,17 @@ fun interface Logger {
             return Logger { priority, tag, cause, message ->
                 // Only log if priority meets or exceeds the threshold
                 if (priority >= threshold) {
-                    val msg = if (cause == null) {
-                        message()
-                    } else {
-                        buildString {
-                            appendLine(message())
-                            append(cause.getStackTraceString())
-                        }
+                    val text = formatLogText(message(), cause)
+                    when (priority) {
+                        VERBOSE -> Log.v(tag, text, null)
+                        DEBUG -> Log.d(tag, text, null)
+                        INFO -> Log.i(tag, text, null)
+                        WARN -> Log.w(tag, text, null)
+                        ERROR -> Log.e(tag, text, null)
+                        // Do not map ASSERT to Log.wtf(): wtf may report the failure or terminate
+                        // the process. Preserve the requested priority with chunked println calls.
+                        else -> text.chunkForLogcat().forEach { Log.println(priority, tag, it) }
                     }
-                    Log.println(priority, tag, msg)
                 }
             }
         }

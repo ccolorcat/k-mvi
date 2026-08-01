@@ -17,6 +17,8 @@ import cc.colorcat.mvi.Logger
  */
 internal const val TAG = "k-mvi"
 
+private const val FALLBACK_LOG_CHUNK_SIZE = 1_000
+
 /**
  * The global logger instance for the k-mvi framework.
  *
@@ -101,3 +103,45 @@ internal fun Logger.e(tag: String, cause: Throwable? = null, message: () -> Stri
  */
 internal fun Logger.assert(tag: String, message: () -> String) =
     log(Logger.ASSERT, tag, null, message)
+
+/** Builds the complete text passed to Android Log while preserving nested causes. */
+internal fun formatLogText(message: String, cause: Throwable?): String {
+    return if (cause == null) {
+        message
+    } else {
+        buildString {
+            appendLine(message)
+            append(cause.getStackTraceString())
+        }
+    }
+}
+
+/**
+ * Splits text for priorities that do not have a safe public Throwable overload.
+ *
+ * A conservative limit keeps each Modified UTF-8 payload below Logcat's entry limit for tags that
+ * are valid on every supported Android version. Newline and surrogate-pair boundaries are retained.
+ */
+internal fun String.chunkForLogcat(maxChunkSize: Int = FALLBACK_LOG_CHUNK_SIZE): List<String> {
+    require(maxChunkSize > 0) { "maxChunkSize must be greater than 0, but was $maxChunkSize." }
+    if (isEmpty()) return listOf("")
+
+    return buildList {
+        var start = 0
+        while (start < length) {
+            var end = if (maxChunkSize >= length - start) length else start + maxChunkSize
+            if (end < length) {
+                val newline = lastIndexOf('\n', end - 1)
+                if (newline >= start) {
+                    end = newline + 1
+                } else if (this@chunkForLogcat[end - 1].isHighSurrogate() &&
+                    this@chunkForLogcat[end].isLowSurrogate()
+                ) {
+                    end = if (end - start == 1) end + 1 else end - 1
+                }
+            }
+            add(substring(start, end))
+            start = end
+        }
+    }
+}
