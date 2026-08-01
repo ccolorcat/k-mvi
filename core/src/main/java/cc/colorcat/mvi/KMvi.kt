@@ -17,7 +17,8 @@ import cc.colorcat.mvi.internal.d
  * The strategy-based (`contract(...)`) API attaches this policy to the Flow returned by
  * [IntentHandler.handle] via `retryWhen`. When collecting that Flow throws, [shouldRetry] decides:
  * - `true` — **re-collect the same handler Flow from the beginning** (one more attempt).
- * - `false` — stop; the exception propagates downstream to the configured [FatalErrorHandler].
+ * - `false` — stop; the exception reaches the configured [FatalErrorHandler] after the contract's
+ *   intent queue is cancelled.
  *
  * The retry is scoped to a single intent, so concurrent sibling intents keep running.
  *
@@ -125,7 +126,8 @@ object KMvi {
         get() = config.retryPolicy
 
     /**
-     * The global fatal error handler for unrecoverable pipeline failures.
+     * The global handler for terminal pipeline failures. Returning suppresses exception
+     * propagation but does not recover the contract; throwing propagates the failure.
      */
     internal val errorHandler: FatalErrorHandler
         get() = config.errorHandler
@@ -222,9 +224,10 @@ object KMvi {
      * @property retryPolicy Per-intent policy deciding whether a failed handler Flow is retried
      *                       (re-collected from the start). `attempt` is 0-based. Default: no
      *                       automatic retry — opt in per app. See [RetryPolicy] for replay caveats.
-     * @property errorHandler Handles unrecoverable pipeline failures after retry gives up,
-     *                             and developer errors thrown from [Mvi.PartialChange.apply].
-     *                             Default: [FatalErrorHandler.Rethrow]
+     * @property errorHandler Handles terminal pipeline failures after the intent queue is cancelled.
+     *                        Returning suppresses exception propagation but leaves the contract
+     *                        unavailable; throwing propagates the original or a replacement error.
+     *                        Default: [FatalErrorHandler.Rethrow]
      * @property logger The logger instance. Default: Logger with WARN level
      *
      * @see HandleStrategy

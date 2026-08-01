@@ -844,7 +844,7 @@ class MyApplication : Application() {
                 ),
 
                 // fatal 管线错误默认按开发者错误处理，直接重新抛出原始异常
-                fatalErrorHandler = FatalErrorHandler.Rethrow,
+                errorHandler = FatalErrorHandler.Rethrow,
 
                 // 日志配置：默认为 WARN；debug 版本可用 DEBUG
                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
@@ -909,9 +909,10 @@ HYBRID 策略的配置：
 
 #### FatalErrorHandler
 
-`fatalErrorHandler` 处理 `RetryPolicy` 放弃后的不可恢复管线失败，以及
-`PartialChange.apply` 抛出的开发者错误。它不是恢复钩子；`handle(error): Nothing`
-表示实现必须通过抛出异常或其他方式终止，不能正常返回。
+`errorHandler` 处理 `RetryPolicy` 放弃后的终止性管线失败，以及 `PartialChange.apply`
+抛出的开发者错误。K-MVI 会在调用它之前取消 Intent 队列。handler 可以正常返回以抑制处理
+协程中的异常传播，也可以抛出原异常或替代异常以继续传播。无论选择哪种方式，都不会恢复或
+重启 Contract，后续 `dispatch()` 均返回 `Unavailable`。默认 handler 会重新抛出原异常。
 
 默认策略：
 
@@ -997,8 +998,9 @@ KMvi.configure {
 #### Fatal 管线错误
 
 如果 `PartialChange.apply` 抛出异常，或 `retryPolicy` 对 handler / transformer 的未捕获异常返回
-`false`，K-MVI 会记录该失败并交给 `fatalErrorHandler`。默认的
-`FatalErrorHandler.Rethrow` 会用原始异常终止处理协程。
+`false`，K-MVI 会关闭 Intent 队列、记录该失败并交给 `errorHandler`。自定义 handler 可以正常
+返回以抑制异常传播，也可以抛出异常以继续传播；无论哪种方式，Contract 都保持不可用。默认的
+`FatalErrorHandler.Rethrow` 会传播原始异常。
 
 ### 测试
 

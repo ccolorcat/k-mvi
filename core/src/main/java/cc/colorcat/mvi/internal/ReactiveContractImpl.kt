@@ -113,11 +113,14 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * - The low-level transformer API owns its retry behavior; this core pipeline does not wrap an
  *   arbitrary [IntentTransformer] in a retry operator
  * - Routes failures that escape the transformer to [FatalErrorHandler]
- * - Treats [Mvi.PartialChange.apply] failures as developer errors that fail the
- *   processing coroutine through [FatalErrorHandler]
+ * - Treats [Mvi.PartialChange.apply] failures as developer errors routed through
+ *   [FatalErrorHandler]
  * - Treats a transformer that completes while the scope is still active as a fatal
  *   [IllegalStateException] (a terminating transformer would otherwise leave a zombie
  *   contract), routed through [FatalErrorHandler]
+ * - Cancels the intent queue before invoking [FatalErrorHandler]. Returning from the handler
+ *   suppresses exception propagation, while throwing propagates it; neither choice recovers the
+ *   contract, and later [dispatch] calls return [DispatchResult.Unavailable]
  * - Logs warnings when scope is inactive or the dispatch queue is full
  *
  * ## Lifecycle
@@ -207,9 +210,11 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * Exceptions thrown inside [Mvi.PartialChange.apply] are not handled by `retryWhen`
      * because [scan] is downstream of the retry boundary. The downstream [catch] routes
-     * reducer failures to [FatalErrorHandler], which must terminate by throwing or otherwise
-     * not returning. Recoverable failures should be encoded by handlers or transformers
-     * before a [Mvi.PartialChange] is emitted.
+     * reducer failures to [FatalErrorHandler] after cancelling the intent queue. If the handler
+     * returns, exception propagation is suppressed and the shared pipeline completes permanently;
+     * if it throws, the error propagates from the processing coroutine. Neither choice resumes the
+     * contract. Recoverable failures should be encoded by handlers or transformers before a
+     * [Mvi.PartialChange] is emitted.
      *
      * ## Operator Fusion
      *
@@ -252,6 +257,8 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
 
             intentsChannel.cancel()
             logger.e(TAG, cause) { "MVI pipeline failed." }
+            // The queue is already terminal. Returning suppresses propagation only; it does not
+            // recover or restart this contract.
             errorHandler.handle(cause)
         }
         .flowOn(Dispatchers.Default)

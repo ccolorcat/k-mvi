@@ -1044,9 +1044,11 @@ is `GroupTagSelector.byClass()`, which groups fallback intents by their exact ru
 #### FatalErrorHandler
 
 The configured `errorHandler` handles unrecoverable pipeline failures after `RetryPolicy` gives up,
-and developer errors thrown from `PartialChange.apply`. It is not a recovery hook: K-MVI cancels
-the intent queue before invoking it, so returning cannot resume processing. The default handler
-rethrows the failure.
+and developer errors thrown from `PartialChange.apply`. K-MVI cancels the intent queue before
+invoking it. Returning normally suppresses exception propagation from the processing coroutine;
+throwing propagates the original or a replacement exception. Neither choice recovers or restarts
+the contract, and subsequent `dispatch()` calls return `Unavailable`. The default handler rethrows
+the original failure.
 
 Default policy:
 
@@ -1143,8 +1145,10 @@ KMvi.configure {
 #### Fatal Pipeline Errors
 
 If `PartialChange.apply` throws, if `retryPolicy` gives up on a handler Flow, or if an exception
-escapes a custom transformer, K-MVI logs the failure and delegates to `errorHandler`. The default
-`FatalErrorHandler.Rethrow` fails the processing coroutine with the original exception.
+escapes a custom transformer, K-MVI cancels the intent queue, logs the failure, and delegates to
+`errorHandler`. A custom handler may return to suppress exception propagation or throw to propagate
+it; either way, the contract remains unavailable. The default `FatalErrorHandler.Rethrow` propagates
+the original exception.
 
 ### Testing
 
