@@ -38,7 +38,8 @@ import java.util.concurrent.ConcurrentHashMap
  *     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
  *         return delegate.transform(
  *             intentFlow.onEach { intent ->
- *                 println("Processing intent: $intent")
+ *                 // Log only the type; intent fields may contain IDs, queries, or other user data.
+ *                 println("Processing intent type: ${intent.javaClass.name}")
  *             }
  *         )
  *     }

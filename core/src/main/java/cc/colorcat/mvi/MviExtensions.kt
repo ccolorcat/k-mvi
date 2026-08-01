@@ -106,7 +106,10 @@ fun <S : Mvi.State, E : Mvi.Event, C : Mvi.PartialChange<S, E>> C.asSingleFlow()
  * ```kotlin
  * // Prevent accidental double-clicks on buttons
  * // User's first click is processed immediately, subsequent rapid clicks are ignored
- * button.doOnClick { trySend(SubmitIntent) }
+ * button.doOnClick {
+ *     trySend(SubmitIntent)
+ *         .onFailure { /* report or explicitly accept the dropped intent */ }
+ * }
  *     .debounceLeading(500L)  // 500ms sliding window
  *     .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
  *
@@ -165,7 +168,10 @@ internal fun <T> Flow<T>.debounceLeading(timeMillis: Long, nanoTimeSource: () ->
  * ## Usage Example
  *
  * ```kotlin
- * button.doOnClick { trySend(LoginIntent.ClickLoginButton) }
+ * button.doOnClick {
+ *     trySend(LoginIntent.ClickLoginButton)
+ *         .onFailure { /* report or explicitly accept the dropped intent */ }
+ * }
  *     .launchWithLifecycle(viewLifecycleOwner) { intent ->
  *         viewModel.dispatch(intent)
  *     }
@@ -174,6 +180,8 @@ internal fun <T> Flow<T>.debounceLeading(timeMillis: Long, nanoTimeSource: () ->
  * @param I The Intent type that extends [Mvi.Intent]
  * @param block A non-suspend lambda with [ProducerScope] receiver. Use [ProducerScope.trySend] (not
  *   `send`) to emit intents — `send` is a suspend function and cannot be called from this context.
+ *   Inspect the returned `ChannelResult`; ignoring failure silently drops the intent when the
+ *   callback channel is full or closed. Ignore failure only when dropping is acceptable.
  * @return A Flow that emits Intents on each click
  */
 fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I> = callbackFlow {
@@ -198,6 +206,7 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  * ```kotlin
  * button.doOnLongClick {
  *     trySend(EditIntent.ShowContextMenu)
+ *         .onFailure { /* report or explicitly accept the dropped intent */ }
  *     true  // Consume the event
  * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
@@ -206,7 +215,8 @@ fun <I : Mvi.Intent> View.doOnClick(block: ProducerScope<I>.() -> Unit): Flow<I>
  *
  * @param I The Intent type that extends [Mvi.Intent]
  * @param block A non-suspend lambda with [ProducerScope] receiver that returns `true` to consume the
- *   event. Use [ProducerScope.trySend] (not `send`) to emit intents.
+ *   event. Use [ProducerScope.trySend] (not `send`) to emit intents and inspect its returned
+ *   `ChannelResult`; ignoring failure silently drops the intent when the channel is full or closed.
  * @return A Flow that emits Intents on each long click
  */
 fun <I : Mvi.Intent> View.doOnLongClick(
@@ -233,6 +243,7 @@ fun <I : Mvi.Intent> View.doOnLongClick(
  * ```kotlin
  * switchButton.doOnCheckedChange { isChecked ->
  *     trySend(SettingsIntent.ToggleNotification(isChecked))
+ *         .onFailure { /* report or explicitly accept the dropped intent */ }
  * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
@@ -241,6 +252,8 @@ fun <I : Mvi.Intent> View.doOnLongClick(
  * @param I The Intent type that extends [Mvi.Intent]
  * @param block A non-suspend lambda with [ProducerScope] receiver. Use [ProducerScope.trySend] (not
  *   `send`) to emit intents — `send` is a suspend function and cannot be called from this context.
+ *   Inspect the returned `ChannelResult`; ignoring failure silently drops the intent when the
+ *   callback channel is full or closed. Ignore failure only when dropping is acceptable.
  * @return A Flow that emits Intents on each checked state change
  */
 fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
@@ -256,8 +269,10 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  * Converts a TextView's text change events (after text has changed) into a Flow of Intents
  * with optional debouncing.
  *
- * The Flow will emit an Intent after the text changes (after the user finishes editing).
- * Debouncing helps reduce unnecessary emissions during rapid typing.
+ * The callback runs after every `afterTextChanged` notification and may emit an Intent each time.
+ * When [debounceMillis] is positive, collection emits only after that many milliseconds without a
+ * newer value. A zero or negative value disables debouncing and emits each produced value directly;
+ * it does not detect that the user has finished editing.
  * The text watcher is automatically removed when the Flow is cancelled.
  * This Flow must be collected on the main thread because it registers and
  * removes Android View listeners. The lifecycle helpers in this library
@@ -269,15 +284,19 @@ fun <I : Mvi.Intent> CompoundButton.doOnCheckedChange(
  * ```kotlin
  * searchEditText.doOnAfterTextChanged(debounceMillis = 500L) { editable ->
  *     trySend(SearchIntent.QueryChanged(editable?.toString().orEmpty()))
+ *         .onFailure { /* report or explicitly accept the dropped intent */ }
  * }.launchWithLifecycle(viewLifecycleOwner) { intent ->
  *     viewModel.dispatch(intent)
  * }
  * ```
  *
  * @param I The Intent type that extends [Mvi.Intent]
- * @param debounceMillis Debounce time in milliseconds. Set to 0 to disable debouncing. Default is 500ms.
- * @param block A non-suspend lambda with [ProducerScope] receiver. Use [ProducerScope.trySend] (not
- *   `send`) to emit intents — `send` is a suspend function and cannot be called from this context.
+ * @param debounceMillis Debounce time in milliseconds. Values less than or equal to 0 disable
+ *   debouncing. Default is 500 ms.
+ * @param block A non-suspend lambda with [ProducerScope] receiver. It is invoked for every
+ *   `afterTextChanged` callback. Use [ProducerScope.trySend] (not `send`) to emit intents and inspect
+ *   its returned `ChannelResult`; ignoring failure silently drops the intent when the callback
+ *   channel is full or closed. Ignore failure only when dropping is acceptable.
  * @return A Flow that emits Intents after text changes (with optional debouncing)
  */
 fun <I : Mvi.Intent> TextView.doOnAfterTextChanged(

@@ -39,6 +39,15 @@ import cc.colorcat.mvi.internal.d
  * A synchronous exception thrown by [IntentHandler.handle] **before** it returns the Flow is outside
  * this boundary and is never retried; treat it as a programming error.
  *
+ * ## Cancellation is not retried
+ *
+ * [shouldRetry] is not called for [kotlinx.coroutines.CancellationException]. Cancellation caused by
+ * contract-scope shutdown follows normal structured cancellation. A cancellation exception that
+ * escapes a handler Flow while the contract scope is still active is terminal: K-MVI cancels the
+ * intent queue and routes it to [FatalErrorHandler]. For expected per-intent timeouts, use
+ * [kotlinx.coroutines.withTimeoutOrNull] or convert the timeout to a state/event result inside the
+ * handler without swallowing parent-scope cancellation.
+ *
  * ## Usage Example
  *
  * ```kotlin

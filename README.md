@@ -171,9 +171,15 @@ class CounterFragment : Fragment(R.layout.fragment_counter) {
         // Merge user actions into one Intent stream and dispatch it (lifecycle-aware).
         // debounceLeading emits the first click and ignores rapid follow-ups.
         merge(
-            binding.increment.doOnClick { trySend(Intent.Increment) },
-            binding.decrement.doOnClick { trySend(Intent.Decrement) },
-            binding.reset.doOnClick { trySend(Intent.Reset) },
+            binding.increment.doOnClick {
+                trySend(Intent.Increment).onFailure { /* report or accept the drop */ }
+            },
+            binding.decrement.doOnClick {
+                trySend(Intent.Decrement).onFailure { /* report or accept the drop */ }
+            },
+            binding.reset.doOnClick {
+                trySend(Intent.Reset).onFailure { /* report or accept the drop */ }
+            },
         ).debounceLeading(300L)
             .dispatchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
     }
@@ -271,7 +277,7 @@ data class State(
 }
 
 // In the UI, computed properties are collected like any other:
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectProperty(State::countText) { tv.text = it }
 }
 ```
@@ -775,10 +781,14 @@ private val contract by contract(
 
 ### Collecting State Changes
 
+The examples below assume a Fragment. Register each collector once in `onViewCreated` and use
+`viewLifecycleOwner`; lifecycle restart creates a new collection, and StateFlow immediately emits
+its current value again.
+
 #### Collect Entire State
 
 ```kotlin
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectWhole { state ->
         updateUI(state)
     }
@@ -790,7 +800,7 @@ viewModel.stateFlow.collectState(this) {
 More efficient - only triggers when the specific property changes:
 
 ```kotlin
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectProperty(MyState::loading) { isLoading ->
         progressBar.isVisible = isLoading
     }
@@ -806,7 +816,7 @@ viewModel.stateFlow.collectState(this) {
 #### Collect All Events
 
 ```kotlin
-viewModel.eventFlow.collectEvent(this) {
+viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
     collectAll { event ->
         when (event) {
             is MyEvent.ShowToast -> showToast(event.message)
@@ -819,7 +829,7 @@ viewModel.eventFlow.collectEvent(this) {
 #### Collect Specific Event Types
 
 ```kotlin
-viewModel.eventFlow.collectEvent(this) {
+viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
     collectTyped<MyEvent.ShowToast> { event ->
         Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
     }
@@ -842,20 +852,24 @@ viewModel.eventFlow.collectEvent(this) {
 K-MVI provides convenient extensions for common UI events:
 
 ```kotlin
-// Button clicks — use trySend(...) to emit from the callback
-button.doOnClick { trySend(MyIntent.ButtonClicked) }
+// Check trySend(...) so a full or closed callback channel does not drop silently.
+button.doOnClick {
+    trySend(MyIntent.ButtonClicked).onFailure { /* report or accept the drop */ }
+}
     .debounceLeading(500) // Prevent rapid clicks
-    .launchWithLifecycle(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 
 // Text changes
 editText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
     trySend(MyIntent.TextChanged(editable?.toString().orEmpty()))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* report or accept the drop */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 
 // Checkbox changes
 checkbox.doOnCheckedChange { isChecked ->
     trySend(MyIntent.CheckboxToggled(isChecked))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* report or accept the drop */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 ### Debouncing and Throttling
@@ -866,9 +880,11 @@ Responds to the **first** event, then ignores subsequent events for a time windo
 double-clicks:
 
 ```kotlin
-button.doOnClick { trySend(SubmitIntent) }
+button.doOnClick {
+    trySend(SubmitIntent).onFailure { /* report or accept the drop */ }
+}
     .debounceLeading(500) // Ignore clicks within 500ms of the first click
-    .launchWithLifecycle(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 #### debounce (from Kotlin Flow)
@@ -878,7 +894,8 @@ Responds to the **last** event after a period of silence. Perfect for search as 
 ```kotlin
 searchEditText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
     trySend(SearchIntent(editable?.toString().orEmpty()))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* report or accept the drop */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 ## Configuration
@@ -942,7 +959,8 @@ for most business intents because it gives the clearest result semantics:
   it normally does not return `Full`, but can grow memory if producers outrun consumers.
 - `Channel.CONFLATED`: `Submitted` means the latest intent was submitted to the conflated queue.
   Older pending intents may be replaced, and this submitted intent may also be replaced by a later
-  dispatch before it is processed.
+  dispatch before it is processed. `Channel.CONFLATED` requires `BufferOverflow.SUSPEND`; other
+  overflow policies are rejected when `IntentQueueConfig` is created.
 - `DROP_OLDEST`: `Submitted` means the queue policy accepted this dispatch. If the queue was full,
   the oldest pending intent was dropped and will not be processed.
 - `DROP_LATEST`: `Submitted` means the queue policy handled this dispatch. If the queue was full,
@@ -1032,6 +1050,8 @@ Configuration for HYBRID strategy:
   warns again if it becomes full and suspends the shared router. These thresholds are internal constants.
 - `Channel.RENDEZVOUS`, `Channel.CONFLATED`, and `Channel.UNLIMITED` are not monitored because they
   do not have a meaningful percentage-based fill level.
+- `Channel.CONFLATED` is latest-wins per group: an older pending intent in the same group can be
+  replaced before handling, so entry-queue `Submitted` does not guarantee handler execution.
 - Handle warnings by throttling producers, checking group tags, and shortening handlers before increasing
   capacity. A full group can eventually fill the contract entry queue and make `dispatch()` return `Full`.
 
@@ -1149,6 +1169,11 @@ escapes a custom transformer, K-MVI cancels the intent queue, logs the failure, 
 `errorHandler`. A custom handler may return to suppress exception propagation or throw to propagate
 it; either way, the contract remains unavailable. The default `FatalErrorHandler.Rethrow` propagates
 the original exception.
+
+A `CancellationException` escaping a handler Flow while the contract scope is still active bypasses
+`retryPolicy` and follows this fatal path; normal contract-scope cancellation does not. Convert an
+expected per-intent timeout inside the handler, for example with `withTimeoutOrNull`, without broadly
+swallowing parent-scope cancellation.
 
 ### Testing
 
@@ -1322,13 +1347,17 @@ Always use `collectState` and `collectEvent` extensions:
 
 ```kotlin
 // ✅ Good
-viewModel.stateFlow.collectState(this) { /* ... */ }
+viewModel.stateFlow.collectState(viewLifecycleOwner) { /* ... */ }
 
 // ❌ Bad - doesn't respect lifecycle
 lifecycleScope.launch {
     viewModel.stateFlow.collect { /* ... */ }
 }
 ```
+
+Register once per Fragment view lifecycle. Lifecycle restart creates a new collection, so StateFlow
+emits its current value again. Collector exceptions are not swallowed; handle expected failures in
+the collector block.
 
 ### 6. Optimize State Collection
 

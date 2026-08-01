@@ -50,17 +50,20 @@ All from repo root with Gradle wrapper.
 
 ```
 UI → dispatch(intent) → intentsChannel (capacity 256, SUSPEND)
-  → retryWhen (RetryPolicy)
   → IntentTransformer (strategy routing)
   → IntentHandler.handle(intent): Flow<PartialChange>
+  → retryWhen (RetryPolicy, per handler Flow)
   → scan(PartialChange::apply) → Snapshot
   → catch { errorHandler.handle(cause) }
   → flowOn(Default) + buffer(64, DROP_OLDEST)  ┄ fused into one channel
-  → shareIn (Eagerly) → stateFlow / eventFlow
+  → shareIn(Lazily, replay=0)
+      ├→ stateFlow via stateIn(Eagerly)
+      └→ eventFlow via shareIn(WhileSubscribed, replay=0)
 ```
 
 - **intentsChannel**: dispatch entry, default `IntentQueueConfig(capacity=256, SUSPEND)`
 - **snapshot buffer**: fused `flowOn+buffer(64, DROP_OLDEST)` — stale snapshots with their events discarded if downstream slow
+- **startup**: eager `stateFlow` is the permanent subscriber that starts lazy snapshot sharing during construction
 - `PartialChange.apply()` runs inside `scan` on `Dispatchers.Default` — **must be pure, non-throwing, no I/O**; exceptions are developer errors routed through `FatalErrorHandler` after the queue closes
 
 ### DispatchResult
@@ -81,12 +84,14 @@ UI → dispatch(intent) → intentsChannel (capacity 256, SUSPEND)
 ### Critical Gotchas
 
 - `PartialChange.apply` exceptions: routed through `FatalErrorHandler` after the queue closes; **not** retried by `RetryPolicy`
+- `CancellationException` escaping a handler while the contract scope is active bypasses `RetryPolicy` and is fatal; convert expected timeouts inside the handler (for example with `withTimeoutOrNull`)
 - `FatalErrorHandler` may return to suppress exception propagation or throw to propagate it; either way, the contract remains terminal and later `dispatch()` returns `Unavailable`
 - `eventFlow` is `SharedFlow` with **no replay** — start collecting before dispatching
 - `Snapshot.updateState` **clears the event** — use `updateWith(event) { copy(...) }` to set both
 - `Snapshot.withEvent(event).updateState { ... }` **drops the event** — the `updateState` clears it
 - Intent markers are **mutually exclusive**; implementing both → routed to fallback group with one-time warning
 - `groupHandle` runs a **single coroutine** for routing — a blocked group channel blocks all groups
+- A CONFLATED HYBRID group is latest-wins and can replace an older pending intent in that group
 - Handler lookup is **exact class match** — parent-class registration does NOT catch subclasses
 - `dispatch()` uses `Channel.trySend` — non-blocking; with `SUSPEND` overflow, returns `Full` instead of suspending
 - Deciding in handler via `stateFlow.value` may read stale state under CONCURRENT/HYBRID — use `old.state` inside `apply` for freshness
@@ -112,7 +117,7 @@ UI → dispatch(intent) → intentsChannel (capacity 256, SUSPEND)
 | `HandleStrategy` | `CONCURRENT`, `SEQUENTIAL`, `HYBRID` |
 | `HybridStrategyConfig` | `groupChannelCapacity`, `groupCountWarningThreshold` |
 | `GroupTagSelector<I>` | `fun interface`; default `byClass()` |
-| `RetryPolicy` | `(attempt: Long, cause: Throwable) -> Boolean` |
+| `RetryPolicy` | `(intent, attempt: Long, cause: Throwable) -> Boolean` |
 | `FatalErrorHandler` | `fun interface`; handles terminal failures; `handle(error): Unit` may return to suppress propagation or throw; it cannot recover the contract |
 | `Logger` | `fun interface`; `Logger(threshold)` factory backed by `android.util.Log` |
 
@@ -128,13 +133,13 @@ UI → dispatch(intent) → intentsChannel (capacity 256, SUSPEND)
 | `HandleStrategies.kt` | `HandleStrategy` enum, `HybridStrategyConfig`, `GroupTagSelector` |
 | `IntentQueueConfig.kt` | Dispatch queue config |
 | `IntentHandlers.kt` | `IntentHandler`, `IntentHandlerRegistry`, `IntentHandlerScope` |
-| `IntentTransformers.kt` | `IntentTransformer`, `strategyTransformer` |
+| `IntentTransformers.kt` | `IntentTransformer`, strategy routing, marker classification |
 | `MviViewModels.kt` | `ViewModel.contract(...)` — two APIs (transformer + handler) |
 | `MviCollects.kt` | `collectState`, `collectEvent`, lifecycle-aware DSL builders |
 | `MviExtensions.kt` | `doOnClick`, `debounceLeading`, `asSingleFlow` |
 | `Logger.kt` | `Logger` fun interface with Android `Log` backend |
 | `internal/ReactiveContractImpl.kt` | `CoreReactiveContract` + `StrategyReactiveContract` runtime |
-| `internal/InternalExtensions.kt` | `groupHandle`, `isConcurrent`/`isSequential`, `diagnosticName` |
+| `internal/InternalExtensions.kt` | `groupHandle`, `diagnosticName`, group diagnostics |
 
 ### Sample App (`app/src/main/java/cc/colorcat/mvi/sample/`)
 - `count/` — sequential intents, distributed `register()` style

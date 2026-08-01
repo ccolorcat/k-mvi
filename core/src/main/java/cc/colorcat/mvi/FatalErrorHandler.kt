@@ -4,6 +4,9 @@ package cc.colorcat.mvi
  * Handles terminal failures in the MVI processing pipeline.
  *
  * This hook is for developer errors and failures that the configured [RetryPolicy] gives up on.
+ * It also receives cancellation exceptions that escape a handler Flow or custom transformer while
+ * the contract scope is still active; these are terminal and are not retried. Normal cancellation
+ * caused by contract-scope shutdown bypasses this hook.
  * K-MVI cancels the contract's intent queue before invoking it, so it cannot recover or restart
  * processing. Implementations choose how the terminal failure is exposed:
  * - Return normally to suppress exception propagation after observing or reporting the failure.

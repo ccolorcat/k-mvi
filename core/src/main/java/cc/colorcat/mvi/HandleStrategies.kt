@@ -288,6 +288,11 @@ fun interface GroupTagSelector<in I : Mvi.Intent> {
  * from receiving later intents. If the contract entry queue then fills, [ReactiveContract.dispatch]
  * returns [DispatchResult.Full].
  *
+ * [Channel.CONFLATED] is an explicit latest-wins mode for each group: its single pending slot keeps
+ * only the most recently routed intent when that group's consumer is not ready. Older pending
+ * intents in the same group may be replaced and never handled. Entry-queue
+ * [DispatchResult.Submitted] therefore does not guarantee that every intent reaches its handler.
+ *
  * ## Group Count Diagnostics
  *
  * [groupCountWarningThreshold] controls warning logs for high active group channel
@@ -315,6 +320,8 @@ fun interface GroupTagSelector<in I : Mvi.Intent> {
  * @param groupChannelCapacity The capacity of internal channels used for grouping.
  *                             Allowed values: [Channel.BUFFERED], [Channel.CONFLATED],
  *                             [Channel.RENDEZVOUS], or any positive Int.
+ *                             [Channel.CONFLATED] is a single-slot latest-wins mode and may replace
+ *                             an older pending intent in the same group before it is handled.
  *                             Defaults to [Channel.BUFFERED] (runtime default 64).
  *                             Adjust based on your intent frequency and backpressure needs.
  * @param groupCountWarningThreshold The active group channel count that triggers the first

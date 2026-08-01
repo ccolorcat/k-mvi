@@ -30,7 +30,8 @@ import kotlin.reflect.KProperty1
  *
  * This function provides a convenient way to collect multiple state properties
  * simultaneously, with each collection managed by the same lifecycle. All collectors
- * are supervised - failure of one doesn't affect others.
+ * are supervised: failure of one collector job does not cancel its siblings, but exceptions are
+ * not swallowed and still reach the coroutine exception handler.
  *
  * ## Usage Example
  *
@@ -61,11 +62,21 @@ import kotlin.reflect.KProperty1
  * ## Lifecycle Behavior
  *
  * - Collection starts when lifecycle reaches the specified state (default: STARTED)
- * - Collection stops when lifecycle falls below that state
- * - Collection automatically resumes when lifecycle returns to the required state
+ * - Collection is cancelled when lifecycle falls below that state
+ * - A new collection starts when lifecycle returns to the required state
+ * - Re-collecting a [kotlinx.coroutines.flow.StateFlow] immediately delivers its current value, so
+ *   UI blocks may run again even when the value did not change while stopped
+ *
+ * Each call creates an independent lifecycle registration. Register once per view lifecycle to
+ * avoid duplicate updates. In a Fragment, use `viewLifecycleOwner`, not the Fragment itself, so
+ * collectors stop when its view is destroyed.
+ *
+ * Expected exceptions in collector blocks must be handled by the block. Supervision prevents a
+ * failed collector from cancelling sibling collector jobs; it does not consume the exception or
+ * prevent the app's [kotlinx.coroutines.CoroutineExceptionHandler] from handling it.
  *
  * @param S The state type
- * @param owner The lifecycle owner (typically Fragment or Activity)
+ * @param owner The lifecycle owner (`viewLifecycleOwner` for Fragment UI, or the Activity)
  * @param state The minimum lifecycle state required for collection (default: STARTED)
  * @param collector A lambda with receiver to configure state collectors
  * @return A Job that manages all collectors. Cancelling this job will cancel all collectors at once.
@@ -83,15 +94,16 @@ fun <S : Mvi.State> Flow<S>.collectState(
  * A DSL builder for collecting state flow with lifecycle awareness.
  *
  * StateCollector manages multiple state collectors under a single supervisor.
- * Each collector is independent - if one fails, others continue to run.
+ * A failed collector job does not cancel its siblings, but its exception is not swallowed and may
+ * still be treated as an uncaught application exception.
  *
  * ## Key Features
  *
- * - **Lifecycle aware**: Automatically starts/stops based on lifecycle
+ * - **Lifecycle aware**: Cancels and restarts collection with lifecycle
  * - **Property-level collection**: Collect individual state properties with [collectProperty]
  * - **Whole state collection**: Collect entire state with [collectWhole]
  * - **Deduplication**: Automatically filters duplicate values using [distinctUntilChanged]
- * - **Supervised**: One collector's failure doesn't affect others
+ * - **Supervised**: One collector failure does not cancel sibling jobs; exceptions are not swallowed
  *
  * ## Example
  *
@@ -216,6 +228,10 @@ class StateCollector<S : Mvi.State> internal constructor(
  * of collecting inside a [collectState] block. When collecting several properties, prefer the
  * [collectState] DSL and its [StateCollector.collectProperty] member.
  *
+ * Each invocation creates an independent lifecycle registration. In a Fragment, register once per
+ * view lifecycle with `viewLifecycleOwner`. Lifecycle restart re-collects the source, so a
+ * [kotlinx.coroutines.flow.StateFlow] immediately emits its current value again.
+ *
  * ## Usage Example
  *
  * ```kotlin
@@ -230,7 +246,7 @@ class StateCollector<S : Mvi.State> internal constructor(
  * @param S The state type
  * @param A The property type
  * @param property The state property to collect
- * @param owner The lifecycle owner
+ * @param owner The lifecycle owner (`viewLifecycleOwner` for Fragment UI, or the Activity)
  * @param state The minimum lifecycle state (default: STARTED)
  * @param context Additional coroutine context
  * @param block The suspend function to call with each distinct property value
@@ -256,6 +272,18 @@ fun <S : Mvi.State, A> Flow<S>.collectProperty(
  *
  * This function provides a convenient way to collect multiple event types
  * simultaneously, with each collection managed by the same lifecycle.
+ *
+ * ## Event Delivery and Lifecycle
+ *
+ * Contract events are hot and have no replay. When lifecycle is below [state], collection is
+ * cancelled; events emitted during that interval are permanently lost and are not delivered after
+ * restart. If an outcome must not be lost, represent it as acknowledged state or use a durable
+ * queue. See [Contract.eventFlow] for the complete delivery contract.
+ *
+ * Each call creates an independent lifecycle registration. Register once per view lifecycle to
+ * avoid duplicate handling. In a Fragment, use `viewLifecycleOwner`, not the Fragment itself.
+ * Collector jobs are supervised, so one failure does not cancel siblings, but exceptions are not
+ * swallowed and still reach the coroutine exception handler.
  *
  * ## Usage Example
  *
@@ -283,13 +311,14 @@ fun <S : Mvi.State, A> Flow<S>.collectProperty(
  * ```
  *
  * @param E The event type
- * @param owner The lifecycle owner
+ * @param owner The lifecycle owner (`viewLifecycleOwner` for Fragment UI, or the Activity)
  * @param state The minimum lifecycle state (default: STARTED)
  * @param collector A lambda with receiver to configure event collectors
  * @return A Job that manages all collectors. Cancelling this job will cancel all collectors at once.
  * @see EventCollector
  * @see EventCollector.collectTyped
  * @see EventCollector.collectAll
+ * @see Contract.eventFlow
  */
 fun <E : Mvi.Event> Flow<E>.collectEvent(
     owner: LifecycleOwner,
@@ -301,14 +330,18 @@ fun <E : Mvi.Event> Flow<E>.collectEvent(
  * A DSL builder for collecting event flow with lifecycle awareness.
  *
  * EventCollector manages multiple event collectors under a single supervisor.
- * Each collector is independent - if one fails, others continue to run.
+ * A failed collector job does not cancel its siblings, but its exception is not swallowed and may
+ * still be treated as an uncaught application exception.
+ *
+ * Collection is cancelled below the requested lifecycle state. Because contract events are hot and
+ * have no replay, events emitted while inactive are permanently lost; see [Contract.eventFlow].
  *
  * ## Key Features
  *
- * - **Lifecycle aware**: Automatically starts/stops based on lifecycle
+ * - **Lifecycle aware**: Cancels and restarts collection with lifecycle
  * - **Type-safe filtering**: Collect specific event types with [collectTyped]
  * - **Collect all**: Collect all event types with [collectAll]
- * - **Supervised**: One collector's failure doesn't affect others
+ * - **Supervised**: One collector failure does not cancel sibling jobs; exceptions are not swallowed
  *
  * ## Example
  *
@@ -329,6 +362,7 @@ fun <E : Mvi.Event> Flow<E>.collectEvent(
  * @see collectEvent
  * @see EventCollector.collectTyped
  * @see EventCollector.collectAll
+ * @see Contract.eventFlow
  */
 class EventCollector<E : Mvi.Event> internal constructor(
     private val flow: Flow<E>,
@@ -439,6 +473,10 @@ class EventCollector<E : Mvi.Event> internal constructor(
  * [collectEvent] DSL and its [EventCollector.collectTyped] member (collectors then share one
  * supervisor job).
  *
+ * Each invocation creates an independent lifecycle registration. In a Fragment, register once per
+ * view lifecycle with `viewLifecycleOwner`. Contract events emitted while lifecycle is below
+ * [state] are permanently lost because [Contract.eventFlow] has no replay.
+ *
  * ## Usage Example
  *
  * ```kotlin
@@ -450,13 +488,14 @@ class EventCollector<E : Mvi.Event> internal constructor(
  * ```
  *
  * @param E The specific event type to collect
- * @param owner The lifecycle owner
+ * @param owner The lifecycle owner (`viewLifecycleOwner` for Fragment UI, or the Activity)
  * @param state The minimum lifecycle state (default: STARTED)
  * @param context Additional coroutine context
  * @param block The suspend function to call with each event of type E
  * @return A Job that can be cancelled
  * @see EventCollector.collectTyped
  * @see collectEvent
+ * @see Contract.eventFlow
  */
 inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTyped(
     owner: LifecycleOwner,
@@ -469,9 +508,9 @@ inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTyped(
 /**
  * Dispatches intents with full lifecycle awareness using [repeatOnLifecycle].
  *
- * Collection starts when the lifecycle reaches [state] and **stops** when the
- * lifecycle drops below that state. Collection automatically restarts when the
- * lifecycle returns to the required state. This matches the behavior of
+ * Collection starts when the lifecycle reaches [state] and is **cancelled** when the lifecycle
+ * drops below that state. A new collection starts when the lifecycle returns to the required
+ * state. This matches the behavior of
  * [launchWithLifecycle] and [collectState] / [collectEvent].
  *
  * ## Usage Example
@@ -486,16 +525,19 @@ inline fun <reified E : Mvi.Event> Flow<Mvi.Event>.collectTyped(
  *
  * ## Lifecycle Behavior
  *
- * - Collection pauses when lifecycle drops below [state] (e.g., Fragment goes to background)
- * - Collection resumes when lifecycle returns to [state]
+ * - Active collection is cancelled when lifecycle drops below [state]
+ * - A new collection starts when lifecycle returns to [state]
  * - Collection stops permanently when the lifecycle is destroyed
  *
  * For hot flows with no replay, intents emitted while the lifecycle is below [state]
  * are not collected and therefore are not dispatched later. Use an upstream replaying
  * or persistent source if those intents must survive lifecycle stops.
  *
+ * Each invocation creates an independent lifecycle registration. In a Fragment, register once per
+ * view lifecycle with `viewLifecycleOwner` to avoid duplicate dispatch and stale view ownership.
+ *
  * @param I The intent type
- * @param owner The lifecycle owner
+ * @param owner The lifecycle owner (`viewLifecycleOwner` for Fragment UI, or the Activity)
  * @param state The minimum lifecycle state required for collection (default: STARTED)
  * @param dispatch The function to dispatch each intent.
  * @return A Job that can be cancelled
@@ -516,11 +558,17 @@ fun <I : Mvi.Intent> Flow<I>.dispatchWithLifecycle(
  * Launches collection of a flow with lifecycle awareness.
  *
  * This is the base utility function used by other lifecycle-aware collectors.
- * Collection starts when the lifecycle reaches the specified state and stops
- * when it falls below that state.
+ * Collection starts when the lifecycle reaches the specified state and is cancelled when it falls
+ * below that state. A new collection starts on the next lifecycle entry. Re-collecting a
+ * [kotlinx.coroutines.flow.StateFlow] immediately emits its current value again.
  *
- * All collections are launched on the main thread (via [LifecycleOwner.lifecycleScope]).
- * The [context] parameter can include a parent Job to manage cancellation.
+ * Collection uses [LifecycleOwner.lifecycleScope], whose default dispatcher is Main. The [context]
+ * parameter can add or replace context elements, including the dispatcher and a parent Job.
+ *
+ * Every call installs an independent repeat loop. Register once per view lifecycle; Fragments
+ * should normally pass `viewLifecycleOwner`. Exceptions from [block] are not caught or swallowed.
+ * A [SupervisorJob] in [context] can prevent sibling-job cancellation, but the exception still
+ * reaches the inherited coroutine exception handler and may terminate the application.
  *
  * ## Usage Example
  *
@@ -533,7 +581,7 @@ fun <I : Mvi.Intent> Flow<I>.dispatchWithLifecycle(
  * ```
  *
  * @param T The flow value type
- * @param owner The lifecycle owner
+ * @param owner The lifecycle owner (`viewLifecycleOwner` for Fragment UI, or the Activity)
  * @param state The minimum lifecycle state for collection (default: STARTED)
  * @param context Additional coroutine context (typically contains a parent Job)
  * @param block The suspend function to call with each value

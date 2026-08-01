@@ -185,8 +185,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param defaultHandler The fallback handler for Intents without a registered handler.
  *                       Defaults to `null`, in which case unhandled Intents are logged at WARN
  *                       and produce no state change. Supply a non-null handler to opt into the
- *                       centralized-dispatch pattern (unhandled Intents are silently routed to
- *                       it).
+ *                       centralized-dispatch pattern; fallback emits no WARN, but is recorded at
+ *                       INFO like registered handling.
  * @param setup A lambda with [IntentHandlerScope] receiver to register Intent handlers; its
  *              `reified` helpers take only the intent type (`register<MyIntent> { ... }`)
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
@@ -222,12 +222,12 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
 }
 
 /**
- * A [Lazy] implementation for [ReactiveContract] that ensures the contract
- * is only created once and cached for subsequent accesses.
+ * A non-thread-safe [Lazy] implementation for [ReactiveContract]. Under the required single-thread
+ * access pattern, the contract is created on first access and cached for later accesses.
  *
  * This is used internally by [contract] functions to provide lazy initialization
- * of ReactiveContract instances. The contract is created on first access and then
- * cached for all subsequent accesses.
+ * of ReactiveContract instances. Concurrent access is outside its contract and can invoke the
+ * initializer more than once, as described below.
  *
  * ## Thread Safety
  *
