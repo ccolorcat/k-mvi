@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -47,6 +48,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestRule
+import java.io.IOException
 import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -1064,5 +1066,109 @@ class ReactiveContractImplTest {
 
         assertEquals("only the blocking first intent should start before cancellation", 1, started.size)
         assertEquals(0, contract.stateFlow.value.count)
+    }
+
+    @Test
+    fun `synchronous handle exception bypasses retry and is fatal`() = runBlocking {
+        val fatal = CompletableDeferred<Throwable>()
+        val attempts = AtomicInteger(0)
+        val contractScope = CoroutineScope(Job() + CoroutineExceptionHandler { _, _ -> })
+        val contract = CoreReactiveContract(
+            scope = contractScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            errorHandler = recordingFatalHandler(fatal),
+            transformer = strategyTransformer(
+                handleStrategy = HandleStrategy.SEQUENTIAL,
+                hybridStrategyConfig = HybridStrategyConfig(),
+                groupTagSelector = GroupTagSelector.byClass(),
+                // Permissive policy would retry everything IF the failure reached retryWhen.
+                retryPolicy = { _, _, _ -> true },
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    attempts.incrementAndGet()
+                    throw IllegalStateException("synchronous handle failure")
+                },
+            ),
+        )
+
+        try {
+            contract.dispatch(TestIntent.Increment)
+            val fatalError = withTimeout(1_000) { fatal.await() }
+            assertTrue(fatalError is IllegalStateException)
+            assertEquals("synchronous handle failure", fatalError.message)
+            // handle() threw before returning the Flow, so retryWhen never saw it: exactly one call.
+            assertEquals(1, attempts.get())
+        } finally {
+            contractScope.cancel()
+        }
+    }
+
+    @Test
+    fun `retry replays partial changes emitted before the failure`() = runBlocking {
+        val fatal = CompletableDeferred<Throwable>()
+        val attempts = AtomicInteger(0)
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            errorHandler = recordingFatalHandler(fatal),
+            transformer = strategyTransformer(
+                handleStrategy = HandleStrategy.SEQUENTIAL,
+                hybridStrategyConfig = HybridStrategyConfig(),
+                groupTagSelector = GroupTagSelector.byClass(),
+                // Opt in: retry the first failure of this intent's flow.
+                retryPolicy = { _, attempt, _ -> attempt == 0L },
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    flow {
+                        emit(Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = count + 1) } })
+                        if (attempts.getAndIncrement() == 0) throw IllegalStateException("boom")
+                    }
+                },
+            ),
+        )
+
+        contract.dispatch(TestIntent.Increment)
+        // Non-idempotent change is applied once per collection: initial attempt + one retry = 2.
+        val state = contract.stateFlow.first { it.count == 2 }
+        assertEquals(2, state.count)
+        assertEquals(2, attempts.get())
+        assertFalse(fatal.isCompleted)
+    }
+
+    @Test
+    fun `source level retry inside handler emits exactly once`() = runBlocking {
+        val fatal = CompletableDeferred<Throwable>()
+        val ioAttempts = AtomicInteger(0)
+        val emissions = AtomicInteger(0)
+        val contract = CoreReactiveContract(
+            scope = testScope,
+            initState = TestState(),
+            intentQueueConfig = IntentQueueConfig(capacity = 64),
+            errorHandler = recordingFatalHandler(fatal),
+            transformer = strategyTransformer(
+                handleStrategy = HandleStrategy.SEQUENTIAL,
+                hybridStrategyConfig = HybridStrategyConfig(),
+                groupTagSelector = GroupTagSelector.byClass(),
+                // Framework retry disabled; the handler retries only its fallible source.
+                retryPolicy = { _, _, _ -> false },
+                handler = IntentHandler<TestIntent, TestState, TestEvent> {
+                    flow {
+                        val value = flow {
+                            if (ioAttempts.getAndIncrement() < 2) throw IOException("transient")
+                            emit(42)
+                        }.retryWhen { cause, attempt -> attempt < 3L && cause is IOException }.first()
+                        emissions.incrementAndGet()
+                        emit(Mvi.PartialChange<TestState, TestEvent> { it.updateState { copy(count = value) } })
+                    }
+                },
+            ),
+        )
+
+        contract.dispatch(TestIntent.Increment)
+        val state = contract.stateFlow.first { it.count == 42 }
+        assertEquals(42, state.count)
+        assertEquals(3, ioAttempts.get()) // 2 transient failures + 1 success
+        assertEquals(1, emissions.get()) // emitted exactly once despite retries
+        assertFalse(fatal.isCompleted)
     }
 }

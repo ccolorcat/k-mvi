@@ -66,6 +66,19 @@ import java.util.concurrent.ConcurrentHashMap
  * emissions before the failure may therefore run again; keep pre-failure operations idempotent
  * or handle their recovery explicitly inside the Flow.
  *
+ * ## Cancellation and Timeouts
+ *
+ * A [kotlinx.coroutines.CancellationException] escaping the returned Flow is never offered to
+ * [RetryPolicy]. If the contract scope is still active, K-MVI treats it as a terminal pipeline
+ * failure: the intent queue is cancelled, in-flight sibling handlers are cancelled, and the error
+ * reaches [FatalErrorHandler]. Cancellation caused by normal contract-scope shutdown bypasses the
+ * fatal handler.
+ *
+ * Convert an expected per-intent timeout before it escapes, for example with
+ * [kotlinx.coroutines.withTimeoutOrNull], and emit an appropriate state/event result. Do not catch
+ * every [kotlinx.coroutines.CancellationException], because doing so can swallow lifecycle or
+ * parent-scope cancellation.
+ *
  * ## Usage Examples
  *
  * ### Simple Handler (Single State Change)
@@ -98,6 +111,10 @@ fun interface IntentHandler<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
      * placed inside the returned Flow so [HandleStrategy] and [RetryPolicy] can control the
      * complete lifecycle of each intent. See "Recommended: Defer Fallible Work to the Flow"
      * in [IntentHandler].
+     *
+     * Cancellation exceptions escaping the returned Flow are not retried. While the contract scope
+     * is active they terminate the contract through [FatalErrorHandler]; see "Cancellation and
+     * Timeouts" in [IntentHandler].
      *
      * @param intent The intent to handle
      * @return A flow of partial changes to be applied to the current state
@@ -195,7 +212,8 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * - Logs a warning only when no handler is registered for an intent **and** no
  *   [defaultHandler] is supplied (the framework treats this as a likely misconfiguration).
  *   When a non-null [defaultHandler] is supplied (the centralized-handler pattern),
- *   fallback dispatch is silent — see `LoginViewModel` in the sample app.
+ *   fallback dispatch emits no WARN, but still records the normal INFO handling log — see
+ *   `LoginViewModel` in the sample app.
  * - Logs all intent handling (INFO level) to help users track processing state
  *
  * ## Intent Handling Logs
@@ -216,7 +234,7 @@ interface IntentHandlerRegistry<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @param defaultHandler The fallback handler used when no specific handler is registered for an
  *   intent's exact class. Pass `null` to indicate "no fallback": unhandled intents are then
  *   logged at WARN and produce no state change. Pass a non-null handler for the centralized
- *   dispatch pattern — unhandled intents are silently routed to it.
+ *   dispatch pattern — fallback emits no WARN, but is recorded at INFO like registered handling.
  * @see HandleStrategy
  * @see Mvi.Intent.Concurrent
  * @see Mvi.Intent.Sequential

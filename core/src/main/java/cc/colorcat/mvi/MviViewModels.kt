@@ -80,10 +80,12 @@ import cc.colorcat.mvi.internal.StrategyReactiveContract
  * @param initState The initial state of the contract
  * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
  *                          [KMvi.intentQueueConfig]
- * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
- * @param errorHandler Handles unrecoverable pipeline failures. Defaults to global config
- *                          [KMvi.errorHandler]
- * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges
+ * @param errorHandler Handles terminal pipeline failures after the intent queue is cancelled. Returning
+ *                     suppresses exception propagation but does not recover the contract; throwing
+ *                     propagates the failure. Defaults to global config [KMvi.errorHandler]
+ * @param transformer The [IntentTransformer] that transforms Intents into Flows of PartialChanges.
+ *                    This low-level API does not attach [RetryPolicy]; the transformer owns any
+ *                    retry behavior it needs.
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
  * @see ReactiveContract
  * @see IntentTransformer
@@ -169,9 +171,12 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param initState The initial state of the contract
  * @param intentQueueConfig The dispatch entry queue configuration. Defaults to global config
  *                          [KMvi.intentQueueConfig]
- * @param retryPolicy The retry policy for failed Intent processing. Defaults to global config [KMvi.retryPolicy]
- * @param errorHandler Handles unrecoverable pipeline failures. Defaults to global config
- *                          [KMvi.errorHandler]
+ * @param retryPolicy Per-intent policy for exceptions thrown while a returned handler Flow is
+ *                    collected. It does not cover synchronous exceptions thrown before
+ *                    [IntentHandler.handle] returns. Defaults to global config [KMvi.retryPolicy].
+ * @param errorHandler Handles terminal pipeline failures after the intent queue is cancelled. Returning
+ *                     suppresses exception propagation but does not recover the contract; throwing
+ *                     propagates the failure. Defaults to global config [KMvi.errorHandler]
  * @param handleStrategy The processing strategy for Intents. Defaults to global config [KMvi.handleStrategy]
  * @param hybridStrategyConfig The runtime configuration when using HYBRID strategy.
  *                     Defaults to [KMvi.hybridStrategyConfig].
@@ -180,8 +185,8 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
  * @param defaultHandler The fallback handler for Intents without a registered handler.
  *                       Defaults to `null`, in which case unhandled Intents are logged at WARN
  *                       and produce no state change. Supply a non-null handler to opt into the
- *                       centralized-dispatch pattern (unhandled Intents are silently routed to
- *                       it).
+ *                       centralized-dispatch pattern; fallback emits no WARN, but is recorded at
+ *                       INFO like registered handling.
  * @param setup A lambda with [IntentHandlerScope] receiver to register Intent handlers; its
  *              `reified` helpers take only the intent type (`register<MyIntent> { ... }`)
  * @return A [Lazy] delegate that creates the [ReactiveContract] when first accessed
@@ -217,12 +222,12 @@ fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> ViewModel.contract(
 }
 
 /**
- * A [Lazy] implementation for [ReactiveContract] that ensures the contract
- * is only created once and cached for subsequent accesses.
+ * A non-thread-safe [Lazy] implementation for [ReactiveContract]. Under the required single-thread
+ * access pattern, the contract is created on first access and cached for later accesses.
  *
  * This is used internally by [contract] functions to provide lazy initialization
- * of ReactiveContract instances. The contract is created on first access and then
- * cached for all subsequent accesses.
+ * of ReactiveContract instances. Concurrent access is outside its contract and can invoke the
+ * initializer more than once, as described below.
  *
  * ## Thread Safety
  *

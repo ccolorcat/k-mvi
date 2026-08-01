@@ -171,9 +171,15 @@ class CounterFragment : Fragment(R.layout.fragment_counter) {
         // Merge user actions into one Intent stream and dispatch it (lifecycle-aware).
         // debounceLeading emits the first click and ignores rapid follow-ups.
         merge(
-            binding.increment.doOnClick { trySend(Intent.Increment) },
-            binding.decrement.doOnClick { trySend(Intent.Decrement) },
-            binding.reset.doOnClick { trySend(Intent.Reset) },
+            binding.increment.doOnClick {
+                trySend(Intent.Increment).onFailure { /* report or accept the drop */ }
+            },
+            binding.decrement.doOnClick {
+                trySend(Intent.Decrement).onFailure { /* report or accept the drop */ }
+            },
+            binding.reset.doOnClick {
+                trySend(Intent.Reset).onFailure { /* report or accept the drop */ }
+            },
         ).debounceLeading(300L)
             .dispatchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
     }
@@ -271,7 +277,7 @@ data class State(
 }
 
 // In the UI, computed properties are collected like any other:
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectProperty(State::countText) { tv.text = it }
 }
 ```
@@ -405,8 +411,8 @@ KMvi.configure {
         hybridStrategyConfig = HybridStrategyConfig(
             groupChannelCapacity = Channel.BUFFERED,
         ),
-        retryPolicy = { attempt, cause ->
-            attempt < 3 && cause is IOException
+        retryPolicy = { intent, attempt, cause ->
+            attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent
         },
         logger = Logger(Logger.DEBUG),
     )
@@ -481,11 +487,11 @@ class MyViewModel : ViewModel() {
     // All intent handling in one method - easy to read and maintain
     private fun handleIntent(intent: MyIntent): Flow<MyPartialChange> {
         return when (intent) {
-            is MyIntent.Increment -> handleIncrement(intent)
-            is MyIntent.Decrement -> handleDecrement(intent)
+            is MyIntent.Increment -> handleIncrement(intent).asSingleFlow()
+            is MyIntent.Decrement -> handleDecrement(intent).asSingleFlow()
             is MyIntent.LoadData -> handleLoadData(intent)
             is MyIntent.SaveData -> handleSaveData(intent)
-        }.asSingleFlow()
+        }
     }
 
     private fun handleIncrement(intent: MyIntent.Increment): MyPartialChange {
@@ -527,6 +533,9 @@ class MyViewModel : ViewModel() {
     }
 }
 ```
+
+Use `asSingleFlow()` only for an already-created, non-fallible change as above. Handlers that do
+fallible or suspend work should return `flow { ... }` and perform that work inside its block.
 
 **Benefits:**
 
@@ -772,10 +781,14 @@ private val contract by contract(
 
 ### Collecting State Changes
 
+The examples below assume a Fragment. Register each collector once in `onViewCreated` and use
+`viewLifecycleOwner`; lifecycle restart creates a new collection, and StateFlow immediately emits
+its current value again.
+
 #### Collect Entire State
 
 ```kotlin
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectWhole { state ->
         updateUI(state)
     }
@@ -787,7 +800,7 @@ viewModel.stateFlow.collectState(this) {
 More efficient - only triggers when the specific property changes:
 
 ```kotlin
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectProperty(MyState::loading) { isLoading ->
         progressBar.isVisible = isLoading
     }
@@ -803,7 +816,7 @@ viewModel.stateFlow.collectState(this) {
 #### Collect All Events
 
 ```kotlin
-viewModel.eventFlow.collectEvent(this) {
+viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
     collectAll { event ->
         when (event) {
             is MyEvent.ShowToast -> showToast(event.message)
@@ -816,7 +829,7 @@ viewModel.eventFlow.collectEvent(this) {
 #### Collect Specific Event Types
 
 ```kotlin
-viewModel.eventFlow.collectEvent(this) {
+viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
     collectTyped<MyEvent.ShowToast> { event ->
         Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
     }
@@ -839,20 +852,24 @@ viewModel.eventFlow.collectEvent(this) {
 K-MVI provides convenient extensions for common UI events:
 
 ```kotlin
-// Button clicks — use trySend(...) to emit from the callback
-button.doOnClick { trySend(MyIntent.ButtonClicked) }
+// Check trySend(...) so a full or closed callback channel does not drop silently.
+button.doOnClick {
+    trySend(MyIntent.ButtonClicked).onFailure { /* report or accept the drop */ }
+}
     .debounceLeading(500) // Prevent rapid clicks
-    .launchWithLifecycle(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 
 // Text changes
 editText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
     trySend(MyIntent.TextChanged(editable?.toString().orEmpty()))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* report or accept the drop */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 
 // Checkbox changes
 checkbox.doOnCheckedChange { isChecked ->
     trySend(MyIntent.CheckboxToggled(isChecked))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* report or accept the drop */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 ### Debouncing and Throttling
@@ -863,9 +880,11 @@ Responds to the **first** event, then ignores subsequent events for a time windo
 double-clicks:
 
 ```kotlin
-button.doOnClick { trySend(SubmitIntent) }
+button.doOnClick {
+    trySend(SubmitIntent).onFailure { /* report or accept the drop */ }
+}
     .debounceLeading(500) // Ignore clicks within 500ms of the first click
-    .launchWithLifecycle(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 #### debounce (from Kotlin Flow)
@@ -875,7 +894,8 @@ Responds to the **last** event after a period of silence. Perfect for search as 
 ```kotlin
 searchEditText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
     trySend(SearchIntent(editable?.toString().orEmpty()))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* report or accept the drop */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 ## Configuration
@@ -893,8 +913,8 @@ class MyApplication : Application() {
                 handleStrategy = HandleStrategy.HYBRID,
 
                 // Retry policy for failed intent processing
-                retryPolicy = { attempt, cause ->
-                    attempt < 3 && cause is IOException // attempt is 0-based
+                retryPolicy = { intent, attempt, cause ->
+                    attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent // attempt is 0-based
                 },
 
                 // Hybrid strategy runtime configuration
@@ -903,7 +923,7 @@ class MyApplication : Application() {
                 ),
 
                 // Fatal pipeline errors are developer errors by default.
-                fatalErrorHandler = FatalErrorHandler.Rethrow,
+                errorHandler = FatalErrorHandler.Rethrow,
 
                 // Logger configuration: WARN by default; use DEBUG in debug builds
                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
@@ -939,7 +959,8 @@ for most business intents because it gives the clearest result semantics:
   it normally does not return `Full`, but can grow memory if producers outrun consumers.
 - `Channel.CONFLATED`: `Submitted` means the latest intent was submitted to the conflated queue.
   Older pending intents may be replaced, and this submitted intent may also be replaced by a later
-  dispatch before it is processed.
+  dispatch before it is processed. `Channel.CONFLATED` requires `BufferOverflow.SUSPEND`; other
+  overflow policies are rejected when `IntentQueueConfig` is created.
 - `DROP_OLDEST`: `Submitted` means the queue policy accepted this dispatch. If the queue was full,
   the oldest pending intent was dropped and will not be processed.
 - `DROP_LATEST`: `Submitted` means the queue policy handled this dispatch. If the queue was full,
@@ -951,20 +972,72 @@ for replaceable or discardable high-frequency UI intents.
 
 #### RetryPolicy
 
-A function `(attempt: Long, cause: Throwable) -> Boolean` that determines whether to retry after a failure.
-`attempt` follows `Flow.retryWhen` semantics and is **0-based** (`0` = first retry).
+A `RetryPolicy<I>` receives `(intent: I, attempt: Long, cause: Throwable)` and decides whether to
+collect that intent's returned handler Flow again. Retry is attached independently to each handler
+Flow, so a retriable failure does not restart the whole contract pipeline. `attempt` follows
+`Flow.retryWhen` semantics and is **0-based** (`0` = first retry).
 
-Default policy:
+This automatic policy belongs to the handler-based `contract(...)` API. The low-level
+transformer-based API does not attach it; a custom `IntentTransformer` owns its retry behavior.
+
+##### What the policy can retry
+
+K-MVI calls `handler.handle(intent)` first and then attaches `retryWhen` to the returned Flow.
+Consequently:
+
+- An exception thrown while the returned Flow is being **collected** reaches `RetryPolicy`.
+- An exception thrown synchronously before `handle()` returns the Flow bypasses `RetryPolicy`.
+- If the handler catches and consumes an exception, the policy cannot observe it.
+- An exception from `PartialChange.apply` occurs later in the reducer and is never retried.
+- Seeing an exception is not enough: the policy must return `true` for a retry to happen.
+
+`flow {}` and `flowOf(...)` are both cold, but `flowOf` does not defer evaluation of its arguments:
 
 ```kotlin
-{ attempt, cause ->
-    attempt < 3 && cause is IOException // Retries transient I/O failures on attempt 0..2
+// Supported: createChange runs during Flow collection.
+fun handle(intent: LoadIntent): Flow<MyPartialChange> = flow {
+    emit(createChange(intent)) // IOException can be evaluated by RetryPolicy
+}
+
+// Not supported: createChange runs immediately while handle() creates the Flow.
+fun handle(intent: LoadIntent): Flow<MyPartialChange> =
+    flowOf(createChange(intent)) // IOException bypasses RetryPolicy
+
+// Also not supported: the receiver is created before asSingleFlow() is called.
+fun handle(intent: LoadIntent): Flow<MyPartialChange> =
+    createChange(intent).asSingleFlow()
+```
+
+`flowOf(existingChange)` and `existingChange.asSingleFlow()` are fine when the change already
+exists and constructing it cannot fail. They simply have no fallible collection-time work for the
+policy to retry. Code inside the `PartialChange` reducer is a separate downstream stage.
+
+Default policy — **no automatic retry**:
+
+```kotlin
+{ _, _, _ -> false }
+```
+
+Retry is opt-in: a retry re-collects the whole handler Flow and replays every `PartialChange`
+emitted before the failure (see the re-collection warning below), so enabling it globally for all
+intents is unsafe. Turn it on only for handlers that are safe to re-collect, gating on an intent
+type you control:
+
+```kotlin
+KMvi.configure {
+    copy(retryPolicy = { intent, attempt, cause ->
+        attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent
+    })
 }
 ```
 
-> The default policy does not retry programming errors such as `IllegalStateException`,
-> `IllegalArgumentException`, or `NullPointerException`. Override it if your app has
-> additional domain-specific transient failures.
+##### Re-collection warning
+
+A retry re-collects the same returned Flow from the beginning; it does not call `handle()` again.
+The Flow body, external work, and every `PartialChange` emitted before the failure may therefore run
+again. Changes already applied to state and events already delivered are not rolled back. Keep
+pre-failure work idempotent, or place a narrower retry around only the fallible operation inside the
+handler.
 
 #### HybridStrategyConfig
 
@@ -977,6 +1050,8 @@ Configuration for HYBRID strategy:
   warns again if it becomes full and suspends the shared router. These thresholds are internal constants.
 - `Channel.RENDEZVOUS`, `Channel.CONFLATED`, and `Channel.UNLIMITED` are not monitored because they
   do not have a meaningful percentage-based fill level.
+- `Channel.CONFLATED` is latest-wins per group: an older pending intent in the same group can be
+  replaced before handling, so entry-queue `Submitted` does not guarantee handler execution.
 - Handle warnings by throttling producers, checking group tags, and shortening handlers before increasing
   capacity. A full group can eventually fill the contract entry queue and make `dispatch()` return `Full`.
 
@@ -988,10 +1063,12 @@ is `GroupTagSelector.byClass()`, which groups fallback intents by their exact ru
 
 #### FatalErrorHandler
 
-`fatalErrorHandler` handles unrecoverable pipeline failures after `RetryPolicy` gives up, and
-developer errors thrown from `PartialChange.apply`. It is not a recovery hook. Its
-`handle(error): Nothing` contract means implementations must terminate by throwing or otherwise
-not returning.
+The configured `errorHandler` handles unrecoverable pipeline failures after `RetryPolicy` gives up,
+and developer errors thrown from `PartialChange.apply`. K-MVI cancels the intent queue before
+invoking it. Returning normally suppresses exception propagation from the processing coroutine;
+throwing propagates the original or a replacement exception. Neither choice recovers or restarts
+the contract, and subsequent `dispatch()` calls return `Unavailable`. The default handler rethrows
+the original failure.
 
 Default policy:
 
@@ -1059,20 +1136,26 @@ private fun handleLoadData(intent: LoadDataIntent): Flow<MyPartialChange> = flow
 }
 ```
 
+This example intentionally catches and converts the failure into state. Because the handler
+consumes the exception, the configured `RetryPolicy` is not invoked. Let a retryable exception
+escape the returned Flow, or apply a narrower retry inside the handler before converting the final
+failure into state.
+
 #### Global Retry Policy
 
-The global retry policy will automatically restart the pipeline subscription after an unhandled handler exception, so
-subsequent intents can still be processed. The failing intent is not replayed — handlers should use try-catch for
-intent-level error recovery:
+When an exception escapes during collection of a strategy-based handler Flow, the policy is
+evaluated for that intent. Returning `true` re-collects the same Flow from the beginning. It does
+not restart the complete pipeline; concurrent sibling intents remain active while the retry
+recovers. See [RetryPolicy](#retrypolicy) for the collection boundary and re-collection warning.
 
 ```kotlin
 KMvi.configure {
     copy(
-        retryPolicy = { attempt, cause ->
-            when (cause) {
-                is NetworkException -> attempt < 5 // Retry network errors (0-based attempt)
-                is TimeoutException -> attempt < 2 // Retry timeouts (0-based attempt)
-                else -> false
+        retryPolicy = { intent, attempt, cause ->
+            when {
+                intent is LoadDataIntent && cause is NetworkException -> attempt < 5
+                cause is TimeoutException -> attempt < 2
+                else -> false // Propagates to errorHandler
             }
         }
     )
@@ -1081,9 +1164,16 @@ KMvi.configure {
 
 #### Fatal Pipeline Errors
 
-If `PartialChange.apply` throws, or if `retryPolicy` returns `false` for an unhandled handler /
-transformer exception, K-MVI logs the failure and delegates to `fatalErrorHandler`. The default
-`FatalErrorHandler.Rethrow` fails the processing coroutine with the original exception.
+If `PartialChange.apply` throws, if `retryPolicy` gives up on a handler Flow, or if an exception
+escapes a custom transformer, K-MVI cancels the intent queue, logs the failure, and delegates to
+`errorHandler`. A custom handler may return to suppress exception propagation or throw to propagate
+it; either way, the contract remains unavailable. The default `FatalErrorHandler.Rethrow` propagates
+the original exception.
+
+A `CancellationException` escaping a handler Flow while the contract scope is still active bypasses
+`retryPolicy` and follows this fatal path; normal contract-scope cancellation does not. Convert an
+expected per-intent timeout inside the handler, for example with `withTimeoutOrNull`, without broadly
+swallowing parent-scope cancellation.
 
 ### Testing
 
@@ -1257,13 +1347,17 @@ Always use `collectState` and `collectEvent` extensions:
 
 ```kotlin
 // ✅ Good
-viewModel.stateFlow.collectState(this) { /* ... */ }
+viewModel.stateFlow.collectState(viewLifecycleOwner) { /* ... */ }
 
 // ❌ Bad - doesn't respect lifecycle
 lifecycleScope.launch {
     viewModel.stateFlow.collect { /* ... */ }
 }
 ```
+
+Register once per Fragment view lifecycle. Lifecycle restart creates a new collection, so StateFlow
+emits its current value again. Collector exceptions are not swallowed; handle expected failures in
+the collector block.
 
 ### 6. Optimize State Collection
 

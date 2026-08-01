@@ -69,11 +69,11 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  *
  * ```
  * intentsChannel        (explicit  : intentQueueConfig) — dispatch entry queue
- *     ↓ [Default coroutine] toPartialChange + retryWhen + scan
+ *     ↓ [Default coroutine] toPartialChange + scan
  * snapshot buffer       (fused     : SNAPSHOT_BUFFER_CAPACITY, DROP_OLDEST)
  *     — flowOn(Default) + buffer fused into one
  *     ↓
- * shareIn (Eagerly, replay = 0)
+ * shareIn (Lazily, replay = 0)
  * ```
  *
  * **intentsChannel** is the public dispatch mailbox. It is created from [intentQueueConfig],
@@ -108,14 +108,19 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  *
  * ## Error Handling
  *
- * - Uses [retryWhen] with configurable [RetryPolicy] for transformer / handler failures
- *   before reducer application
- * - Routes unrecoverable failures to [FatalErrorHandler] after [RetryPolicy] gives up
- * - Treats [Mvi.PartialChange.apply] failures as developer errors that fail the
- *   processing coroutine through [FatalErrorHandler]
+ * - The handler-based API wraps each returned handler Flow with a per-intent [RetryPolicy]
+ *   inside its strategy transformer
+ * - The low-level transformer API owns its retry behavior; this core pipeline does not wrap an
+ *   arbitrary [IntentTransformer] in a retry operator
+ * - Routes failures that escape the transformer to [FatalErrorHandler]
+ * - Treats [Mvi.PartialChange.apply] failures as developer errors routed through
+ *   [FatalErrorHandler]
  * - Treats a transformer that completes while the scope is still active as a fatal
  *   [IllegalStateException] (a terminating transformer would otherwise leave a zombie
  *   contract), routed through [FatalErrorHandler]
+ * - Cancels the intent queue before invoking [FatalErrorHandler]. Returning from the handler
+ *   suppresses exception propagation, while throwing propagates it; neither choice recovers the
+ *   contract, and later [dispatch] calls return [DispatchResult.Unavailable]
  * - Logs warnings when scope is inactive or the dispatch queue is full
  *
  * ## Lifecycle
@@ -130,7 +135,6 @@ private const val SNAPSHOT_BUFFER_CAPACITY = 64
  * @param scope The coroutine scope for flow collection; its context must contain a [Job]
  * @param initState The initial state
  * @param intentQueueConfig The dispatch entry queue configuration
- * @param retryPolicy Policy for retrying transformer / handler failures before reducer application
  * @param transformer Transforms intents to partial changes
  * @see ReactiveContract
  * @see IntentTransformer
@@ -162,10 +166,9 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * - [Channel.BUFFERED]: framework default buffered capacity
      * - [Channel.UNLIMITED]: unbounded entry queue; use with care
      *
-     * The pipeline uses [receiveAsFlow] (not `consumeAsFlow`) so the channel is NOT closed when
-     * [retryWhen] re-collects, allowing buffered intents to survive a retry. The channel is closed
-     * when [scope] completes or the pipeline fails fatally so late [dispatch] calls fail
-     * deterministically.
+     * The pipeline uses [receiveAsFlow] (not `consumeAsFlow`) so collecting the receiver view does
+     * not transfer ownership of the channel to the Flow. The channel is closed when [scope]
+     * completes or the pipeline fails fatally so late [dispatch] calls fail deterministically.
      */
     private val intentsChannel = Channel<I>(
         capacity = intentQueueConfig.capacity,
@@ -180,7 +183,8 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      * Shared flow of state snapshots produced by processing intents.
      *
      * Processing pipeline:
-     * 1. Receive intents from [intentsChannel] and transform to partial changes (with retry before reducer application)
+     * 1. Receive intents from [intentsChannel] and transform them to partial changes. The
+     *    strategy transformer used by the handler API may retry each handler Flow independently.
      * 2. Execute transformation and handler flow collection on [Dispatchers.Default]
      * 3. Accumulate changes into snapshots via [scan] on [Dispatchers.Default]
      * 4. Buffer snapshots between Default computation and [shareIn] ([SNAPSHOT_BUFFER_CAPACITY]
@@ -189,17 +193,28 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
      *
      * ## Retry Strategy
      *
-     * [retryWhen] immediately follows [toPartialChange]. When an unhandled exception escapes
-     * the transformer or an intent handler, [retryWhen] restarts the pipeline subscription so
-     * that subsequent intents can still be processed. The intent whose handler threw the
-     * exception is **not** replayed — handlers should use try-catch internally for intent-level
-     * error recovery. [scan] and all downstream operators are unaffected by the restart.
+     * This core pipeline does not attach `retryWhen` after [toPartialChange]. The strategy
+     * transformer used by the handler-based API attaches it to each Flow returned by
+     * [IntentHandler.handle], before that Flow enters the strategy merge. A retriable failure is
+     * therefore scoped to one intent and re-collects the same returned Flow from the beginning.
+     * Sibling intents remain active while that retry succeeds.
      *
-     * Exceptions thrown inside [Mvi.PartialChange.apply] are not handled by [retryWhen]
+     * [IntentHandler.handle] itself is called before the per-intent retry operator is attached, so
+     * a synchronous exception thrown while constructing the Flow is not retried. Earlier
+     * [Mvi.PartialChange] emissions from a failed attempt may already have reached [scan]; they are
+     * not rolled back and may be emitted again when the handler Flow is re-collected.
+     *
+     * The low-level [IntentTransformer] API receives no automatic retry. An exception escaping a
+     * custom transformer or a handler Flow after its policy gives up reaches the downstream
+     * [catch] and is routed to [FatalErrorHandler].
+     *
+     * Exceptions thrown inside [Mvi.PartialChange.apply] are not handled by `retryWhen`
      * because [scan] is downstream of the retry boundary. The downstream [catch] routes
-     * reducer failures to [FatalErrorHandler], which must terminate by throwing or otherwise
-     * not returning. Recoverable failures should be encoded by handlers or transformers
-     * before a [Mvi.PartialChange] is emitted.
+     * reducer failures to [FatalErrorHandler] after cancelling the intent queue. If the handler
+     * returns, exception propagation is suppressed and the shared pipeline completes permanently;
+     * if it throws, the error propagates from the processing coroutine. Neither choice resumes the
+     * contract. Recoverable failures should be encoded by handlers or transformers before a
+     * [Mvi.PartialChange] is emitted.
      *
      * ## Operator Fusion
      *
@@ -242,6 +257,8 @@ internal open class CoreReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.
 
             intentsChannel.cancel()
             logger.e(TAG, cause) { "MVI pipeline failed." }
+            // The queue is already terminal. Returning suppresses propagation only; it does not
+            // recover or restart this contract.
             errorHandler.handle(cause)
         }
         .flowOn(Dispatchers.Default)
@@ -420,7 +437,7 @@ internal class StrategyReactiveContract<I : Mvi.Intent, S : Mvi.State, E : Mvi.E
      * @param scope The coroutine scope for flow collection
      * @param initState The initial state
      * @param intentQueueConfig The dispatch entry queue configuration
-     * @param retryPolicy Policy for retrying transformer / handler failures before reducer application
+     * @param retryPolicy Per-intent policy for handler Flow collection failures before reducer application
      * @param handleStrategy The handling strategy (CONCURRENT/SEQUENTIAL/HYBRID)
      * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
      * @param groupTagSelector Selects fallback group tags for HYBRID strategy

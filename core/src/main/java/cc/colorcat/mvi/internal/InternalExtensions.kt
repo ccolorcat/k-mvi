@@ -274,10 +274,11 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
             val existingGroup = activeGroups[tag]
             // Re-open a fresh channel when:
             //   • no channel exists yet for this tag (first intent in the group), OR
-            //   • the existing channel was closed/cancelled externally (stale channel).
-            //     A stale channel can occur if flattenMerge cancelled an inner flow while
-            //     the outer pipeline was still running.  Sending to a closed channel would
-            //     otherwise throw ClosedSendChannelException and kill the entire pipeline.
+            //   • the existing channel is already closed for send (stale channel).
+            //     A group channel goes stale only when its inner flow was torn down and
+            //     consumeAsFlow cancelled the underlying channel. Routing an intent to it
+            //     would re-throw that cancellation cause (a CancellationException), so we
+            //     reopen a fresh channel instead of sending to the dead one.
             val group = if (existingGroup == null || existingGroup.isClosedForSend) {
                 // Remove the stale entry first so openGroup writes a clean new mapping.
                 if (existingGroup != null) {
@@ -294,7 +295,14 @@ internal fun <I : Mvi.Intent, R> Flow<I>.groupHandle(
             when {
                 result.isSuccess -> group.onBuffered()
                 result.isClosed -> {
-                    // Channel closed externally — let send throw so stale detection reopens it.
+                    // Rare race: the channel was cancelled between the isClosedForSend
+                    // check above and this trySend. The handler used here (flatMap* over
+                    // the channel) never completes early, so a stale channel means its
+                    // inner flow was torn down and the pipeline is already unwinding. The
+                    // channel is *cancelled*, so re-issuing send re-throws its cancellation
+                    // cause (a CancellationException, never ClosedSendChannelException),
+                    // which the CancellationException catch below propagates to stop the
+                    // shared router. Reopening is intentionally not done here.
                     group.channel.send(intent)
                     group.onBuffered()
                 }

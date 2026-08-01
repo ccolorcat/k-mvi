@@ -8,6 +8,7 @@ import cc.colorcat.mvi.internal.groupHandle
 import cc.colorcat.mvi.internal.i
 import cc.colorcat.mvi.internal.logger
 import cc.colorcat.mvi.internal.w
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
@@ -37,7 +38,8 @@ import java.util.concurrent.ConcurrentHashMap
  *     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {
  *         return delegate.transform(
  *             intentFlow.onEach { intent ->
- *                 println("Processing intent: $intent")
+ *                 // Log only the type; intent fields may contain IDs, queries, or other user data.
+ *                 println("Processing intent type: ${intent.javaClass.name}")
  *             }
  *         )
  *     }
@@ -84,6 +86,7 @@ fun interface IntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> {
  * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
  * @param groupTagSelector Selects fallback group tags for HYBRID strategy
  * @param handler The intent handler to delegate to
+ * @param retryPolicy Per-intent policy for failures thrown while the returned handler Flow is collected
  * @return An IntentTransformer that applies the specified strategy
  */
 internal fun <I : Mvi.Intent, S : Mvi.State, E : Mvi.Event> strategyTransformer(
@@ -147,6 +150,7 @@ private object SequentialGroup
  * @param hybridStrategyConfig Runtime configuration for HYBRID strategy
  * @param groupTagSelector Selects fallback group tags for HYBRID strategy
  * @param handler The intent handler that processes individual intents
+ * @param retryPolicy Per-intent policy for handler Flow collection failures
  * @see HandleStrategy
  * @see HybridStrategyConfig
  * @see GroupTagSelector
@@ -162,7 +166,9 @@ internal class StrategyIntentTransformer<I : Mvi.Intent, S : Mvi.State, E : Mvi.
     private val conflictIntentTypes = ConcurrentHashMap.newKeySet<Class<*>>()
 
     private fun handleWithRetry(intent: I): Flow<Mvi.PartialChange<S, E>> {
-        return handler.handle(intent).retryWhen { cause, attempt -> retryPolicy.shouldRetry(intent, attempt, cause) }
+        return handler.handle(intent).retryWhen { cause, attempt ->
+            cause !is CancellationException && retryPolicy.shouldRetry(intent, attempt, cause)
+        }
     }
 
     override fun transform(intentFlow: Flow<I>): Flow<Mvi.PartialChange<S, E>> {

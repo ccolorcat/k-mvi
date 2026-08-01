@@ -167,9 +167,15 @@ class CounterFragment : Fragment(R.layout.fragment_counter) {
         // 将用户操作合并为单一 Intent 流并派发（生命周期感知）。
         // debounceLeading 会发射首次点击并忽略随后的快速点击。
         merge(
-            binding.increment.doOnClick { trySend(Intent.Increment) },
-            binding.decrement.doOnClick { trySend(Intent.Decrement) },
-            binding.reset.doOnClick { trySend(Intent.Reset) },
+            binding.increment.doOnClick {
+                trySend(Intent.Increment).onFailure { /* 上报或明确接受丢弃 */ }
+            },
+            binding.decrement.doOnClick {
+                trySend(Intent.Decrement).onFailure { /* 上报或明确接受丢弃 */ }
+            },
+            binding.reset.doOnClick {
+                trySend(Intent.Reset).onFailure { /* 上报或明确接受丢弃 */ }
+            },
         ).debounceLeading(300L)
             .dispatchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
     }
@@ -250,7 +256,7 @@ data class State(
 }
 
 // 在 UI 中，计算属性与其他属性一样收集：
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectProperty(State::countText) { tv.text = it }
 }
 ```
@@ -721,10 +727,13 @@ private val contract by contract(
 
 ### 收集状态变化
 
+以下示例假定代码位于 Fragment 中。请在 `onViewCreated` 中为每个 view lifecycle 注册一次，并使用
+`viewLifecycleOwner`；生命周期重启会创建新的收集，StateFlow 也会立即重新发送当前值。
+
 #### 收集完整 State
 
 ```kotlin
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectWhole { state ->
         updateUI(state)
     }
@@ -736,7 +745,7 @@ viewModel.stateFlow.collectState(this) {
 更高效——只在特定属性变化时触发：
 
 ```kotlin
-viewModel.stateFlow.collectState(this) {
+viewModel.stateFlow.collectState(viewLifecycleOwner) {
     collectProperty(MyState::loading) { isLoading ->
         progressBar.isVisible = isLoading
     }
@@ -752,7 +761,7 @@ viewModel.stateFlow.collectState(this) {
 #### 收集所有事件
 
 ```kotlin
-viewModel.eventFlow.collectEvent(this) {
+viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
     collectAll { event ->
         when (event) {
             is MyEvent.ShowToast -> showToast(event.message)
@@ -765,7 +774,7 @@ viewModel.eventFlow.collectEvent(this) {
 #### 收集特定事件类型
 
 ```kotlin
-viewModel.eventFlow.collectEvent(this) {
+viewModel.eventFlow.collectEvent(viewLifecycleOwner) {
     collectTyped<MyEvent.ShowToast> { event ->
         Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
     }
@@ -776,25 +785,34 @@ viewModel.eventFlow.collectEvent(this) {
 }
 ```
 
+> `eventFlow` 是 best-effort UI effect 流，不是可靠命令队列。它不 replay：生命周期低于目标
+> state 时没有活跃 collector，这期间的事件会永久丢失；即使 collector 活跃，生产突发填满
+> `DROP_OLDEST` snapshot buffer 时也可能丢失较早事件。必须可靠保留的结果应建模为带确认的
+> state，或使用能跨生命周期间隙/进程死亡的持久队列。
+
 ### 将 UI 事件转换为 Intent
 
 K-MVI 为常见 UI 事件提供了便捷扩展：
 
 ```kotlin
-// 按钮点击——在回调中用 trySend(...) 发射
-button.doOnClick { trySend(MyIntent.ButtonClicked) }
+// 检查 trySend(...)，避免 callback channel 已满或关闭时静默丢弃。
+button.doOnClick {
+    trySend(MyIntent.ButtonClicked).onFailure { /* 上报或明确接受丢弃 */ }
+}
     .debounceLeading(500) // 防止快速重复点击
-    .launchWithLifecycle(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 
 // 文本变化
 editText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
     trySend(MyIntent.TextChanged(editable?.toString().orEmpty()))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* 上报或明确接受丢弃 */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 
 // 复选框变化
 checkbox.doOnCheckedChange { isChecked ->
     trySend(MyIntent.CheckboxToggled(isChecked))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* 上报或明确接受丢弃 */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 ### 防抖与节流
@@ -804,9 +822,11 @@ checkbox.doOnCheckedChange { isChecked ->
 响应**首次**事件，随后在时间窗口内忽略后续事件。适用于防止重复点击：
 
 ```kotlin
-button.doOnClick { trySend(SubmitIntent) }
+button.doOnClick {
+    trySend(SubmitIntent).onFailure { /* 上报或明确接受丢弃 */ }
+}
     .debounceLeading(500) // 首次点击后 500ms 内忽略后续点击
-    .launchWithLifecycle(this) { viewModel.dispatch(it) }
+    .launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 #### debounce（来自 Kotlin Flow）
@@ -816,7 +836,8 @@ button.doOnClick { trySend(SubmitIntent) }
 ```kotlin
 searchEditText.doOnAfterTextChanged(debounceMillis = 300L) { editable ->
     trySend(SearchIntent(editable?.toString().orEmpty()))
-}.launchWithLifecycle(this) { viewModel.dispatch(it) }
+        .onFailure { /* 上报或明确接受丢弃 */ }
+}.launchWithLifecycle(viewLifecycleOwner) { viewModel.dispatch(it) }
 ```
 
 ## 配置
@@ -844,7 +865,7 @@ class MyApplication : Application() {
                 ),
 
                 // fatal 管线错误默认按开发者错误处理，直接重新抛出原始异常
-                fatalErrorHandler = FatalErrorHandler.Rethrow,
+                errorHandler = FatalErrorHandler.Rethrow,
 
                 // 日志配置：默认为 WARN；debug 版本可用 DEBUG
                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
@@ -873,7 +894,7 @@ class MyApplication : Application() {
 - 有界容量或 `Channel.BUFFERED` + `SUSPEND`：`Submitted` 表示 Intent 已进入队列或被管线接收；如果队列已满，dispatch 返回 `Full`。
 - `Channel.RENDEZVOUS` + `SUSPEND`：`Submitted` 表示有接收者就绪并取走了 Intent；否则返回 `Full`。
 - `Channel.UNLIMITED` + `SUSPEND`：`Submitted` 通常表示 Intent 已进入无界队列；通常不会返回 `Full`，但如果生产者超出消费者，可能内存增长。
-- `Channel.CONFLATED`：`Submitted` 表示最新 Intent 已提交至 conflated 队列。旧的待处理 Intent 可能被替换，本次提交的 Intent 在处理前也可能被后续 dispatch 替换。
+- `Channel.CONFLATED`：`Submitted` 表示最新 Intent 已提交至 conflated 队列。旧的待处理 Intent 可能被替换，本次提交的 Intent 在处理前也可能被后续 dispatch 替换。该容量只允许搭配 `BufferOverflow.SUSPEND`，其他溢出策略会在创建 `IntentQueueConfig` 时被拒绝。
 - `DROP_OLDEST`：`Submitted` 表示队列策略接受了本次 dispatch。如果队列已满，最旧的待处理 Intent 将被丢弃，不会被执行。
 - `DROP_LATEST`：`Submitted` 表示队列策略处理了本次 dispatch。如果队列已满，最新的 Intent 可能被丢弃，永远不会被执行。
 
@@ -900,6 +921,7 @@ HYBRID 策略的配置：
 
 - `groupChannelCapacity`：分组 Intent 通道的缓冲区大小（默认：`Channel.BUFFERED` = 64）。
   允许值：`Channel.BUFFERED`、`Channel.CONFLATED`、`Channel.RENDEZVOUS` 以及任何正数 `Int`（包括 `Channel.UNLIMITED`）。
+- `Channel.CONFLATED` 对每个分组采用 latest-wins：同组较旧的待处理 Intent 可能在执行前被替换，因此入口队列返回 `Submitted` 不保证 handler 一定执行。
 
 #### GroupTagSelector
 
@@ -909,9 +931,10 @@ HYBRID 策略的配置：
 
 #### FatalErrorHandler
 
-`fatalErrorHandler` 处理 `RetryPolicy` 放弃后的不可恢复管线失败，以及
-`PartialChange.apply` 抛出的开发者错误。它不是恢复钩子；`handle(error): Nothing`
-表示实现必须通过抛出异常或其他方式终止，不能正常返回。
+`errorHandler` 处理 `RetryPolicy` 放弃后的终止性管线失败，以及 `PartialChange.apply`
+抛出的开发者错误。K-MVI 会在调用它之前取消 Intent 队列。handler 可以正常返回以抑制处理
+协程中的异常传播，也可以抛出原异常或替代异常以继续传播。无论选择哪种方式，都不会恢复或
+重启 Contract，后续 `dispatch()` 均返回 `Unavailable`。默认 handler 会重新抛出原异常。
 
 默认策略：
 
@@ -997,8 +1020,13 @@ KMvi.configure {
 #### Fatal 管线错误
 
 如果 `PartialChange.apply` 抛出异常，或 `retryPolicy` 对 handler / transformer 的未捕获异常返回
-`false`，K-MVI 会记录该失败并交给 `fatalErrorHandler`。默认的
-`FatalErrorHandler.Rethrow` 会用原始异常终止处理协程。
+`false`，K-MVI 会关闭 Intent 队列、记录该失败并交给 `errorHandler`。自定义 handler 可以正常
+返回以抑制异常传播，也可以抛出异常以继续传播；无论哪种方式，Contract 都保持不可用。默认的
+`FatalErrorHandler.Rethrow` 会传播原始异常。
+
+如果 handler Flow 在 Contract scope 仍活跃时抛出 `CancellationException`，该异常会绕过
+`retryPolicy` 并进入上述 fatal 路径；正常的 Contract scope 取消不会。预期的单 Intent 超时应在
+handler 内转换，例如使用 `withTimeoutOrNull`，不要笼统吞掉父 scope 的取消。
 
 ### 测试
 
@@ -1172,13 +1200,16 @@ private fun handleSave(intent: SaveIntent): Flow<PartialChange> = flow {
 
 ```kotlin
 // ✅ 正确
-viewModel.stateFlow.collectState(this) { /* ... */ }
+viewModel.stateFlow.collectState(viewLifecycleOwner) { /* ... */ }
 
 // ❌ 错误 - 不尊重生命周期
 lifecycleScope.launch {
     viewModel.stateFlow.collect { /* ... */ }
 }
 ```
+
+每个 Fragment view lifecycle 只注册一次。生命周期重启会创建新的收集，因此 StateFlow 会再次
+发送当前值。collector 异常不会被吞掉；应在 collector block 内处理预期失败。
 
 ### 6. 优化 State 收集
 

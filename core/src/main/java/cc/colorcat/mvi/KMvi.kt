@@ -3,10 +3,6 @@ package cc.colorcat.mvi
 import cc.colorcat.mvi.KMvi.configure
 import cc.colorcat.mvi.internal.TAG
 import cc.colorcat.mvi.internal.d
-import cc.colorcat.mvi.internal.diagnosticName
-import cc.colorcat.mvi.internal.e
-import cc.colorcat.mvi.internal.w
-import java.io.IOException
 
 /**
  * Global configuration and entry point for the K-MVI framework.
@@ -16,38 +12,55 @@ import java.io.IOException
  */
 
 /**
- * A policy function that determines whether to restart the pipeline after an
- * unhandled exception during intent processing.
+ * Per-intent policy that decides whether a failed handler Flow is retried.
  *
- * When an intent handler throws an uncaught exception, the pipeline subscription
- * is restarted so that subsequent intents can still be processed. The intent
- * whose handler threw the exception is **not** replayed — handlers should use
- * try-catch internally for intent-level error handling.
+ * The strategy-based (`contract(...)`) API attaches this policy to the Flow returned by
+ * [IntentHandler.handle] via `retryWhen`. When collecting that Flow throws, [shouldRetry] decides:
+ * - `true` — **re-collect the same handler Flow from the beginning** (one more attempt).
+ * - `false` — stop; the exception reaches the configured [FatalErrorHandler] after the contract's
+ *   intent queue is cancelled.
  *
- * Return `true` to restart the pipeline subscription, or `false` to terminate it.
+ * The retry is scoped to a single intent, so concurrent sibling intents keep running.
  *
- * ## Parameters
+ * ## ⚠️ Retrying replays the whole handler Flow
  *
- * - **attempt**: The restart attempt index from `retryWhen` (0 for first retry, 1 for second, etc.)
- * - **cause**: The throwable that caused the failure
+ * `retryWhen` restarts the Flow from scratch. Any [Mvi.PartialChange] emitted **before** the
+ * failure has already been applied by `scan` and is **not** rolled back — it is produced again on
+ * the retry. So:
+ * - Non-idempotent reducers (e.g. `copy(count = count + 1)`) run again.
+ * - Events are re-delivered ([Contract.eventFlow] does not de-duplicate), so a navigation or toast
+ *   effect can fire more than once.
+ *
+ * Enable retry only for handlers that are safe to re-collect: their reducers are idempotent, and
+ * they emit no [Mvi.Event] or external side effect before the last step that can fail. Otherwise,
+ * retry the fallible source **inside** the handler (see [IntentHandler]) and emit once after it
+ * succeeds, so a retry never replays an earlier emission.
+ *
+ * A synchronous exception thrown by [IntentHandler.handle] **before** it returns the Flow is outside
+ * this boundary and is never retried; treat it as a programming error.
+ *
+ * ## Cancellation is not retried
+ *
+ * [shouldRetry] is not called for [kotlinx.coroutines.CancellationException]. Cancellation caused by
+ * contract-scope shutdown follows normal structured cancellation. A cancellation exception that
+ * escapes a handler Flow while the contract scope is still active is terminal: K-MVI cancels the
+ * intent queue and routes it to [FatalErrorHandler]. For expected per-intent timeouts, use
+ * [kotlinx.coroutines.withTimeoutOrNull] or convert the timeout to a state/event result inside the
+ * handler without swallowing parent-scope cancellation.
  *
  * ## Usage Example
  *
  * ```kotlin
- * val customRetryPolicy: RetryPolicy = { attempt, cause ->
- *     when {
- *         attempt >= 3 -> false  // Give up after 3 retries (attempt = 0, 1, 2)
- *         cause is NetworkException -> true  // Retry network errors
- *         else -> false  // Don't retry other errors
- *     }
- * }
- *
+ * // Opt into retrying transient IO, gated on an intent type you know is safe to replay.
  * KMvi.configure {
- *     copy(retryPolicy = customRetryPolicy)
+ *     copy(retryPolicy = { intent, attempt, cause ->
+ *         attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent
+ *     })
  * }
  * ```
  *
  * @see KMvi.Configuration.retryPolicy
+ * @see IntentHandler
  */
 fun interface RetryPolicy<in I : Mvi.Intent> {
     fun shouldRetry(intent: I, attempt: Long, cause: Throwable): Boolean
@@ -115,15 +128,15 @@ object KMvi {
         get() = config.handleStrategy
 
     /**
-     * The global retry policy for unhandled exceptions during intent processing.
-     *
-     * Determines whether to restart the pipeline subscription after a failure.
+     * The global [RetryPolicy]: decides whether a failed handler Flow is retried
+     * (re-collected from the start). Default: no automatic retry.
      */
     internal val retryPolicy: RetryPolicy<Mvi.Intent>
         get() = config.retryPolicy
 
     /**
-     * The global fatal error handler for unrecoverable pipeline failures.
+     * The global handler for terminal pipeline failures. Returning suppresses exception
+     * propagation but does not recover the contract; throwing propagates the failure.
      */
     internal val errorHandler: FatalErrorHandler
         get() = config.errorHandler
@@ -161,8 +174,8 @@ object KMvi {
      *         KMvi.configure {
      *             copy(
      *                 handleStrategy = HandleStrategy.CONCURRENT,
-     *                 retryPolicy = { attempt, cause ->
-     *                     attempt < 3 && cause is IOException // 0-based attempt from retryWhen
+     *                 retryPolicy = { intent, attempt, cause ->
+     *                     attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent
      *                 },
      *                 logger = if (BuildConfig.DEBUG) Logger(Logger.DEBUG) else Logger()
      *             )
@@ -187,43 +200,6 @@ object KMvi {
     }
 
     /**
-     * The default retry policy implementation.
-     *
-     * This policy:
-     * - Retries [IOException]s, which commonly represent transient I/O or network failures
-     * - Does NOT retry programming errors such as [IllegalStateException] or [IllegalArgumentException]
-     * - Does NOT retry [Error]s (serious problems that should not be retried)
-     * - Limits retries to a maximum of 3 retries (`attempt` = 0..2)
-     * - Logs each retry attempt with the exception details
-     *
-     * ## Production Guidance
-     *
-     * Override this when your app has additional domain-specific transient failures:
-     *
-     * ```kotlin
-     * KMvi.configure {
-     *     copy(
-     *         retryPolicy = { attempt, cause ->
-     *             attempt < 3 && (cause is IOException || cause is MyTransientException)
-     *         }
-     *     )
-     * }
-     * ```
-     *
-     * @param attempt The retry attempt index from `retryWhen` (0 for first retry, 1 for second, etc.)
-     * @param cause The throwable that caused the failure
-     * @return `true` if should retry (attempt < 3 and cause is [IOException]), `false` otherwise
-     */
-    private fun defaultRetryPolicy(intent: Mvi.Intent, attempt: Long, cause: Throwable): Boolean {
-        if (attempt < 3 && cause is IOException) {
-            logger.w(TAG, cause) { "retry count: $attempt for ${intent.diagnosticName}" }
-            return true
-        }
-        logger.e(TAG, cause) { "give up retry after $attempt attempts for ${intent.diagnosticName}" }
-        return false
-    }
-
-    /**
      * Global configuration for the K-MVI framework.
      *
      * This data class holds all configurable settings for the framework.
@@ -233,7 +209,7 @@ object KMvi {
      *
      * - **handleStrategy**: How Intents are processed (CONCURRENT, SEQUENTIAL, or HYBRID)
      * - **hybridStrategyConfig**: Runtime configuration for HYBRID fallback groups
-     * - **retryPolicy**: Determines whether to retry failed Intent processing
+     * - **retryPolicy**: Whether a failed handler Flow is retried (default: no automatic retry)
      * - **logger**: The logger instance used throughout the framework
      *
      * ## Usage Example
@@ -242,8 +218,8 @@ object KMvi {
      * KMvi.configure {
      *     copy(
      *         handleStrategy = HandleStrategy.SEQUENTIAL,
-     *         retryPolicy = { attempt, cause ->
-     *             attempt < 3 && cause is IOException
+     *         retryPolicy = { intent, attempt, cause ->
+     *             attempt < 3 && cause is IOException && intent is MyApp.RetryableIntent
      *         }
      *     )
      * }
@@ -254,11 +230,13 @@ object KMvi {
      *                             [kotlinx.coroutines.channels.BufferOverflow.SUSPEND].
      * @property handleStrategy The Intent handling strategy. Default: HYBRID
      * @property hybridStrategyConfig Runtime configuration for [HandleStrategy.HYBRID].
-     * @property retryPolicy The retry policy for failed processing. `attempt` is 0-based.
-     *                       Default: retry on [IOException] when `attempt < 3` (up to 3 retries)
-     * @property errorHandler Handles unrecoverable pipeline failures after retry gives up,
-     *                             and developer errors thrown from [Mvi.PartialChange.apply].
-     *                             Default: [FatalErrorHandler.Rethrow]
+     * @property retryPolicy Per-intent policy deciding whether a failed handler Flow is retried
+     *                       (re-collected from the start). `attempt` is 0-based. Default: no
+     *                       automatic retry — opt in per app. See [RetryPolicy] for replay caveats.
+     * @property errorHandler Handles terminal pipeline failures after the intent queue is cancelled.
+     *                        Returning suppresses exception propagation but leaves the contract
+     *                        unavailable; throwing propagates the original or a replacement error.
+     *                        Default: [FatalErrorHandler.Rethrow]
      * @property logger The logger instance. Default: Logger with WARN level
      *
      * @see HandleStrategy
@@ -270,9 +248,7 @@ object KMvi {
         val intentQueueConfig: IntentQueueConfig = IntentQueueConfig(),
         val handleStrategy: HandleStrategy = HandleStrategy.HYBRID,
         val hybridStrategyConfig: HybridStrategyConfig = HybridStrategyConfig(),
-        val retryPolicy: RetryPolicy<Mvi.Intent> = RetryPolicy { intent, attempt, cause ->
-            defaultRetryPolicy(intent, attempt, cause)
-        },
+        val retryPolicy: RetryPolicy<Mvi.Intent> = RetryPolicy { _, _, _ -> false },
         val errorHandler: FatalErrorHandler = FatalErrorHandler.Rethrow,
         val logger: Logger = Logger(),
     ) {

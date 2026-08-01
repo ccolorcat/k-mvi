@@ -20,8 +20,12 @@ import kotlinx.coroutines.channels.Channel
  * individual intent will eventually be processed.
  *
  * @property capacity The queue capacity. Allowed values are [Channel.BUFFERED], [Channel.CONFLATED],
- *                    [Channel.RENDEZVOUS], or any positive Int including [Channel.UNLIMITED].
- * @property onBufferOverflow The overflow policy used when the queue has no free capacity.
+ *                    [Channel.RENDEZVOUS], or any positive Int including [Channel.UNLIMITED]. When
+ *                    using [Channel.CONFLATED], only the latest pending intent is retained, so an
+ *                    older pending intent may never be processed.
+ * @property onBufferOverflow The overflow policy used when the queue has no free capacity. It must
+ *                            be [BufferOverflow.SUSPEND] when [capacity] is [Channel.CONFLATED];
+ *                            other combinations are rejected during construction.
  */
 data class IntentQueueConfig(
     val capacity: Int = DEFAULT_CAPACITY,
